@@ -4,7 +4,7 @@ end
 
 #Forward Euler method. We solve an ODE defined by $f(u,t)$ starting at u0 and over tspan with step size dt. 
 
-function forward_euler(f::Function,u0::Vector,tspan::Tuple{Float,Float},dt::Float)
+function forward_euler(f::Function,u0,tspan::Tuple{Float64,Float64},dt::Float64)
     t_start, t_end = tspan
 
     #Create a time vector:
