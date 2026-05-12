@@ -13,7 +13,9 @@ end
 # 2. Implement an intelligent way to perform event detection
 # 3. Determine whether or not the system is Zeno and state when/where that occurs.
 
-### Idk:
+######
+
+### Solving for trajectories from normal Lagrangians:
 
 struct LagProb{F, I, T}
     sys::F
@@ -21,12 +23,30 @@ struct LagProb{F, I, T}
     tspan::T
 end
 
-function solve(prob, solver; kwargs...) # e.g. step size or tolerances need to be optional / solver dependent, kwargs isn't quite working
-    F = x -> lagrangian_vec_field(prob.sys, x)
+function solve(prob::LagProb, solver; kwargs...) # solver specifically for LagProb struct, kwargs for step size or tolerances (optional / solver dependent)
+    F(x) = lagrangian_vec_field(prob.sys, x)
     return solver(F, prob.init, prob.tspan; kwargs...)
 end
 
-### Get the equations of motion
+### Trajectories from hybrid Lagrangian systems:
+
+# struct HybridLagSys{L, h; e = 1.0}  # is this how kwargs work with structs?
+#     L::L
+#     h::h
+#     e::e
+# end
+
+# struct LagProb{F::HybridLagSys, I, T}
+#     sys::F
+#     init::I
+#     tspan::T
+# end
+
+# function solve(prob::HybridLagSys)
+
+# end
+
+### Find the equations of motion using Euler-Lagrange equations
 
 # dL/dq is the force
 function lagrangian_force(L::Function, q::AbstractVector, qdot::AbstractVector)
