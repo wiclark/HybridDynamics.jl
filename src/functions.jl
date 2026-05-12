@@ -17,7 +17,7 @@ function forward_euler(f::Function,u0,tspan::Tuple{Float64,Float64}; dt::Float64
 
     for i in 1:(num_steps-1)
         #Eulers update: u_next = u_now + dt * slope
-        u[i+1] = u[i] + dt* f(u[i])
+        u[i+1] = u[i] + dt* f(u[i], t[i])
     end
     return t,u
 end
