@@ -24,19 +24,26 @@ struct HybridLinearSystem
     C::Matrix{Float64}
 end
 
+struct HybridLinearProblem
+    sys::HybridLinearSystem
+    x₀::Vector{Float64}
+    tspan::Tuple{Float64,Float64}
+end
+
 include("ODE_solvers.jl")
 
-function solve_hybrid_linear_system(sys::HybridLinearSystem, x₀::Vector{Float64}, tspan::Tuple{Float64,Float64}, dt_initial::Float64; step_method=forward_euler_step, is_adaptive=false)
+function solve_hybrid_linear_system(problem::HybridLinearProblem, dt_initial::Float64; step_method=forward_euler_step, is_adaptive=false)
     
     #deconstruct the system structure.
+    sys = problem.sys
     A, λ, C = sys.A, sys.λ, sys.C
 
     #unpacks the time span into start and end times.
-    t_start, t_end = tspan
+    t_start, t_end = problem.tspan
     
     #Initialize the time and output vectors starting with the initial conditions.
     t = [t_start]
-    x = [x₀]
+    x = [problem.x₀]
 
     #empty list to store timestamps where jumps occur
     jump_times = Float64[]
@@ -123,13 +130,14 @@ function solve_hybrid_linear_system(sys::HybridLinearSystem, x₀::Vector{Float6
     return t, x, jump_times, jump_indices
 end
 
-function solve_hybrid_linear_system_exp(sys::HybridLinearSystem, x₀::Vector{Float64}, tspan::Tuple{Float64,Float64}, dt_initial::Float64; tol=1e-10)
+function solve_hybrid_linear_system_exp(problem::HybridLinearProblem, dt_initial::Float64; tol=1e-10)
+    sys = problem.sys
     A,λ,C = sys.A, sys.λ, sys.C
 
-    t_start, t_end = tspan
+    t_start, t_end = problem.tspan
 
     t = [t_start]
-    x = [x₀]
+    x = [problem.x₀]
 
     jump_times = Float64[]
     jump_indices = Int[]

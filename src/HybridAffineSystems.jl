@@ -18,20 +18,28 @@ struct HybridAffineSystem
     κ::Vector{Float64} #Reset Constant
 end
 
+struct HybridAffineProblem
+    sys::HybridAffineSystem
+    x₀::Vector{Float64}
+    tspan::Tuple{Float64,Float64}
+end
+
+
 include("ODE_solvers.jl")
 
 
-function solve_hybrid_affine_system(sys::HybridAffineSystem, x₀::Vector{Float64}, tspan::Tuple{Float64,Float64}, dt_initial::Float64; step_method=forward_euler_step, is_adaptive=false)
+function solve_hybrid_affine_system(problem::HybridAffineProblem, dt_initial::Float64; step_method=forward_euler_step, is_adaptive=false)
     
     #Deconstruct the system structure.
+    sys = problem.sys
     A, b, λ, a, C, κ = sys.A, sys.b, sys.λ, sys.a, sys.C, sys.κ
 
     #unpacks time span
-    t_start, t_end = tspan
+    t_start, t_end = problem.tspan
 
     #Initialize time and output vectors starting with initial conditions.
     t = [t_start]
-    x = [x₀]
+    x = [problem.x₀]
 
     #empty list to store timestamps where jumps occur
     jump_times = Float64[]
@@ -211,7 +219,7 @@ end
 
 function basis_beating_and_blocking_sets(sys::HybridAffineSystem)
     #run function we already have to get constraint matrices
-    analysis = beating_and_blocking_sets(sys)
+    analysis = beating_and_blocking_sets_affine(sys)
 
     #convert the results from above to explicit bases. The nullspace function will return a matrix where columns form a orthonormal basis
     explicit_beating = Matrix{Float64}[]
