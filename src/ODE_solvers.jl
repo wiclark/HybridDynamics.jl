@@ -8,18 +8,18 @@
 ## Single step, fully explicit methods
 
 # Forward Euler
-function forward_euler_step(f::Function, z::Vector, h::Float, t::Float)
+function forward_euler_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
     return z .+ h*f(z, t)
 end
 
 # Modified (fully explicit) Trapezoid Rule
-function modified_trap_step(f::Function, z::Vector, h::Float, t::Float)
+function modified_trap_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
     z_guess = z .+ h*f(z)
     return z .+ 1/2*h*( f(z, t) + f(z_guess, t+h) )
 end
 
 # Modified (fully explicit) Midpoint Rule
-function modified_midpoint_step(f::Function, z::Vector, h::Float)
+function modified_midpoint_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
     z_guess = z .+ h/2*f(z, t)
     return z .+ h*f(z_guess, t+h/2)
 end
@@ -27,7 +27,7 @@ end
 ## Adaptive Runge-Kutta methods
 
 # A helper function to determine the adapted step size
-function updated_step(LTE::Float, tol::Float, h::Float, n::Int)
+function updated_step(LTE::AbstractFloat, tol::AbstractFloat, h::AbstractFloat, n::Int)
     # The safety parameters
     facmax = 3.
     facmin = 1/3
@@ -39,8 +39,8 @@ function updated_step(LTE::Float, tol::Float, h::Float, n::Int)
 end
 
 # Runge-Kutta 23
-function rk_23_step(f::Function, z::Vector, h::Float, t::Float, tf::Float)
-    # As this is an adaptive step solver, h is the step size from the pervious step
+function rk_23_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, tf::AbstractFloat)
+    # As this is an adaptive step solver, h is the step size from the previous step
     # As the step size is not of fixed size, we specify the terminal time, tf, of the problem
     h = minimum([h, tf-t])
     # Set the tolerence
@@ -70,7 +70,7 @@ function rk_23_step(f::Function, z::Vector, h::Float, t::Float, tf::Float)
 end
 
 # Runge-Kutta 45
-function rk_45_step(f::Function, z::Vector, h::Float, t::Float, tf::Float)
+function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, tf::AbstractFloat)
     # As this is an adaptive step solver, h is the step size from the pervious step
     # As the step size is not of fixed size, we specify the terminal time, tf, of the problem
     h = minimum([h, tf-t])
