@@ -121,7 +121,7 @@ function solve(prob::HamProb, solver; kwargs...)
     return solver(F, prob.init, prob.tspan; kwargs...)
 end
 
-function hamiltonian_vec_field(H::Function, x::AbstractVector, t)
+function hamiltonian_vec_field(Hsys::AbstractHamiltonian, x::AbstractVector, t)
 
     n = length(x) ÷ 2
 
@@ -130,30 +130,60 @@ function hamiltonian_vec_field(H::Function, x::AbstractVector, t)
     p = x[n+1:end]
 
     # Gradient of H with respect to state vector x = [q; p]
-    gradH = ForwardDiff.gradient(H, x)
+    gradH = hamiltonian_gradient(Hsys, x)
 
     dqdt = gradH[n+1:end]      # ∂H/∂p
     dpdt = -gradH[1:n]         # -∂H/∂q
 
+    # Recombine derivatives into single vecotr field
     return vcat(dqdt, dpdt)
 end
 
-# # Return ṗ = -∂H/∂q
-# function ham_accel(H::Function, x::AbstractVector)
 
-#     n = length(x) ÷ 2
+### Allow for different representations of the Hamiltonian
+abstract type AbstractHamiltonian end
 
-#     gradH = ForwardDiff.gradient(H, x)
+# Auto differentiation Ham struct; for closed form Hamiltonian functions
+struct ADHamiltonian{F} <: AbstractHamiltonian
+    H::F
+end
 
-#     return -gradH[1:n]
-# end
+# dispatch to find the gradient of Hamiltonians that can be differentiated using ForwardDiff
+function hamiltonian_gradient(Hsys::ADHamiltonian, x)
+    ForwardDiff.gradient(Hsys.H, x)
+end
 
-# # Return q̇ = ∂H/∂p
-# function ham_velo(H::Function, x::AbstractVector)
+# Finite differences struct for Hamiltonians that can't be cleanly differentiated
+struct FDHamiltonian{F,T} <: AbstractHamiltonian
+    H::F
+    h::T   # finite difference step size
+end
 
-#     n = length(x) ÷ 2
+# Some way to find the gradient without ForwardDiff (untested)
+function hamiltonian_gradient(Hsys::FDHamiltonian, x)
+    
+    H = Hsys.H
+    h = Hsys.h
 
-#     gradH = ForwardDiff.gradient(H, x)
+    # initialize place to store the output
+    grad = similar(x)
 
-#     return gradH[n+1:end]
-# end
+    # This feels like a bad way of doing this but I think it's correct
+    for i in eachindex(x)
+
+        xp = copy(x)
+        xm = copy(x)
+
+        # perturb the point forward and backward
+        xp[i] += h
+        xm[i] -= h
+
+        # Central finite diff approximation
+        grad[i] = (H(xp) - H(xm)) / (2h)
+    end
+
+    return grad
+end
+
+
+# Could add another dispatch method to better deal with interpolating data style hams

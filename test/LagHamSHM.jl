@@ -30,7 +30,8 @@ function H(x)
     p^2  + q^2
 end;
 
-probh = HybridDynamics.HamProb(H, init, tspan)
+# The Hamiltonain has a nice clean functional representation so use the automatic differentiating struct ADHamiltonian()
+probh = HybridDynamics.HamProb(HybridDynamics.ADHamiltonian(H), init, tspan)
 sh = HybridDynamics.solve(probh, HybridDynamics.forward_euler; dt=0.01)
 
 qh = [x[1] for x in sh[2]]
