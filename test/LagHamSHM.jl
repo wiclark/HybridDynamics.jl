@@ -5,21 +5,35 @@ using LaTeXStrings
 import Plots as plt
 
 init = [1.,0.];
-tspan = (0., 4.);
+tspan = (0., 5.);
 
-function L(q,v)
-	1/2 * v[1]^2 - q[1]^2
+function L(x, t)
+	q = x[1]
+	v = x[2]
+
+	1/2 * v^2 - q^2
 end;
 
-prob = HybridDynamics.LagProb(L, init, tspan)
-s = HybridDynamics.solve(prob, HybridDynamics.forward_euler; dt=0.01)
+probl = HybridDynamics.LagProb(L, init, tspan)
+sl = HybridDynamics.solve(probl, HybridDynamics.forward_euler; dt=0.01)
 
-q = [x[1] for x in s[2]]
-v = [x[2] for x in s[2]]
-p1 = plt.plot(q, v, title = "Harmonic osc. phase portrait via Euler-Lagrange", label = "", xlabel = L"q", ylabel = L"\dot{q}")
-display(p1)
+ql = [x[1] for x in sl[2]]
+vl = [x[2] for x in sl[2]]
+pl = plt.plot(ql, vl, title = "Harmonic osc. phase portrait via Euler-Lagrange", label = "", xlabel = L"q", ylabel = L"\dot{q}")
+display(pl)
 
 
-function H(q,v)
-	1/2 * v[1]^2 + q[1]^2
+function H(x)
+	q = x[1]
+    p = x[2]
+
+    p^2  + q^2
 end;
+
+probh = HybridDynamics.HamProb(H, init, tspan)
+sh = HybridDynamics.solve(probh, HybridDynamics.forward_euler; dt=0.01)
+
+qh = [x[1] for x in sh[2]]
+vh = [x[2] for x in sh[2]]
+ph = plt.plot(qh, vh, title = "Harmonic osc. phase portrait via Hamilton's", label = "", xlabel = L"q", ylabel = L"\dot{q}")
+display(ph)

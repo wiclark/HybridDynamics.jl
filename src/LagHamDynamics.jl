@@ -27,7 +27,7 @@ struct LagProb{F, I, T}
 end
 
 function solve(prob::LagProb, solver; kwargs...) # solver specifically for LagProb struct, kwargs for step size or tolerances (optional / solver dependent)
-    F(x, t) = lagrangian_vec_field(prob.sys, x)
+    F(x, t) = lagrangian_vec_field(prob.sys, x, t)
     return solver(F, prob.init, prob.tspan; kwargs...)
 end
 
@@ -80,28 +80,80 @@ function lagrangian_acceleration(L::Function, q::AbstractVector, qdot::AbstractV
     M \ (F - C)
 end
 
-function lagrangian_vec_field(L::Function, x::AbstractVector)
-    n = length(x) ÷ 2       #integrer division
+function lagrangian_vec_field(L::Function, x::AbstractVector, t)
+
+    # Integer division
+    n = length(x) ÷ 2
+
     q = Vector(x[1:n])
     qdot = Vector(x[n+1:end])
-    qddot = lagrangian_acceleration(L, q, qdot)
-    vcat(qdot, qddot)
+
+    # Wrap L(x,t) into internal L(q,qdot), so I don't have to rewrite everything internally for now
+    Lsplit(q, qdot) = L(vcat(q, qdot), t)
+
+    # Solve for acceleration
+    qddot = lagrangian_acceleration(Lsplit, q, qdot)
+
+    return vcat(qdot, qddot)
 end
 
 
 ############
 """
 Hamiltonian dynamics
+   q̇ =  ∂H/∂p
+   -ṗ = ∂H/∂q
 """
 
-struct HamProb{F, I, T}
-    sys::F
-    init::I
-    tspan::T
+struct HamProb{H, I, T}
+    sys::H   # Hamiltonian
+    init::I   # Initial condition
+    tspan::T   # Time span
 end
 
-function solve(prob::HamProb, solver; kwargs...) # solver dispatch specifically for HamProb struct
-    F(x) = hamiltonian_vec_field(prob.sys, x)
+# Solver dispatch specifically for HamProb struct
+function solve(prob::HamProb, solver; kwargs...)
+    
+    # Create the vector field from the hamiltonian
+    F(x, t) = hamiltonian_vec_field(prob.sys, x, t)
+
+    # Solve for trajectories along the above vector field
     return solver(F, prob.init, prob.tspan; kwargs...)
 end
 
+function hamiltonian_vec_field(H::Function, x::AbstractVector, t)
+
+    n = length(x) ÷ 2
+
+    # Split up state vector
+    q = x[1:n]
+    p = x[n+1:end]
+
+    # Gradient of H with respect to state vector x = [q; p]
+    gradH = ForwardDiff.gradient(H, x)
+
+    dqdt = gradH[n+1:end]      # ∂H/∂p
+    dpdt = -gradH[1:n]         # -∂H/∂q
+
+    return vcat(dqdt, dpdt)
+end
+
+# # Return ṗ = -∂H/∂q
+# function ham_accel(H::Function, x::AbstractVector)
+
+#     n = length(x) ÷ 2
+
+#     gradH = ForwardDiff.gradient(H, x)
+
+#     return -gradH[1:n]
+# end
+
+# # Return q̇ = ∂H/∂p
+# function ham_velo(H::Function, x::AbstractVector)
+
+#     n = length(x) ÷ 2
+
+#     gradH = ForwardDiff.gradient(H, x)
+
+#     return gradH[n+1:end]
+# end
