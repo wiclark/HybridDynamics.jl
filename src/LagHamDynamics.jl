@@ -13,104 +13,121 @@ end
 # 2. Implement an intelligent way to perform event detection
 # 3. Determine whether or not the system is Zeno and state when/where that occurs.
 
-########
-"""
-Lagrangian dynamics
-"""
 
-# Allow for different kinds of Lagrangian
-abstract type AbstractLagSys end
+# # Overarching type, might not be necessary
+# abstract type AbstractDynamics end
 
-# General Lagrangian problem
-struct LagProb{F, I, T}
+# For using automatic differentiation
+abstract type AbstractAD end
+
+# General problem structure
+struct Prob{F, I, T}
     sys::F
     init::I
     tspan::T
 end
 
-# Continuous Lagrangian systems are a subtype of AbstractLagSys
-struct ContinuousLagSys{L} <: AbstractLagSys
-    L::L
+################################
+################################
+"""
+Lagrangian dynamics
+"""
+
+# General Lagrangian system
+struct LagSys{L,G,R,E}
+    L::L          # Lagrangian
+    guard::G      # guard/event function
+    reset::R      # reset map
+    e::E          # coefficient of restitution 
 end
 
-# Solve a continuous Lagrangian problem
-# prob must be a LagProb whose system type is a subtype of ContinuousLagSys
-function solve(prob::LagProb{<:ContinuousLagSys}, solver; kwargs...) # solver specifically for LagProb struct, kwargs for step size or tolerances (optional / solver dependent)
+# Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
+function LagSys(L; guard=nothing, reset = (x,e) -> spectral_refl(x,e), e = 1.0)
+    LagSys(L, guard, reset, e)
+end
+
+# Solve a Lagrangian problem using AD; called only if the Lagrangian is placed in the AD struct
+function solve(prob::Prob{ADLagrangian}, solver; kwargs...) # solver specifically for LagProb struct, kwargs for step size or tolerances (optional / solver dependent)
+    
     F(x, t) = lagrangian_vec_field(prob.sys, x, t)
-    return solver(F, prob.init, prob.tspan; kwargs...)
+
+    sys = prob.sys
+
+    # If no guard is provided, return the normal continuous solve
+    if isnothing(sys.guard)
+        return solver(F, prob.init, prob.tspan; kwargs...)
+    end
+
+    # If a guard is provided, return the hybrid specific solve function
+    return hybrid_solve(F, prob, solver; kwargs...)
 end
 
 ### Automatic differentiation of continuous Lagrangian systems
-struct ADLagrangian{F} <: ContinuousLagSys
+struct ADLagrangian{F} <: AbstractAD
     H::F
 end
 
-# Equations of motion using Euler-Lagrange equations using ForwardDiff
+# Equations of motion from Euler-Lagrange equations using ForwardDiff
 
-# dL/dq is the force
-function lagrangian_force(L::Function, q::AbstractVector, qdot::AbstractVector)
-    ForwardDiff.gradient(q -> L(q, qdot), q)
-end
+    # dL/dq is the force
+    function lagrangian_force(L::Function, q::AbstractVector, qdot::AbstractVector)
+        ForwardDiff.gradient(q -> L(q, qdot), q)
+    end
 
-# dL/dqdot is the momentum
-function lagrangian_momentum(L::Function, q::AbstractVector, qdot::AbstractVector)
-    ForwardDiff.gradient(qdot -> L(q, qdot), qdot)
-end
+    # dL/dqdot is the momentum
+    function lagrangian_momentum(L::Function, q::AbstractVector, qdot::AbstractVector)
+        ForwardDiff.gradient(qdot -> L(q, qdot), qdot)
+    end
 
-# Mass matrix
-function lagrangian_mass_matrix(L::Function, q::AbstractVector, qdot::AbstractVector)
-    ForwardDiff.hessian(qdot -> L(q, qdot), qdot)
-end
+    # Mass matrix
+    function lagrangian_mass_matrix(L::Function, q::AbstractVector, qdot::AbstractVector)
+        ForwardDiff.hessian(qdot -> L(q, qdot), qdot)
+    end
 
-# Coriolis matrix
-function lagrangian_coriolis(L::Function, q::AbstractVector, qdot::AbstractVector)
-    jac = ForwardDiff.jacobian(q -> ForwardDiff.gradient(qdot -> L(q, qdot), qdot), q)
-    jac * qdot
-end
+    # Coriolis matrix
+    function lagrangian_coriolis(L::Function, q::AbstractVector, qdot::AbstractVector)
+        jac = ForwardDiff.jacobian(q -> ForwardDiff.gradient(qdot -> L(q, qdot), qdot), q)
+        jac * qdot
+    end
 
-# Inertial acceleration
-function lagrangian_acceleration(L::Function, q::AbstractVector, qdot::AbstractVector)
-    M = lagrangian_mass_matrix(L, q, qdot)
-    C = lagrangian_coriolis(L, q, qdot)
-    F = lagrangian_force(L, q, qdot)
-    M \ (F - C)
-end
+    # Inertial acceleration
+    function lagrangian_acceleration(L::Function, q::AbstractVector, qdot::AbstractVector)
+        M = lagrangian_mass_matrix(L, q, qdot)
+        C = lagrangian_coriolis(L, q, qdot)
+        F = lagrangian_force(L, q, qdot)
+        M \ (F - C)
+    end
 
-# Find the complete vector field from a Lagrangian using automatic differentiation
-function lagrangian_vec_field(L::ADLagrangian, x::AbstractVector, t)
+    # Find the complete vector field from a Lagrangian using automatic differentiation
+    function lagrangian_vec_field(L::ADLagrangian, x::AbstractVector, t)
 
-    # Integer division
-    n = length(x) ÷ 2
+        # Integer division
+        n = length(x) ÷ 2
 
-    q = Vector(x[1:n])
-    qdot = Vector(x[n+1:end])
+        q = Vector(x[1:n])
+        qdot = Vector(x[n+1:end])
 
-    # Wrap L(x,t) into internal L(q,qdot), so I don't have to rewrite everything internally for now
-    Lsplit(q, qdot) = L(vcat(q, qdot), t)
+        # Wrap L(x,t) into internal L(q,qdot), so I don't have to rewrite everything internally for now
+        Lsplit(q, qdot) = L(vcat(q, qdot), t)
 
-    # Solve for acceleration
-    qddot = lagrangian_acceleration(Lsplit, q, qdot)
+        # Solve for acceleration
+        qddot = lagrangian_acceleration(Lsplit, q, qdot)
 
-    return vcat(qdot, qddot)
+        return vcat(qdot, qddot)
+    end
+
+# *Still need to make this go somewhere* Option to input M, C, and F directly
+struct ManualLag{M, C, F}
+    M::M    # Mass matrix, could be noninvertable
+    C::C    # Coriolis matrix
+    F::F    # Force
 end
 
 
 ### Hybrid Lagrangian systems:
 
-struct HybridLagSys{L,H,R,E} <: AbstractLagSys
-    L::L          # Lagrangian
-    h::H          # guard/event function
-    reset::R      # reset map
-    e::E          # coefficient of restitution 
-end
-
-# Make the the reset map and coefficient of restitution optional; default to fully elastic spectral reflection
-function HybridLagSys(L, h; reset = (x,e) -> spectral_refl(x,e), e = 1.0)
-    HybridLagSys(L, h, reset, e)
-end
-
 # Solve dispatch specific to hybrid systems
-function solve(prob::LagProb{<:HybridLagSys}, solver; kwargs...)
+function hybrid_solve(prob::LagProb, solver; kwargs...)
 
     sys = prob.sys
 
@@ -122,7 +139,7 @@ function solve(prob::LagProb{<:HybridLagSys}, solver; kwargs...)
     return sol
 end
 """
-Kinda right math, not how I want to do it tho
+This was my first thought. I want the event detection to be within the solver though (I think)
     # function solve(prob::LagProb{<:HybridLagSys}, solver; kwargs...)
 
     #     sys = prob.sys
@@ -158,7 +175,6 @@ Kinda right math, not how I want to do it tho
     # end
 """
 
-
 # Default reset map: spectral reflection with coefficient of restitution
 function spectral_refl(x, e)
 
@@ -185,24 +201,34 @@ Hamiltonian dynamics
 """
 
 # Define a general Hamiltonian problem
-struct HamProb{H, I, T}
-    sys::H   # Hamiltonian
-    init::I   # Initial condition
-    tspan::T   # Time span
+struct HamSys{H,G,R,E}
+    H::H          # Hamiltonian
+    guard::G          # guard/event function
+    reset::R      # reset map
+    e::E          # coefficient of restitution 
+end
+
+# Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
+function HamSys(H; guard=nothing, reset = (x,e) -> spectral_refl(x,e), e = 1.0)
+    HamSys(H, guard, reset, e)
 end
 
 # Solve a Hamiltonian problem
-function solve(prob::HamProb, solver; kwargs...)
+function solve(prob::Prob{HamSys}, solver; kwargs...)
     
+    # Extract the Hamiltonian
+    system = prob.sys
+    H = system.H
+
     # Create the vector field from the hamiltonian
-    F(x, t) = hamiltonian_vec_field(prob.sys, x, t)
+    F(x, t) = hamiltonian_vec_field(H, x, t)
 
     # Solve for trajectories along the above vector field
     return solver(F, prob.init, prob.tspan; kwargs...)
 end
 
 # Find the vector field from Hamilton's equations
-function hamiltonian_vec_field(Hsys::AbstractHamiltonian, x::AbstractVector, t)
+function hamiltonian_vec_field(Hsys, x::AbstractVector, t)
 
     n = length(x) ÷ 2
 
@@ -220,11 +246,8 @@ function hamiltonian_vec_field(Hsys::AbstractHamiltonian, x::AbstractVector, t)
     return vcat(dqdt, dpdt)
 end
 
-### Allow for different representations of the Hamiltonian
-abstract type AbstractHamiltonian end
-
 # Auto differentiation Ham struct; for closed form Hamiltonian functions
-struct ADHamiltonian{F} <: AbstractHamiltonian
+struct ADHamiltonian{F} <: AbstractAD
     H::F
 end
 
@@ -234,7 +257,7 @@ function hamiltonian_gradient(Hsys::ADHamiltonian, x)
 end
 
 # Finite differences struct for Hamiltonians that can't be cleanly differentiated
-struct FDHamiltonian{F,T} <: AbstractHamiltonian
+struct FDHamiltonian{F,T}
     H::F
     h::T   # finite difference step size
 end

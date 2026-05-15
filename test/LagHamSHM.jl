@@ -14,7 +14,8 @@ function L(x, t)
 	1/2 * v^2 - q^2
 end;
 
-probl = HybridDynamics.LagProb(L, init, tspan)
+Lsys = HybridDynamics.LagSys(L)
+probl = HybridDynamics.Prob(Lsys, init, tspan)
 sl = HybridDynamics.solve(probl, HybridDynamics.forward_euler; dt=0.01)
 
 ql = [x[1] for x in sl[2]]
@@ -31,7 +32,7 @@ function H(x)
 end;
 
 # The Hamiltonain has a nice clean functional representation so use the automatic differentiating struct ADHamiltonian()
-probh = HybridDynamics.HamProb(HybridDynamics.ADHamiltonian(H), init, tspan)
+probh = HybridDynamics.Prob(HybridDynamics.ADHamiltonian(H), init, tspan)
 sh = HybridDynamics.solve(probh, HybridDynamics.forward_euler; dt=0.01)
 
 qh = [x[1] for x in sh[2]]
