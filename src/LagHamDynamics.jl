@@ -14,7 +14,7 @@ end
 # 3. Determine whether or not the system is Zeno and state when/where that occurs.
 
 
-# # Overarching type, might not be necessary
+#  Overarching type, might not be necessary
 # abstract type AbstractDynamics end
 
 
@@ -33,9 +33,8 @@ end
 
 ################################
 ################################
-"""
-Lagrangian dynamics
-"""
+## Lagrangian dynamics
+
 
 # General Lagrangian system
 struct LagSys{L,G,R,E,B}
@@ -144,42 +143,42 @@ function hybrid_solve(prob, solver; kwargs...)
 
     return sol
 end
-"""
+#=
 This was my first thought. I want the event detection to be within the solver though (I think)
-    # function solve(prob::LagProb{<:HybridLagSys}, solver; kwargs...)
+    function solve(prob::LagProb{<:HybridLagSys}, solver; kwargs...)
 
-    #     sys = prob.sys
+        sys = prob.sys
 
-    #     x = prob.init
-    #     t0, tf = prob.tspan
+        x = prob.init
+        t0, tf = prob.tspan
 
-    #     trajectory = []
+        trajectory = []
 
-    #     while t0 < tf
+        while t0 < tf
 
-    #         # Continuous dynamics
-    #         F(x,t) = lagrangian_vec_field(sys.L, x, t)
+            # Continuous dynamics
+            F(x,t) = lagrangian_vec_field(sys.L, x, t)
 
-    #         # Integrate until event
-    #         sol = solver(F, x, (t0, tf); event = sys.h, kwargs...)
+            # Integrate until event
+            sol = solver(F, x, (t0, tf); event = sys.h, kwargs...)
 
-    #         push!(trajectory, sol)
+            push!(trajectory, sol)
 
-    #         # No event occurred
-    #         if terminal(sol)
-    #             break
-    #         end
+            # No event occurred
+            if terminal(sol)
+                break
+            end
 
-    #         # Apply reset map after impact
-    #         x = sys.reset(sol.x[end])
+            # Apply reset map after impact
+            x = sys.reset(sol.x[end])
 
-    #         # Restart after event time
-    #         t0 = sol.t[end]
-    #     end
+            # Restart after event time
+            t0 = sol.t[end]
+        end
 
-    #     return trajectory
-    # end
-"""
+        return trajectory
+    end
+=#
 
 # Default reset map: spectral reflection with coefficient of restitution
 function spectral_refl(x, e)
@@ -200,11 +199,7 @@ end
 
 ################################
 ################################
-"""
-Hamiltonian dynamics
-   q̇ =  ∂H/∂p
-   -ṗ = ∂H/∂q
-"""
+## Hamiltonian dynamics
 
 # Define a general Hamiltonian problem
 struct HamSys{H,G,R,E}
@@ -257,7 +252,7 @@ function hamiltonian_gradient(Hsys, x)
     ForwardDiff.gradient(Hsys.H, x)
 end
 
-# # Some way to find the gradient without ForwardDiff (untested)
+ # Some way to find the gradient without ForwardDiff (untested)
 # function hamiltonian_gradient(Hsys, x)
     
 #     H = Hsys.H
