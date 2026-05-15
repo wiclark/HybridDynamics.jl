@@ -15,6 +15,7 @@ function L(x, t)
 end;
 
 Lsys = HybridDynamics.LagSys(L)
+
 probl = HybridDynamics.Prob(Lsys, init, tspan)
 sl = HybridDynamics.solve(probl, HybridDynamics.forward_euler; dt=0.01)
 
@@ -32,7 +33,7 @@ function H(x)
 end;
 
 # The Hamiltonain has a nice clean functional representation so use the automatic differentiating struct ADHamiltonian()
-probh = HybridDynamics.Prob(HybridDynamics.ADHamiltonian(H), init, tspan)
+probh = HybridDynamics.Prob(H, init, tspan)
 sh = HybridDynamics.solve(probh, HybridDynamics.forward_euler; dt=0.01)
 
 qh = [x[1] for x in sh[2]]

@@ -17,8 +17,12 @@ end
 # # Overarching type, might not be necessary
 # abstract type AbstractDynamics end
 
-# For using automatic differentiation
-abstract type AbstractAD end
+
+# Allow options for how the solver arrives at the equations of motion (EOM)
+abstract type Backend end
+struct AutoForwardDiff <: Backend end   # Automatic differentiation using ForwardDiff
+struct AutoFiniteDiff  <: Backend end   # Finite differences
+struct ManualEOM       <: Backend end   # Manually provide sumthin?
 
 # General problem structure
 struct Prob{F, I, T}
@@ -34,22 +38,29 @@ Lagrangian dynamics
 """
 
 # General Lagrangian system
-struct LagSys{L,G,R,E}
+struct LagSys{L,G,R,E,B}
     L::L          # Lagrangian
     guard::G      # guard/event function
     reset::R      # reset map
-    e::E          # coefficient of restitution 
+    e::E          # coefficient of restitution
+    B::B          # backend use to arrive at EOM
 end
 
 # Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
-function LagSys(L; guard=nothing, reset = (x,e) -> spectral_refl(x,e), e = 1.0)
-    LagSys(L, guard, reset, e)
+function LagSys(L;
+            guard=nothing,
+            reset = (x,e) -> spectral_refl(x,e),
+            e = 1.0,
+            B = AutoForwardDiff())
+
+    LagSys(L, guard, reset, e, B)
 end
 
-# Solve a Lagrangian problem using AD; called only if the Lagrangian is placed in the AD struct
-function solve(prob::Prob{ADLagrangian}, solver; kwargs...) # solver specifically for LagProb struct, kwargs for step size or tolerances (optional / solver dependent)
+# Solve a Lagrangian problem
+function solve(prob::Prob{<:LagSys}, solver; kwargs...) # solver specifically for LagProb struct, kwargs for step size or tolerances (optional / solver dependent)
     
-    F(x, t) = lagrangian_vec_field(prob.sys, x, t)
+    fun = prob.sys
+    F(x, t) = lagrangian_vec_field(fun.L, x, t)
 
     sys = prob.sys
 
@@ -60,11 +71,6 @@ function solve(prob::Prob{ADLagrangian}, solver; kwargs...) # solver specificall
 
     # If a guard is provided, return the hybrid specific solve function
     return hybrid_solve(F, prob, solver; kwargs...)
-end
-
-### Automatic differentiation of continuous Lagrangian systems
-struct ADLagrangian{F} <: AbstractAD
-    H::F
 end
 
 # Equations of motion from Euler-Lagrange equations using ForwardDiff
@@ -99,7 +105,7 @@ end
     end
 
     # Find the complete vector field from a Lagrangian using automatic differentiation
-    function lagrangian_vec_field(L::ADLagrangian, x::AbstractVector, t)
+    function lagrangian_vec_field(L, x::AbstractVector, t)
 
         # Integer division
         n = length(x) ÷ 2
@@ -127,7 +133,7 @@ end
 ### Hybrid Lagrangian systems:
 
 # Solve dispatch specific to hybrid systems
-function hybrid_solve(prob::LagProb, solver; kwargs...)
+function hybrid_solve(prob, solver; kwargs...)
 
     sys = prob.sys
 
@@ -246,46 +252,35 @@ function hamiltonian_vec_field(Hsys, x::AbstractVector, t)
     return vcat(dqdt, dpdt)
 end
 
-# Auto differentiation Ham struct; for closed form Hamiltonian functions
-struct ADHamiltonian{F} <: AbstractAD
-    H::F
-end
-
 # Find the gradient of Hamiltonians that can be differentiated using ForwardDiff
-function hamiltonian_gradient(Hsys::ADHamiltonian, x)
+function hamiltonian_gradient(Hsys, x)
     ForwardDiff.gradient(Hsys.H, x)
 end
 
-# Finite differences struct for Hamiltonians that can't be cleanly differentiated
-struct FDHamiltonian{F,T}
-    H::F
-    h::T   # finite difference step size
-end
-
-# Some way to find the gradient without ForwardDiff (untested)
-function hamiltonian_gradient(Hsys::FDHamiltonian, x)
+# # Some way to find the gradient without ForwardDiff (untested)
+# function hamiltonian_gradient(Hsys, x)
     
-    H = Hsys.H
-    h = Hsys.h
+#     H = Hsys.H
+#     h = Hsys.h
 
-    # initialize place to store the output
-    grad = similar(x)
+#     # initialize place to store the output
+#     grad = similar(x)
 
-    # This feels like a bad way of doing this but I think it's correct
-    for i in eachindex(x)
+#     # This feels like a bad way of doing this but I think it's correct
+#     for i in eachindex(x)
 
-        xp = copy(x)
-        xm = copy(x)
+#         xp = copy(x)
+#         xm = copy(x)
 
-        # perturb the point forward and backward
-        xp[i] += h
-        xm[i] -= h
+#         # perturb the point forward and backward
+#         xp[i] += h
+#         xm[i] -= h
 
-        # Central finite diff approximation
-        grad[i] = (H(xp) - H(xm)) / (2h)
-    end
+#         # Central finite diff approximation
+#         grad[i] = (H(xp) - H(xm)) / (2h)
+#     end
 
-    return grad
-end
+#     return grad
+# end
 
 # Could add another dispatch method to better deal with interpolating data style hams
