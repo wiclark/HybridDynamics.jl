@@ -4,7 +4,7 @@ using HybridDynamics
 using LinearAlgebra
 using Plots
 
-# 1. Setup System
+#Setup System
 A = [0.0 -1.0; 1.0 0.0] 
 λ = [1.0, 0.0]           
 C = [0.5 1.0; 0.0 0.5]   
@@ -23,7 +23,7 @@ println("Standard Solver: $(round(t_std, digits=6)) seconds")
 t_exp = @elapsed sol_exp = solve_hybrid_system_exp(prob, dt)
 println("Exponential Solver: $(round(t_exp, digits=6)) seconds")
 
-# Plot 1: Trajectory Comparison
+#Plot Trajectory Comparison
 p1 = plot(title="Solver Comparison", xlabel="x1", ylabel="x2", aspect_ratio=:equal)
 vline!(p1, [0.0], color=:black, alpha=0.3, label="Guard")
 
@@ -37,3 +37,17 @@ x1_exp = [pt[1] for pt in sol_exp.x]
 x2_exp = [pt[2] for pt in sol_exp.x]
 plot!(p1, x1_exp, x2_exp, label="Exponential", color=:blue, alpha=0.7)
 
+#AFFINE EXAMPLE THAT I DIDNT HAVE TIME TO TEST BUT SHOULD WORK?
+#b = [.2, 0.0]  #flow drift
+#a = -.5        #Guard const
+#κ = [-.1, .1]  #Reset const
+#sys_aff = HybridAffineSystem(A,b,λ,a,C,κ)
+#prob_aff = HybridAffineProblem(sys_aff, x₀, tspan)
+#t_aff = @elapsed sol_aff = solve_hybrid_system(prob_aff, dt; step_method=modified_midpoint_step, is_adaptive=false, max_iter=10^6, tol = 1e-12)
+#println("Affine Solver: $(round(t_aff, digits=6)) seconds")
+
+#p2 = plot(title="Affine Trajectory", xlabel="x1", ylabel="x2", aspect_ratio=:equal)
+#vline!(p2, [-a / λ[1]], color=:black, alpha=0.3, label="Affine Guard")
+#x1_aff = [pt[1] for pt in sol_aff.x]
+#x2_aff = [pt[2] for pt in sol_aff.x]
+#plot!(p2, x1_aff, x2_aff, label="Affine Solver", color=:green)
