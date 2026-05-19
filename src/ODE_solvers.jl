@@ -14,7 +14,7 @@ end
 
 # Modified (fully explicit) Trapezoid Rule
 function modified_trap_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
-    z_guess = z .+ h*f(z)
+    z_guess = z .+ h*f(z,t)
     return z .+ 1/2*h*( f(z, t) + f(z_guess, t+h) )
 end
 
@@ -54,7 +54,7 @@ function rk_23_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
         k3 = f(z+h/4*(k1+k2), t+h/2)
         z1_3 = z + h*(1/6*k1+1/6*k2+2/3*k3)
         z1_2 = z + h*(1/2*k1+1/2*k2)
-        LTE = la.norm(z1_2 - z1_3)
+        LTE = norm(z1_2 - z1_3)
         # Reject or accept?
         h_new = updated_step(LTE, tol, h, 3)
         if LTE < tol
@@ -81,7 +81,7 @@ function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
     while true
         # Compute the two predictions and their difference
         k1 = f(z, t)
-        k2 = f(z+h*1/5, t+h*1/5)
+        k2 = f(z+h*1/5*k1, t+h*1/5)
         k3 = f(z+h*(3/40*k1+9/40*k2), t+h*3/10)
         k4 = f(z+h*(44/45*k1-56/15*k2+32/9*k3), t+h*4/5)
         k5 = f(z+h*(19372/6561*k1-25360/2187*k2+64448/6561*k3-212/729*k4),t+h*8/9)
@@ -90,7 +90,7 @@ function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
         # The two updates
         z1_4 = z + h*k7
         z1_5 = z + h*(5179/57600*k1 + 0*k2 + 7571/16695*k3 + 393/640*k4 - 92097/339200*k5 + 187/2100*k6 + 1/40*k7)
-        LTE = la.norm(z1_4 - z1_5)
+        LTE = norm(z1_4 - z1_5)
         # Reject or accept?
         h_new = updated_step(LTE, tol, h, 5)
         if LTE < tol
