@@ -2,6 +2,7 @@
 
 using HybridDynamics
 using LaTeXStrings
+# import Pkg; Pkg.add("LaTeXStrings")
 import Plots as plt
 
 init = [1.,0.];
@@ -25,18 +26,20 @@ pl = plt.plot(ql, vl, title = "Harmonic osc. phase portrait via Euler-Lagrange",
 display(pl)
 
 
-function H(x)
-	q = x[1]
-    p = x[2]
+## Hamiltonian example phase portrait
 
-    p^2  + q^2
-end;
+# function H(x)
+# 	q = x[1]
+#     p = x[2]
 
-# The Hamiltonain has a nice clean functional representation so use the automatic differentiating struct ADHamiltonian()
-probh = HybridDynamics.Prob(H, init, tspan)
-sh = HybridDynamics.solve(probh, HybridDynamics.forward_euler; dt=0.01)
+#     p^2  + q^2
+# end;
 
-qh = [x[1] for x in sh[2]]
-vh = [x[2] for x in sh[2]]
-ph = plt.plot(qh, vh, title = "Harmonic osc. phase portrait via Hamilton's", label = "", xlabel = L"q", ylabel = L"\dot{q}")
-display(ph)
+# 
+# probh = HybridDynamics.Prob(H, init, tspan)
+# sh = HybridDynamics.solve(probh, HybridDynamics.forward_euler; dt=0.01)
+
+# qh = [x[1] for x in sh[2]]
+# vh = [x[2] for x in sh[2]]
+# ph = plt.plot(qh, vh, title = "Harmonic osc. phase portrait via Hamilton's", label = "", xlabel = L"q", ylabel = L"\dot{q}")
+# display(ph)

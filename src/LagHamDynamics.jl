@@ -24,6 +24,7 @@ struct AutoForwardDiff <: Backend end   # Automatic differentiation using Forwar
 struct AutoFiniteDiff  <: Backend end   # Finite differences
 struct ManualEOM       <: Backend end   # Manually provide sumthin?
 
+
 # General problem structure
 struct Prob{F, I, T}
     sys::F
@@ -69,7 +70,7 @@ function solve(prob::Prob{<:LagSys}, solver; kwargs...) # solver specifically fo
     end
 
     # If a guard is provided, return the hybrid specific solve function
-    return hybrid_solve(F, prob, solver; kwargs...)
+    return hybrid_solve(prob, solver; kwargs...)
 end
 
 # Equations of motion from Euler-Lagrange equations using ForwardDiff
