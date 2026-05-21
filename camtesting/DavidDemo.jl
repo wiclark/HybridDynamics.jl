@@ -4,6 +4,23 @@ using HybridDynamics
 using LinearAlgebra
 using Plots
 
+function get_rid_of_jump_lines(sol)
+    x1 = Float64[]
+    x2 = Float64[]
+
+    for i in 1:length(sol.x)
+        push!(x1, sol.x[i][1])
+        push!(x2, sol.x[i][2])
+
+        if i < length(sol.t) && sol.t[i] == sol.t[i+1]
+            push!(x1, NaN)
+            push!(x2, NaN)
+        end
+    end
+    return x1, x2
+end
+
+
 #Setup System
 A = [0.0 -1.0; 1.0 0.0] 
 λ = [1.0, 0.0]           
@@ -28,13 +45,11 @@ p1 = plot(title="Solver Comparison", xlabel="x1", ylabel="x2", aspect_ratio=:equ
 vline!(p1, [0.0], color=:black, alpha=0.3, label="Guard")
 
 #Plot Standard
-x1_std = [pt[1] for pt in sol_std.x]
-x2_std = [pt[2] for pt in sol_std.x]
+x1_std, x2_std = get_rid_of_jump_lines(sol_std)
 plot!(p1, x1_std, x2_std, label="ODE Solver", color=:red, linestyle=:dash)
 
 #Plot Exponential
-x1_exp = [pt[1] for pt in sol_exp.x]
-x2_exp = [pt[2] for pt in sol_exp.x]
+x1_exp, x2_exp = get_rid_of_jump_lines(sol_exp)
 plot!(p1, x1_exp, x2_exp, label="Exponential", color=:blue, alpha=0.7)
 
 #AFFINE EXAMPLE THAT I DIDNT HAVE TIME TO TEST BUT SHOULD WORK?
