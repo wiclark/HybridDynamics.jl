@@ -1,8 +1,19 @@
 
+function CreateSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix)
+    #I am using Abstract matrix here as I believe it will make it easier to avoid type errors when "users" use the functions to see how the structs work. It might be worth just making my structs use this but I am not sure if that matters. 
+    #this same reason is why I do Float64.(A), etc as I think it will be best to avoid errors. The issue would be if smth like [1 0; 0 1] gets typed as it would be Matrix{Int64} and not Matrix{Float64} hence why I did it this way
+    #I do this in all the struct functions, I cant imagine rewriting these comments is better than just writing that here for now. When I write the inline thingy I will do it there. 
+    return HybridLinearSystem(Float64.(A), Float64.(λ), Float64.(C))
+end
 struct HybridLinearSystem
     A::Matrix{Float64} 
-    λ::Vector{Float64}
+    λ::Vector{Float64} 
     C::Matrix{Float64}
+end
+
+function CreateSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector)
+    #different from linear as it inputs more stuff. That should work for what we need. 
+    return HybridAffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ))
 end
 struct HybridAffineSystem
     A::Matrix{Float64} #Flow matrix
@@ -13,10 +24,17 @@ struct HybridAffineSystem
     κ::Vector{Float64} #Reset Constant
 end
 
+function CreateProblem(sys::HybridLinearSystem, x₀::AbstractVector, tspan::Tuple{Real, Real})
+    return HybridLinearProblem(sys, Float64.(x₀), (Float64(tspan[1]), Float64(tspan[2])))
+end
 struct HybridLinearProblem
     sys::HybridLinearSystem 
     x₀::Vector{Float64}
     tspan::Tuple{Float64,Float64}
+end
+
+function CreateProblem(sys::HybridAffineSystem, x₀::AbstractVector, tspan::Tuple{Real, Real})
+    return HybridAffineProblem(sys, Float64.(x₀), (Float64(tspan[1]), Float64(tspan[2])))
 end
 struct HybridAffineProblem
     sys::HybridAffineSystem
@@ -24,11 +42,18 @@ struct HybridAffineProblem
     tspan::Tuple{Float64,Float64}
 end
 
+function CreateSolution(prob::HybridLinearProblem, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
+    return HybridLinearSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
+end
 struct HybridLinearSolution
     t::Vector{Float64}          #array storing cont time data
     x::Vector{Vector{Float64}}  #array storing cont x data 
     jump_times::Vector{Float64} #how many jump
     jump_indices::Vector{Int}   #when jump
+end
+
+function CreateSolution(prob::HybridAffineProblem, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
+    return HybridAffineSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
 end
 struct HybridAffineSolution
     t::Vector{Float64}
