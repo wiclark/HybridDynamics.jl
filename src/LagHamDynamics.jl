@@ -47,13 +47,18 @@ struct LagSys{L,G,R,E,B}
 end
 
 # Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
+"""
+explaining the thing and the kwargs
+ - L
+
+"""
 function LagSys(L;
             guard=nothing,
             reset = (x,e) -> spectral_refl(x,e),
             e = 1.0,
             B = AutoForwardDiff())
 
-    LagSys(L, guard, reset, e, B)
+    return LagSys(L, guard, reset, e, B)
 end
 
 # Solve a Lagrangian problem
