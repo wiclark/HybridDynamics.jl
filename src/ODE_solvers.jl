@@ -104,3 +104,54 @@ function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
     end
 end
 
+##  Functions to call to locate where the event happens
+# Include:
+#  - Linear interpolation
+#  - Quadratic interpolation & extrapolation
+
+function lin_int()
+
+    return pt
+end
+
+
+## Loop solving
+#=
+The "solve" dispatches convert the systems within the problems into vector fields to pass to the solve loop. Any solve dispatch would take the form,
+
+function solve(prob{:>systemtype}, solver; step_method=forward_euler_step, is_adaptive=false, max_iter=10^6, tol = 1e-12, event_method=lin_int, kwargs...)
+
+    vecfield = "system specific math to make prob.sys the right input for ODE solving"
+
+    sol = solveloop(vecfield, solver; kwargs...)
+
+    return sol
+end
+
+Idk how to handle different kinds of solution structs though
+=#
+
+# function solveloop(vecfield, solver::steptype ; step_method=forward_euler_step, is_adaptive=false, max_iter=10^6, tol = 1e-12, event_method=lin_int, kwargs...)
+    
+#     while t[end] < t_end
+#         # plus safties
+
+#---------------------
+# The other option here is to have a dispatch of each step type for each of the degrees of interpolation and extrapolation.
+# Doing so might get ugly, but I think it would run faster because there wouldn't be redundant calculations, so I'm leaning toward that
+
+#         # call solver step
+#         pt, eventtrigger = steptype(pt)
+
+#         # if event, use specified method to accurately locate
+#         if eventtrigger = true
+#             newpt = event_method(pt) # or vector of points
+#         end
+#----------------------
+#         # push to sol
+
+
+#     end
+
+#     return sol
+# end
