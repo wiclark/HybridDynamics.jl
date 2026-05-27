@@ -164,7 +164,7 @@ function locate_event(::LinearLocator, sys, f, xₖ, tₖ, Δt, h_now, tol)
     return locate_guard_crossing(xₖ,x_predict,h_now,h_next, tₖ, Δt) 
 end
 
-function solveloop(sol, prob, f, solver::AbstractODESolver, event_method::AbstractEventLocator, dt_initial, max_iter, tol)
+function solveloop(sol, prob, f; solver::AbstractODESolver = ForwardEuler(), event_method::AbstractEventLocator = BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12)
     sys = prob.sys                  #Extract system from problem
     t_start, t_end = prob.tspan     #Extract start and end times for bounds
     n = size(sys.A, 1)              #State dimension for beating and blocking stuff
