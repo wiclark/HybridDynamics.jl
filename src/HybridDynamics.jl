@@ -9,10 +9,11 @@ include("ODE_solvers.jl")
 include("HybridSystemsDS.jl")
 include("functions.jl")
 
-export HybridLinearSystem, HybridAffineSystem
-export HybridLinearProblem, HybridAffineProblem
-export solve_hybrid_system, solve_hybrid_system_exp
-export beating_and_blocking_sets, is_trivially_blocking, basis_beating_and_blocking_sets
-export forward_euler_step, rk_23_step, modified_midpoint_step, modified_trap_step
+export HybridLinearSystem, HybridAffineSystem, 
+       HybridLinearProblem, HybridAffineProblem, 
+       HybridLinearSolution, HybridAffineSolution,
+       CreateSystem, CreateProblem, CreateSolution,
+       solve_hybrid_system_exp,
+       solve, solveloop, ForwardEuler, ModifiedTrap, ModifiedMidpoint, BisectionLocator
 
 end
