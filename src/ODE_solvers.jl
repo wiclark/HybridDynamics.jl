@@ -105,19 +105,6 @@ function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
 end
 
 #EVERYTHING I ADDDED IS BELOW. I figure we move these types to the top after I get your OK.
-
-#The template for any solver method we use. I think this makes it nicer?
-abstract type AbstractODESolver end
-
-#Euler method tag and the others. I wont comment each as its pretty self explanatory
-struct ForwardEuler <: AbstractODESolver end
-struct ModifiedTrap <: AbstractODESolver end
-struct ModifiedMidpoint <: AbstractODESolver end
-
-abstract type AbstractEventLocator end
-struct LinearLocator <: AbstractEventLocator end
-struct BisectionLocator <: AbstractEventLocator end
-
 #solver steps we can have. Should be easy to implement more by just adding on. 
 #only for FEuler
 function take_step(::ForwardEuler, sys, f, xₖ, tₖ, Δt, tol)
@@ -164,7 +151,7 @@ function locate_event(::LinearLocator, sys, f, xₖ, tₖ, Δt, h_now, tol)
     return locate_guard_crossing(xₖ,x_predict,h_now,h_next, tₖ, Δt) 
 end
 
-function solveloop(sol, prob, f; solver::AbstractODESolver = ForwardEuler(), event_method::AbstractEventLocator = BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12)
+function solveloop(sol, prob::Union{HybridLinearProblem, HybridAffineProblem}, f; solver::AbstractODESolver = ForwardEuler(), event_method::AbstractEventLocator = BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12)
     sys = prob.sys                  #Extract system from problem
     t_start, t_end = prob.tspan     #Extract start and end times for bounds
     n = size(sys.A, 1)              #State dimension for beating and blocking stuff

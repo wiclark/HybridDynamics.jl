@@ -175,7 +175,7 @@ function solve(prob, solver::AbstractODESolver; event_method::AbstractEventLocat
     f = vector_field(sys)
     sol = init_solution(prob)
 
-    return solveloop(sol, prob, f, solver=solver, event_method=event_method, dt_initial=dt_initial, max_iter=max_iter, tol=tol) #writing equals incase not inputted 
+    return solveloop(sol, prob, f; solver=solver, event_method=event_method, dt_initial=dt_initial, max_iter=max_iter, tol=tol) #writing equals incase not inputted 
 end
 
 function solve_hybrid_system_exp(problem::HybridLinearProblem, dt_initial::Float64; tol=1e-10, max_iter=10^6)
