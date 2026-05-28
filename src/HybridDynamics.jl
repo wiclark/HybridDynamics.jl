@@ -15,11 +15,10 @@ abstract type AbstractEventLocator end
 struct LinearLocator <: AbstractEventLocator end
 struct BisectionLocator <: AbstractEventLocator end
 
-export forward_euler, greet_your_package_name
-include("HybridSystemsDS.jl")
 include("ODE_solvers.jl")
-include("LagHamDynamics.jl")
-include("functions.jl")
+
+include("Systems/Linear_Affine.jl")
+include("Systems/Lag_Ham.jl")
 
 export HybridLinearSystem, HybridAffineSystem, 
        HybridLinearProblem, HybridAffineProblem, 
