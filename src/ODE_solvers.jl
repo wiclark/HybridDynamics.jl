@@ -170,84 +170,33 @@ function locate_event(::LinearLocator, sys, f, xₖ, tₖ, Δt, h_now, tol)
     return locate_guard_crossing(xₖ,x_predict,h_now,h_next, tₖ, Δt) 
 end
 
-function solveloop(sol, prob::Union{HybridLinearProblem, HybridAffineProblem}, f; solver::AbstractODESolver = ForwardEuler(), event_method::AbstractEventLocator = BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12)
-    sys = prob.sys                  #Extract system from problem
-    t_start, t_end = prob.tspan     #Extract start and end times for bounds
-    n = size(sys.A, 1)              #State dimension for beating and blocking stuff
 
-    Δt = dt_initial                 #Initialize current time step with user input
-    instant_jumps = 0               #Track jump count at specific timestampts to detect Zeno (?)
-    last_jump_t = -Inf              #Store timestamp of prev jump for interval comparison
-    iter = 0                        #Start iteration counter
 
-    #Run sim until end of specified time span
-    while sol.t[end] < t_end 
-        
-        #Stop if we hit the iteration limit to avoid memory doomsday
-        iter += 1
-        if iter > max_iter 
-            @warn "Maximum Iteration Count ($max_iter) exceeded."
-            break
-        end
 
-        #terminate if the remaining time is below machine precision so we dont blow up
-        if t_end - sol.t[end] <= eps(t_end)
-            break
-        end
+"""
+General solve function
 
-        #Truncate time step if we overshoot the final sim time
-        Δt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
+    Required arguments:
+     - prob
+     - solver
 
-        xₖ = sol.x[end] #Retrieve current state at start of step
-        tₖ = sol.t[end] #Retrieve current time at start of step
+    Optional arguments:
+     - event_method
+     - others
+"""
+function solve end
 
-        #Calc next state and check for guard crossing using chosen method
-        x_predict, eventtrigger, h_now = take_step(solver, sys, f, xₖ, tₖ, Δt_step, tol)
-        t_next = tₖ + Δt_step
-
-        #If an event occurred use the locator method to resolve  
-        if eventtrigger == true && t_next <= t_end
-
-            #Pinpoint exact crossing time and state via chosen method
-            t_star, x⁻ = locate_event(event_method, sys, f, xₖ, tₖ, Δt_step, h_now, tol)
-
-            #Check if jump is instantaneous relative to the last one (My current Zeno solution but I plan to make it better)
-            if abs(t_star - last_jump_t) < tol
-                instant_jumps += 1
-            else 
-                instant_jumps = 1
-            end
-            last_jump_t = t_star #update last jump time to current impact time
-
-            #Validate system state against beating/blocking condition
-            status = check_beating_status(sys, instant_jumps, n, x⁻, t_star, tol)
-            if status != :continue
-                break
-            end
-            
-            #Apply system discrete reset map to update
-            x⁺ = apply_reset(sys, x⁻)
-
-            #Log preimpact, and post impact states to solution objects
-            push!(sol.x, x⁻, x⁺)
-            push!(sol.t, t_star, t_star)
-            push!(sol.jump_times, t_star)
-            push!(sol.jump_indices, length(sol.x))
-
-            #Restore original time step after a jumpt
-            Δt = dt_initial
-        else
-
-            #if no crossing of guard, store the pred continuous state and proceed. 
-            push!(sol.x, x_predict)
-            push!(sol.t, t_next)
-            Δt = dt_initial
-        end
-    end
-    return sol
+# General problem structure
+struct prob{F, I, T}
+    sys::F
+    init::I
+    tspan::T
 end
 
-## Loop solving
+
+#-----------------------
+### First draft
+# Loop solving
 #=
 The "solve" dispatches convert the systems within the problems into vector fields to pass to the solve loop. Any solve dispatch would take the form,
 

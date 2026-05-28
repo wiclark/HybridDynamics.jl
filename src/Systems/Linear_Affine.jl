@@ -1,21 +1,18 @@
-
-function CreateSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix)
-    #I am using Abstract matrix here as I believe it will make it easier to avoid type errors when "users" use the functions to see how the structs work. It might be worth just making my structs use this but I am not sure if that matters. 
-    #this same reason is why I do Float64.(A), etc as I think it will be best to avoid errors. The issue would be if smth like [1 0; 0 1] gets typed as it would be Matrix{Int64} and not Matrix{Float64} hence why I did it this way
-    #I do this in all the struct functions, I cant imagine rewriting these comments is better than just writing that here for now. When I write the inline thingy I will do it there. 
-    return HybridLinearSystem(Float64.(A), Float64.(λ), Float64.(C))
-end
-struct HybridLinearSystem
+struct LinearSystem
     A::Matrix{Float64} 
     λ::Vector{Float64} 
     C::Matrix{Float64}
 end
 
-function CreateSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector)
-    #different from linear as it inputs more stuff. That should work for what we need. 
-    return HybridAffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ))
+# Constructor function
+function LinearSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix)
+    #I am using Abstract matrix here as I believe it will make it easier to avoid type errors when "users" use the functions to see how the structs work. It might be worth just making my structs use this but I am not sure if that matters. 
+    #this same reason is why I do Float64.(A), etc as I think it will be best to avoid errors. The issue would be if smth like [1 0; 0 1] gets typed as it would be Matrix{Int64} and not Matrix{Float64} hence why I did it this way
+    #I do this in all the struct functions, I cant imagine rewriting these comments is better than just writing that here for now. When I write the inline thingy I will do it there. 
+    return LinearSystem(Float64.(A), Float64.(λ), Float64.(C))
 end
-struct HybridAffineSystem
+
+struct AffineSystem
     A::Matrix{Float64} #Flow matrix
     b::Vector{Float64} #Flow Constant
     λ::Vector{Float64} #Guard normal
@@ -24,38 +21,26 @@ struct HybridAffineSystem
     κ::Vector{Float64} #Reset Constant
 end
 
-function CreateProblem(sys::HybridLinearSystem, x₀::AbstractVector, tspan::Tuple{Real, Real})
-    return HybridLinearProblem(sys, Float64.(x₀), (Float64(tspan[1]), Float64(tspan[2])))
-end
-struct HybridLinearProblem
-    sys::HybridLinearSystem 
-    x₀::Vector{Float64}
-    tspan::Tuple{Float64,Float64}
+# Constructor function
+function AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector)
+    #different from linear as it inputs more stuff. That should work for what we need. 
+    return AffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ))
 end
 
-function CreateProblem(sys::HybridAffineSystem, x₀::AbstractVector, tspan::Tuple{Real, Real})
-    return HybridAffineProblem(sys, Float64.(x₀), (Float64(tspan[1]), Float64(tspan[2])))
+function CreateSolution(prob::prob{<:LinearProblem}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
+    return LinearSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
 end
-struct HybridAffineProblem
-    sys::HybridAffineSystem
-    x₀::Vector{Float64}
-    tspan::Tuple{Float64,Float64}
-end
-
-function CreateSolution(prob::HybridLinearProblem, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
-    return HybridLinearSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
-end
-struct HybridLinearSolution
+struct LinearSolution
     t::Vector{Float64}          #array storing cont time data
     x::Vector{Vector{Float64}}  #array storing cont x data 
     jump_times::Vector{Float64} #how many jump
     jump_indices::Vector{Int}   #when jump
 end
 
-function CreateSolution(prob::HybridAffineProblem, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
-    return HybridAffineSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
+function CreateSolution(prob::prob{<:AffineProblem}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
+    return AffineSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
 end
-struct HybridAffineSolution
+struct AffineSolution
     t::Vector{Float64}
     x::Vector{Vector{Float64}}
     jump_times::Vector{Float64}
@@ -67,11 +52,11 @@ function crossed_guard(h_now, h_next; tol=1e-12)
     return (h_now * h_next < 0) || (abs(h_now) <= tol && h_next < -tol)
 end
 
-guard(sys::HybridLinearSystem, x) = dot(sys.λ, x) #eval distance/orientation of current state relative to guard
-guard(sys::HybridAffineSystem, x) = dot(sys.λ, x) + sys.a #same as above but for affine
+guard(sys::LinearSystem, x) = dot(sys.λ, x) #eval distance/orientation of current state relative to guard
+guard(sys::AffineSystem, x) = dot(sys.λ, x) + sys.a #same as above but for affine
 
-apply_reset(sys::HybridLinearSystem, x) = sys.C * x #disc transition when we jump
-apply_reset(sys::HybridAffineSystem, x) = sys.C * x + sys.κ #above
+apply_reset(sys::LinearSystem, x) = sys.C * x #disc transition when we jump
+apply_reset(sys::AffineSystem, x) = sys.C * x + sys.κ #above
 
 function interpolate_state(x₀, x₁, θ)
     return x₀ + θ * (x₁ - x₀)
@@ -102,7 +87,7 @@ function flow(flowmap::LinearFlow, τ, x) #provides exact cont state any any tin
     return real.(flowmap.V * (exp.(flowmap.Λ .* τ) .* y)) 
 end
 
-function find_crossing_bisection(sys::HybridLinearSystem, xₖ, Δt, h_now; tol=1e-12, max_iter=100)
+function find_crossing_bisection(sys::LinearSystem, xₖ, Δt, h_now; tol=1e-12, max_iter=100)
     τ_l, τ_r = 0.0, Δt #sets left and right bounds of search window
     h_l = h_now
     for _ in 1:max_iter
@@ -113,7 +98,7 @@ function find_crossing_bisection(sys::HybridLinearSystem, xₖ, Δt, h_now; tol=
     end
     return τ_l
 end
-function find_crossing_bisection(sys::HybridAffineSystem, xₖ, Δt, h_now; tol=1e-12, max_iter=100)
+function find_crossing_bisection(sys::AffineSystem, xₖ, Δt, h_now; tol=1e-12, max_iter=100)
     τ_l, τ_r = 0.0, Δt
     h_l = h_now
     for _ in 1:max_iter
@@ -158,24 +143,100 @@ function check_beating_status(sys, instant_jumps, n, x_current, t_current, tol)
     return :continue
 end
 
-vector_field(sys::HybridLinearSystem) = (x, t) -> sys.A * x
-vector_field(sys::HybridAffineSystem) = (x, t) -> sys.A * x + sys.b
+vector_field(sys::LinearSystem) = (x, t) -> sys.A * x
+vector_field(sys::AffineSystem) = (x, t) -> sys.A * x + sys.b
 
-function init_solution(prob::HybridLinearProblem) 
-    return HybridLinearSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
+function init_solution(prob::prob{<:LinearProblem}) 
+    return LinearSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
 end
-function init_solution(prob::HybridAffineProblem)
-    return HybridAffineSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
+function init_solution(prob::prob{<:AffineProblem})
+    return AffineSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
 end
     
 #--------------------------------------------
 #SOLVERS
-function solve(prob, solver::AbstractODESolver; event_method::AbstractEventLocator=BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12)
-    sys = prob.sys
+
+function solve(prob::prob{<:Union{LinearSystem, AffineSystem}}, solver::AbstractODESolver; event_method::AbstractEventLocator=BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12)
+    
+    sys = prob.sys                  #Extract system from problem
+    
     f = vector_field(sys)
     sol = init_solution(prob)
+    
+    
+    t_start, t_end = prob.tspan     #Extract start and end times for bounds
+    n = size(sys.A, 1)              #State dimension for beating and blocking stuff
 
-    return solveloop(sol, prob, f; solver=solver, event_method=event_method, dt_initial=dt_initial, max_iter=max_iter, tol=tol) #writing equals incase not inputted 
+    Δt = dt_initial                 #Initialize current time step with user input
+    instant_jumps = 0               #Track jump count at specific timestampts to detect Zeno (?)
+    last_jump_t = -Inf              #Store timestamp of prev jump for interval comparison
+    iter = 0                        #Start iteration counter
+
+    #Run sim until end of specified time span
+    while sol.t[end] < t_end 
+        
+        #Stop if we hit the iteration limit to avoid memory doomsday
+        iter += 1
+        if iter > max_iter 
+            @warn "Maximum Iteration Count ($max_iter) exceeded."
+            break
+        end
+
+        #terminate if the remaining time is below machine precision so we dont blow up
+        if t_end - sol.t[end] <= eps(t_end)
+            break
+        end
+
+        #Truncate time step if we overshoot the final sim time
+        Δt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
+
+        xₖ = sol.x[end] #Retrieve current state at start of step
+        tₖ = sol.t[end] #Retrieve current time at start of step
+
+        #Calc next state and check for guard crossing using chosen method
+        x_predict, eventtrigger, h_now = take_step(solver, sys, f, xₖ, tₖ, Δt_step, tol)
+        t_next = tₖ + Δt_step
+
+        #If an event occurred use the locator method to resolve  
+        if eventtrigger == true && t_next <= t_end
+
+            #Pinpoint exact crossing time and state via chosen method
+            t_star, x⁻ = locate_event(event_method, sys, f, xₖ, tₖ, Δt_step, h_now, tol)
+
+            #Check if jump is instantaneous relative to the last one (My current Zeno solution but I plan to make it better)
+            if abs(t_star - last_jump_t) < tol
+                instant_jumps += 1
+            else 
+                instant_jumps = 1
+            end
+            last_jump_t = t_star #update last jump time to current impact time
+
+            #Validate system state against beating/blocking condition
+            status = check_beating_status(sys, instant_jumps, n, x⁻, t_star, tol)
+            if status != :continue
+                break
+            end
+            
+            #Apply system discrete reset map to update
+            x⁺ = apply_reset(sys, x⁻)
+
+            #Log preimpact, and post impact states to solution objects
+            push!(sol.x, x⁻, x⁺)
+            push!(sol.t, t_star, t_star)
+            push!(sol.jump_times, t_star)
+            push!(sol.jump_indices, length(sol.x))
+
+            #Restore original time step after a jumpt
+            Δt = dt_initial
+        else
+
+            #if no crossing of guard, store the pred continuous state and proceed. 
+            push!(sol.x, x_predict)
+            push!(sol.t, t_next)
+            Δt = dt_initial
+        end
+    end
+    return sol
 end
 
 function solve_hybrid_system_exp(problem::HybridLinearProblem, dt_initial::Float64; tol=1e-10, max_iter=10^6)
