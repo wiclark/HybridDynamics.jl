@@ -104,16 +104,129 @@ function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
     end
 end
 
-##  Functions to call to locate where the event happens
-# Include:
-#  - Linear interpolation
-#  - Quadratic interpolation & extrapolation
+#EVERYTHING I ADDDED IS BELOW. I figure we move these types to the top after I get your OK.
+#solver steps we can have. Should be easy to implement more by just adding on. 
+#only for FEuler
+function take_step(::ForwardEuler, sys, f, xₖ, tₖ, Δt, tol)
+    x_predict = forward_euler_step(f, xₖ, Δt, tₖ) #next state based on the linear/affine dynamics
 
-function lin_int()
+    h_now = guard(sys, xₖ) #evaluates guard function at current position to see how far we are from it
+    h_next = guard(sys, x_predict) #Evalutes guard function at predicted next position to check if we moved through it
+    eventtrigger = crossed_guard(h_now, h_next; tol=tol) #compares the above to check if we crossed guard. 
 
-    return pt
+    return x_predict, eventtrigger, h_now
 end
 
+function take_step(::ModifiedTrap, sys, f, xₖ, tₖ, Δt, tol)
+    x_predict = modified_trap_step(f, xₖ, Δt, tₖ) #calc next state using modifed trap method
+
+    #eval guard condition at the start and predicted positions
+    h_now = guard(sys, xₖ) 
+    h_next = guard(sys, x_predict)
+
+    #check for sign change (I hope to make htis more dignified later)
+    eventtrigger = crossed_guard(h_now, h_next; tol=tol)
+
+    return x_predict, eventtrigger, h_now
+end
+
+#event detection space. Similar to above with take_step and be easy to add more options. 
+function locate_event(::BisectionLocator, sys, f, xₖ, tₖ, Δt, h_now, tol)
+
+    #use bisection to narrow down the interval
+    τ_star = find_crossing_bisection(sys, xₖ, Δt, h_now; tol=tol)
+    
+    #get time of event
+    t_star = tₖ + τ_star
+
+    #Linearly interpolate to find the exact state at the moment of impact (this method should be good enough for bisection but I can be smarter when we do more)
+    x⁻ = xₖ + τ_star * f(xₖ, tₖ)
+    return t_star, x⁻
+end
+
+function locate_event(::LinearLocator, sys, f, xₖ, tₖ, Δt, h_now, tol)
+    #Linear Interpolation as usual
+    x_predict = xₖ + Δt * f(xₖ, tₖ)
+    h_next = guard(sys, x_predict)
+    return locate_guard_crossing(xₖ,x_predict,h_now,h_next, tₖ, Δt) 
+end
+
+function solveloop(sol, prob::Union{HybridLinearProblem, HybridAffineProblem}, f; solver::AbstractODESolver = ForwardEuler(), event_method::AbstractEventLocator = BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12)
+    sys = prob.sys                  #Extract system from problem
+    t_start, t_end = prob.tspan     #Extract start and end times for bounds
+    n = size(sys.A, 1)              #State dimension for beating and blocking stuff
+
+    Δt = dt_initial                 #Initialize current time step with user input
+    instant_jumps = 0               #Track jump count at specific timestampts to detect Zeno (?)
+    last_jump_t = -Inf              #Store timestamp of prev jump for interval comparison
+    iter = 0                        #Start iteration counter
+
+    #Run sim until end of specified time span
+    while sol.t[end] < t_end 
+        
+        #Stop if we hit the iteration limit to avoid memory doomsday
+        iter += 1
+        if iter > max_iter 
+            @warn "Maximum Iteration Count ($max_iter) exceeded."
+            break
+        end
+
+        #terminate if the remaining time is below machine precision so we dont blow up
+        if t_end - sol.t[end] <= eps(t_end)
+            break
+        end
+
+        #Truncate time step if we overshoot the final sim time
+        Δt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
+
+        xₖ = sol.x[end] #Retrieve current state at start of step
+        tₖ = sol.t[end] #Retrieve current time at start of step
+
+        #Calc next state and check for guard crossing using chosen method
+        x_predict, eventtrigger, h_now = take_step(solver, sys, f, xₖ, tₖ, Δt_step, tol)
+        t_next = tₖ + Δt_step
+
+        #If an event occurred use the locator method to resolve  
+        if eventtrigger == true && t_next <= t_end
+
+            #Pinpoint exact crossing time and state via chosen method
+            t_star, x⁻ = locate_event(event_method, sys, f, xₖ, tₖ, Δt_step, h_now, tol)
+
+            #Check if jump is instantaneous relative to the last one (My current Zeno solution but I plan to make it better)
+            if abs(t_star - last_jump_t) < tol
+                instant_jumps += 1
+            else 
+                instant_jumps = 1
+            end
+            last_jump_t = t_star #update last jump time to current impact time
+
+            #Validate system state against beating/blocking condition
+            status = check_beating_status(sys, instant_jumps, n, x⁻, t_star, tol)
+            if status != :continue
+                break
+            end
+            
+            #Apply system discrete reset map to update
+            x⁺ = apply_reset(sys, x⁻)
+
+            #Log preimpact, and post impact states to solution objects
+            push!(sol.x, x⁻, x⁺)
+            push!(sol.t, t_star, t_star)
+            push!(sol.jump_times, t_star)
+            push!(sol.jump_indices, length(sol.x))
+
+            #Restore original time step after a jumpt
+            Δt = dt_initial
+        else
+
+            #if no crossing of guard, store the pred continuous state and proceed. 
+            push!(sol.x, x_predict)
+            push!(sol.t, t_next)
+            Δt = dt_initial
+        end
+    end
+    return sol
+end
 
 ## Loop solving
 #=

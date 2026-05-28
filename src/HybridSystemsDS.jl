@@ -136,7 +136,6 @@ function find_crossing_bisection_exp(sys, flowmap, xₖ, Δt, h_now; tol=1e-12, 
     return τ_l
 end
 
-
 function check_beating_status(sys, instant_jumps, n, x_current, t_current, tol)
     if (instant_jumps) > (n-1) 
         if norm(x_current) < tol * 10
@@ -158,242 +157,25 @@ function check_beating_status(sys, instant_jumps, n, x_current, t_current, tol)
     end
     return :continue
 end
+
+vector_field(sys::HybridLinearSystem) = (x, t) -> sys.A * x
+vector_field(sys::HybridAffineSystem) = (x, t) -> sys.A * x + sys.b
+
+function init_solution(prob::HybridLinearProblem) 
+    return HybridLinearSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
+end
+function init_solution(prob::HybridAffineProblem)
+    return HybridAffineSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
+end
+    
 #--------------------------------------------
 #SOLVERS
-function solve_hybrid_system(problem::HybridLinearProblem, dt_initial::Float64; step_method=forward_euler_step, is_adaptive=false, max_iter=10^6, tol = 1e-12)
-    
-    #deconstruct the system structure.
-    sys = problem.sys
-    A = sys.A
+function solve(prob, solver::AbstractODESolver; event_method::AbstractEventLocator=BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12)
+    sys = prob.sys
+    f = vector_field(sys)
+    sol = init_solution(prob)
 
-    n = size(sys.A, 1) #dimension for beating check
-
-    #unpacks the time span into start and end times.
-    t_start, t_end = problem.tspan
-    
-    #Initialize the time and output vectors starting with the initial conditions.
-    t = [t_start]
-    x = [problem.x₀]
-
-    sizehint!(t, max_iter)
-    sizehint!(x, max_iter)
-
-    #empty list to store timestamps where jumps occur
-    jump_times = Float64[]
-    jump_indices = Int[]
-
-    iter = 0
-
-    instant_jumps = 0
-    last_jump_t = -Inf #track time of  last jump
-
-    #Defines the vector field for continuous part
-    f(x, t) = A * x
-    
-    #Sets initial time step size. This can change if the solver we use is adaptive or needs to hit a specific time boundary. 
-    Δt = dt_initial
-
-    #This main loop continuous as long as the most recent recorded time is less than final
-    while t[end] < t_end
-
-        #prevent problems running away. Oh the issues this caused...
-        iter += 1
-        if iter > max_iter
-            @warn "Possible Zeno detected"
-            break
-        end
-
-        if t_end - t[end] <= eps(t_end) * 10
-            break
-        end
-
-        #If the proposed step would overshoot and jump past where we want, we shrink the step size to land exactly at the end. 
-        if t[end] + Δt > t_end
-            Δt = t_end - t[end]
-        end
-
-        #Grabs most recent state and time. This lets us always start from latest point, including after jumps. 
-        xₖ = x[end]
-        tₖ = t[end]
-
-        #Logic for solver type
-        if is_adaptive
-            #If adaptive, the step_method  returns new state, the actual step size is used and a suggestion for the next step size.
-            x_predict, Δt_used, Δt_next = step_method(f, xₖ, Δt, tₖ, t_end)
-        else 
-            #Execute numerical integration step (e.g. forward Euler) to predict the state at next time.
-            x_predict = step_method(f, xₖ, Δt, tₖ)
-            Δt_used = Δt
-            Δt_next = Δt
-        end
-
-        #Calcs timestamp for predicted state. 
-        t_next = tₖ + Δt_used
-
-        #Evaluates the switching function at start of next step
-        h_now = guard(sys,xₖ)
-        
-        #Evalutes the switching function at end of next step
-        h_next = guard(sys, x_predict)
-
-        #JUMP CONDITION
-        if crossed_guard(h_now, h_next; tol=tol) && t_next < t_end
-
-            τ_star = find_crossing_bisection(sys, xₖ, Δt_used, h_now; tol=tol)
-            t_star = tₖ + τ_star
-            x⁻ = xₖ + τ_star * f(xₖ, tₖ)
-
-            if abs(t_star - last_jump_t) < tol
-                instant_jumps += 1
-            else 
-                instant_jumps = 1 
-            end
-            last_jump_t = t_star
-
-            if check_beating_status(sys, instant_jumps, n, x⁻, t_star, tol) != :continue
-                break
-            end
-
-            #Logs the state right at moment of impact
-            push!(x, x⁻) 
-            push!(t, t_star)
-            
-            #JUMP 
-            #Applies C to the impact state and logs in t_star. This is the jump
-            x⁺ = apply_reset(sys, x⁻)
-
-            push!(x, x⁺)
-            push!(t, t_star)
-
-            #Updates event logs with pinpointed time and current index in the array. 
-            push!(jump_times, t_star)
-            push!(jump_indices, length(x))
-            
-            #Resets step size. Since a jump might happen early in a step, we resume with full sized step from new jump position. 
-            Δt = dt_initial
-        else 
-
-            #if no crossing detected, the pred state and time are just appended to output. 
-            push!(x, x_predict)
-            push!(t, t_next)
-
-            #updates step size for next iteration (mainly for adaptive solvers)
-            Δt = Δt_next
-        end
-    end
-    #returns the time history, state history, and specific detais of discrete jump events detected along the way.
-    return HybridLinearSolution(t,x,jump_times,jump_indices)
-end
-function solve_hybrid_system(problem::HybridAffineProblem, dt_initial::Float64; step_method=forward_euler_step, is_adaptive=false, max_iter=10^6, tol = 1e-12)
-    
-    #Deconstruct the system structure.
-    sys = problem.sys
-    n = size(sys.A, 1)
-
-    #unpacks time span
-    t_start, t_end = problem.tspan
-
-    #Initialize time and output vectors starting with initial conditions.
-    t = [t_start]
-    x = [problem.x₀]
-
-    #empty list to store timestamps where jumps occur
-    jump_times = Float64[]
-    jump_indices = Int[]
-
-    instant_jumps = 0
-    last_jump_t = -Inf
-    iter = 0
-
-    #Sets initial time step size. This can change if the solver we use is adaptive or needs to hit a specific time boundary.
-    Δt = dt_initial
-    
-    #Defines the vector field for continuous part
-    f(x, t) = sys.A * x + sys.b
-
-    #This main loop continuous as long as the most recent recorded time is less than final
-    while t[end] < t_end
-        iter += 1
-        if iter > max_iter 
-            @warn "Max iterations reached possible Zeno"
-            break
-        end
-
-        if t_end - t[end] <= eps(t_end) * 10
-            break
-        end
-
-        Δt_step = (t[end] + Δt > t_end) ? (t_end - t[end]) : Δt
-
-        #Grabs most recent state and time. This lets us always start from latest point, including after jumps.
-        xₖ = x[end]
-        tₖ = t[end]
-
-        #Logic for solver type
-        if is_adaptive
-            #If adaptive, the step_method  returns new state, the actual step size is used and a suggestion for the next step size.
-            x_predict, Δt_used, Δt_next = step_method(f, xₖ, Δt_step, tₖ, t_end)
-        else 
-            #Execute numerical integration step (e.g. forward Euler) to predict the state at next time.
-            x_predict = step_method(f, xₖ, Δt_step, tₖ)
-            Δt_used = Δt_step
-            Δt_next = dt_initial
-        end
-
-        #calc timestamp for predicted state
-        t_next = tₖ + Δt_used
-
-        #evaluates the affine version at start of next step
-        h_now = guard(sys, xₖ)
-
-        #evaluates the affine version at end of next step
-        h_next = guard(sys, x_predict)
-
-        #Jump condition
-        if crossed_guard(h_now, h_next; tol=tol) && t_next <= t_end
-
-            τ_star = find_crossing_bisection(sys, xₖ, Δt_used, h_now; tol=tol)
-            t_star = tₖ + τ_star
-            x⁻ = xₖ + τ_star * f(xₖ, tₖ)
-
-            if abs(t_star - last_jump_t) < tol
-                instant_jumps += 1
-            else 
-                instant_jumps = 1
-            end
-            last_jump_t = t_star
-
-            if check_beating_status(sys, instant_jumps, n, x⁻, t_star, tol) != :continue
-                break
-            end
-
-            #logs the state at moment of impact 
-            push!(x, x⁻)
-            push!(t, t_star)
-
-            #JUMP
-            #applies C and \kappa to the impact state and logs in t_star. 
-            x⁺ = apply_reset(sys,x⁻) #post jump state at t_star
-
-            push!(x, x⁺)
-            push!(t,t_star)
-
-            #update jump times and indices
-            push!(jump_times, t_star)
-            push!(jump_indices, length(x))
-
-            #resets step size. 
-            Δt = dt_initial
-        else 
-            #if no jump, the pred state and time are just appended to output.
-            push!(x, x_predict)
-            push!(t, t_next)
-
-            #update step size if adaptive
-            Δt = Δt_next
-        end
-    end
-    return HybridAffineSolution(t, x, jump_times, jump_indices)
+    return solveloop(sol, prob, f; solver=solver, event_method=event_method, dt_initial=dt_initial, max_iter=max_iter, tol=tol) #writing equals incase not inputted 
 end
 
 function solve_hybrid_system_exp(problem::HybridLinearProblem, dt_initial::Float64; tol=1e-10, max_iter=10^6)
