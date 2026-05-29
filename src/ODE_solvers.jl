@@ -104,7 +104,14 @@ function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
     end
 end
 
-#EVERYTHING I ADDDED IS BELOW. I figure we move these types to the top after I get your OK.
+#Event detection utility. 
+#If a guard surface was crossed and during the ODE step. We check for a sign change between start and end of the step. 
+#Made as a function so we can use it to all solvers with the same logic. We will need another idea for event detection when signs dont change but I havent gotten that far
+function crossed_guard(h_now, h_next; tol=1e-12)
+    #returns true if sign flipped, or if we start on the guard and push through
+    return (h_now * h_next < 0) || (abs(h_now) <= tol && h_next < -tol)
+end
+
 #solver steps we can have. Should be easy to implement more by just adding on. 
 #only for FEuler
 function take_step(::ForwardEuler, sys, f, xₖ, tₖ, Δt, tol)
@@ -130,141 +137,139 @@ function take_step(::ModifiedTrap, sys, f, xₖ, tₖ, Δt, tol)
     return x_predict, eventtrigger, h_now
 end
 
-#event detection space. Similar to above with take_step and be easy to add more options. 
-function locate_event(::BisectionLocator, sys, f, xₖ, tₖ, Δt, h_now, tol)
-
-    #use bisection to narrow down the interval
-    τ_star = find_crossing_bisection(sys, xₖ, Δt, h_now; tol=tol)
-    
-    #get time of event
-    t_star = tₖ + τ_star
-
-    #Linearly interpolate to find the exact state at the moment of impact (this method should be good enough for bisection but I can be smarter when we do more)
-    x⁻ = xₖ + τ_star * f(xₖ, tₖ)
-    return t_star, x⁻
+function take_step(::ExponentialSolver, sys, f, xₖ, tₖ, Δt, tol)
+    flowmap = LinearFlow(sys.A)
+    x_predict = flow(flowmap, Δt, xₖ)
+    h_now = guard(sys, xₖ)
+    h_next = guard(sys, x_predict)
+    eventtrigger = crossed_guard(h_now, h_next; tol=tol)
+    return x_predict, eventtrigger, h_now
 end
 
+#Locator Dispatches
+#Isolates the root finding mathematics inside each one. This gets rid of global helpers so when we add new locators its really easy
+
+#Bisection Method (Iterative)
+function locate_event(::BisectionLocator, sys, f, xₖ, tₖ, Δt, h_now, tol)
+    # 1. Capture the vector field for this specific system
+    vf = vector_field(sys)
+    
+    # 2. Perform Bisection using the system's interface
+    τ_star = 0.0
+    τ_l, τ_r = 0.0, Δt
+    h_l = h_now
+    
+    for _ in 1:100 # max_iter
+        if (τ_r - τ_l) < tol break end
+        τ_m = (τ_l + τ_r) / 2.0
+        
+        # We use the system's f (vector_field) and guard here
+        x_m = xₖ + τ_m * vf(xₖ, tₖ) 
+        
+        if signbit(h_l) != signbit(guard(sys, x_m))
+            τ_r = τ_m
+        else
+            τ_l = τ_m
+            h_l = guard(sys, x_m)
+        end
+    end
+    
+    t_star = tₖ + τ_l
+    x_star = xₖ + τ_l * vf(xₖ, tₖ)
+    return t_star, x_star
+end
+#Linear Interpolation
 function locate_event(::LinearLocator, sys, f, xₖ, tₖ, Δt, h_now, tol)
     #Linear Interpolation as usual
     x_predict = xₖ + Δt * f(xₖ, tₖ)
     h_next = guard(sys, x_predict)
-    return locate_guard_crossing(xₖ,x_predict,h_now,h_next, tₖ, Δt) 
+    θ = -h_now / (h_next - h_now)
+    t_star = tₖ + θ * Δt
+    x_star = xₖ + θ * (x_predict - xₖ)
+    return t_star, x_star
 end
 
-function solveloop(sol, prob::Union{HybridLinearProblem, HybridAffineProblem}, f; solver::AbstractODESolver = ForwardEuler(), event_method::AbstractEventLocator = BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12)
-    sys = prob.sys                  #Extract system from problem
-    t_start, t_end = prob.tspan     #Extract start and end times for bounds
-    n = size(sys.A, 1)              #State dimension for beating and blocking stuff
+#SOLVE LOOP 
+#goal: Run the main simulation loop for any valid hybrid system and solver
+#Reasoning: Notice we do not have "if LinearSystem" or "If forwardEuler" statements. Because we pass the solver and sys and event method as args,
+#multiple dispatch automatically routes the math to where we want it. 
+#This function is purely an "Orchestrator". It only cares about the broad strokes where it steps -> checks events -> resolves impact -> logs data. 
+function solveloop(sol, prob::AbstractHybridProblem, f; solver::AbstractODESolver = ForwardEuler(), event_method::AbstractEventLocator = BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12)
+    
+    #Initialization
+    sys = prob.sys
+    xₖ = prob.x₀
+    tₖ = prob.tspan[1]
+    t_end = prob.tspan[2]
+    dt = dt_initial
+    
+    #State trackers for Zeno eventually? 
+    instant_jumps = 0
+    last_jump_t = -Inf
+    n = get_dimension(sys)
 
-    Δt = dt_initial                 #Initialize current time step with user input
-    instant_jumps = 0               #Track jump count at specific timestampts to detect Zeno (?)
-    last_jump_t = -Inf              #Store timestamp of prev jump for interval comparison
-    iter = 0                        #Start iteration counter
-
-    #Run sim until end of specified time span
-    while sol.t[end] < t_end 
+    for iter in 1:max_iter
         
-        #Stop if we hit the iteration limit to avoid memory doomsday
-        iter += 1
-        if iter > max_iter 
-            @warn "Maximum Iteration Count ($max_iter) exceeded."
+        #Termination check: use eps(end) to account for floating point errors. Without this might get stuck at like 9.9999999999999 instead of 10.
+        if tₖ >= t_end - eps(t_end)
             break
         end
 
-        #terminate if the remaining time is below machine precision so we dont blow up
-        if t_end - sol.t[end] <= eps(t_end)
-            break
-        end
+        #OVERSHOOT PROTECTION
+        #This ensures solver lands exactly on t_end for the final step rather than going over and simulation outside inputs.
+        dt_step = min(dt, t_end - tₖ)
 
-        #Truncate time step if we overshoot the final sim time
-        Δt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
+        #ATTEMPT CONTINUOUS STEP
+        #Dispatch calls the specific math for the chosen solver. Returns pre state and boolean flag for if guard was crossed. 
+        x_predict, event_triggered, h_now = take_step(solver, sys, f, xₖ, tₖ, dt_step, tol)
 
-        xₖ = sol.x[end] #Retrieve current state at start of step
-        tₖ = sol.t[end] #Retrieve current time at start of step
+        #DISCRETE EVENT HANDLING
+        if event_triggered
 
-        #Calc next state and check for guard crossing using chosen method
-        x_predict, eventtrigger, h_now = take_step(solver, sys, f, xₖ, tₖ, Δt_step, tol)
-        t_next = tₖ + Δt_step
+            #Pinpoint the exact impact time and state using the chosen locator strategy 
+            t_star, x_star = locate_event(event_method, sys, f, xₖ, tₖ, dt_step, h_now, tol)
 
-        #If an event occurred use the locator method to resolve  
-        if eventtrigger == true && t_next <= t_end
-
-            #Pinpoint exact crossing time and state via chosen method
-            t_star, x⁻ = locate_event(event_method, sys, f, xₖ, tₖ, Δt_step, h_now, tol)
-
-            #Check if jump is instantaneous relative to the last one (My current Zeno solution but I plan to make it better)
+            #ZENO DETECTION
+            #If current jump is at effectively same time as the last, increment the counter. Otherwise reset. 
+            #Note this is just from my previous loop. We can get rid of it here if we want to keep things cleaner.
             if abs(t_star - last_jump_t) < tol
                 instant_jumps += 1
-            else 
+            else
                 instant_jumps = 1
             end
-            last_jump_t = t_star #update last jump time to current impact time
-
-            #Validate system state against beating/blocking condition
-            status = check_beating_status(sys, instant_jumps, n, x⁻, t_star, tol)
-            if status != :continue
-                break
-            end
+            last_jump_t = t_star
             
-            #Apply system discrete reset map to update
-            x⁺ = apply_reset(sys, x⁻)
+            #BLOCKING/BEATING TRAP
+            #Also from my old loop, see above. 
+            #If system gets stuck on guard surface, gives us info. 
+            status = check_beating_status(sys, instant_jumps, n, x_star, t_star, tol)
+            if status != :continue; break; end
 
-            #Log preimpact, and post impact states to solution objects
-            push!(sol.x, x⁻, x⁺)
+            #Apply Reset map believe it or not
+            x⁺ = apply_reset(sys, x_star)
+
+            #PLOTTING ARCH
+            #We explicitly push both the pre-impact state x_star and post-impact state x⁺ to the same timestamp t_star.
+            #This allows our post-processing functions to give NaN values between the points preventing lines between plots when we do that.
+            #Also old code, can be gotten rid of/ altered?
             push!(sol.t, t_star, t_star)
+            push!(sol.x, x_star, x⁺)
+            
+            #Record event data for analysis
             push!(sol.jump_times, t_star)
-            push!(sol.jump_indices, length(sol.x))
+            push!(sol.jump_indices, length(sol.x)) 
 
-            #Restore original time step after a jumpt
-            Δt = dt_initial
+            #Lock in post-impact state to continue the loop
+            xₖ = x⁺ 
+            tₖ = t_star
+        
+        #IF NOT EVENT go to next step Log it then Loop.
         else
-
-            #if no crossing of guard, store the pred continuous state and proceed. 
-            push!(sol.x, x_predict)
-            push!(sol.t, t_next)
-            Δt = dt_initial
+            tₖ += dt_step
+            xₖ = x_predict
+            push!(sol.t, tₖ)
+            push!(sol.x, xₖ)
         end
     end
     return sol
 end
-
-## Loop solving
-#=
-The "solve" dispatches convert the systems within the problems into vector fields to pass to the solve loop. Any solve dispatch would take the form,
-
-function solve(prob{:>systemtype}, solver; step_method=forward_euler_step, is_adaptive=false, max_iter=10^6, tol = 1e-12, event_method=lin_int, kwargs...)
-
-    vecfield = "system specific math to make prob.sys the right input for ODE solving"
-
-    sol = solveloop(vecfield, solver; kwargs...)
-
-    return sol
-end
-
-Idk how to handle different kinds of solution structs though
-=#
-
-# function solveloop(vecfield, solver::steptype ; step_method=forward_euler_step, is_adaptive=false, max_iter=10^6, tol = 1e-12, event_method=lin_int, kwargs...)
-    
-#     while t[end] < t_end
-#         # plus safties
-
-#---------------------
-# The other option here is to have a dispatch of each step type for each of the degrees of interpolation and extrapolation.
-# Doing so might get ugly, but I think it would run faster because there wouldn't be redundant calculations, so I'm leaning toward that
-
-#         # call solver step
-#         pt, eventtrigger = steptype(pt)
-
-#         # if event, use specified method to accurately locate
-#         if eventtrigger = true
-#             newpt = event_method(pt) # or vector of points
-#         end
-#----------------------
-#         # push to sol
-
-
-#     end
-
-#     return sol
-# end

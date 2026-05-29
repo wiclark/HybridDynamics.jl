@@ -3,28 +3,81 @@ module HybridDynamics
 using LinearAlgebra
 using ForwardDiff
 
-#The template for any solver method we use. I think this makes it nicer?
-abstract type AbstractODESolver end
-
-#Euler method tag and the others. I wont comment each as its pretty self explanatory
-struct ForwardEuler <: AbstractODESolver end
-struct ModifiedTrap <: AbstractODESolver end
-struct ModifiedMidpoint <: AbstractODESolver end
-
-abstract type AbstractEventLocator end
-struct LinearLocator <: AbstractEventLocator end
-struct BisectionLocator <: AbstractEventLocator end
-
-include("ODE_solvers.jl")
-
+include("Definitions.jl")
 include("Systems/Linear_Affine.jl")
 include("Systems/Lag_Ham.jl")
+include("ODE_solvers.jl")
 
-export HybridLinearSystem, HybridAffineSystem, 
-       HybridLinearProblem, HybridAffineProblem, 
-       HybridLinearSolution, HybridAffineSolution,
-       CreateSystem, CreateProblem, CreateSolution,
-       solve_hybrid_system_exp,
-       solve, solveloop, ForwardEuler, ModifiedTrap, ModifiedMidpoint, BisectionLocator, LinearLocator
+export AbstractHybridSystem, AbstractHybridProblem
+export LinearSystem, AffineSystem, LinearProblem, AffineProblem
+export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver
+export LinearLocator, BisectionLocator
+export beating_and_blocking_sets, is_trivially_blocking
 
 end
+
+
+"""
+INTEGRATION GUIDE
+
+This method of doing things uses Multiple Dispatch to seperate the physics from the solvers. 
+To integrate a new system or solver, follow this guide that hopefully explains everything. 
+Note: if you want more details on the specific things going on, go to the comments I have in each section as this will just be the overview
+
+1. ADDING A NEW SYSTEM TYPE
+To add a new system (e.g., 'MySystem.jl'), define a struct that subtypes 'AbstractHybridSystem' in a new file within '/src/Systems/'.
+
+Mandatory Implementation for All Systems:
+    - get_dimension(sys::MySysem) -> Int
+    - vector_field(sys::MySystem) -> Function(x,t)
+    - guard(sys::MySystem, x) -> Real (returns 0 at crossing) #doesnt always need to be zero, see Definitions.jl for more
+    - apply_reset(sys::MySystem, x) -> Vector (returns state after jump)
+
+Option Implementation for All Systems:
+    - cheack_beating_status(sys::MySystem, ...) -> Symbol (default :continue)
+    Overrid this only if the system is prone to beating/blocking behavior
+
+2) ADDING A NEW SOLVER
+If you need to add a new integration method (e.g., RK4, etc):
+
+WHERE: /src/ODE_solvers.jl
+HOW: 
+    1) Define a tag: 'struct MyNewSolver <: AbstractODESolver end'
+    2) Implement the engine:
+        function take_step(::MyNewSolver, sys, f, xₖ, tₖ, Δt, tol)
+            1) Compute x_predict (the integration math)
+            2) Compute h_now = guard(sys, xₖ)
+            3) Compute h_next = guard(sys, x_predict)
+            4) eventrigger = (signbit(h_now) != signbit(h_next))
+            4) Return (x_predict, eventtriggered, h_now)
+        
+
+3) ADDING A NEW EVENT LOCATOR (INTER/EXTRAPOLATION METHODS)
+If you need a specialized root finding stragedy for event, or higher/lower order methods:
+
+WHERE: /src/ODE_solvers.jl
+HOW: 
+    1) Define a tag: 'struct MyNewLocator <: AbstractEventLocator end'
+    2) Implement the search:
+    function locate_event(::MyNewLocator, sys, f, xₖ, tₖ, Δt, h_now, tol)
+        1) Define search interval: [0, Δt]
+        2) Perform root-finding: (e.g., Bisection or Newton's) until range < tol
+        3) Calculate t_star = tₖ + τ_star (where τ_star is the found crossing time)
+        4) Calculate x_star = (the state at t_star via interpolation, extrapolation or integration)
+        5) Return (t_star, x_star)
+    end
+
+
+VARIABLE DICTIONARY:
+* sys:  The physical system object (e.g., LinearSystem)
+* f:    The vector field function '(x,t) -> dx/dt
+* xₖ:   The state vector (current position in state space)
+* tₖ:   The current time in the simulation
+* Δt:   The time step (duration of current step)
+* tol:  The tolerance (error threshold for adaptive steps or root-finding)
+* h_now:    The guard calue at the start of the step (sign indicates position relative to guard surface)
+* h_next:   The guard value at the end of the predicted step
+* eventtriggered: A Bool flag indicating if the guard was crossed. 
+* t_star:   The precise time of impact/event
+* x_star:   The precise state vector at the moment of impact  
+"""
