@@ -17,7 +17,7 @@ end;
 
 Lsys = HybridDynamics.LagSys(L)
 
-probl = HybridDynamics.Prob(Lsys, init, tspan)
+probl = HybridDynamics.prob(Lsys, init, tspan)
 sl = HybridDynamics.solve(probl, HybridDynamics.forward_euler; dt=0.01)
 
 ql = [x[1] for x in sl[2]]

@@ -163,7 +163,6 @@ function solve(prob::prob{<:Union{LinearSystem, AffineSystem}}, solver::Abstract
     f = vector_field(sys)
     sol = init_solution(prob)
     
-    
     t_start, t_end = prob.tspan     #Extract start and end times for bounds
     n = size(sys.A, 1)              #State dimension for beating and blocking stuff
 

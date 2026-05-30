@@ -1,6 +1,6 @@
 # I want to understand hybrid Lagrangian systems (Hamiltonian will follow)
 
-using ForwardDiff
+# using ForwardDiff
 
 struct HybridLagrangianSystem
     L::Function
@@ -13,11 +13,6 @@ end
 # 2. Implement an intelligent way to perform event detection
 # 3. Determine whether or not the system is Zeno and state when/where that occurs.
 
-
-#  Overarching type, might not be necessary
-# abstract type AbstractDynamics end
-
-
 # Allow options for how the solver arrives at the equations of motion (EOM)
 abstract type Backend end
 struct AutoForwardDiff <: Backend end   # Automatic differentiation using ForwardDiff
@@ -25,17 +20,35 @@ struct AutoFiniteDiff  <: Backend end   # Finite differences
 struct ManualEOM       <: Backend end   # Manually provide sumthin?
 
 
-# General problem structure
-struct Prob{F, I, T}
-    sys::F
-    init::I
-    tspan::T
+# Default reset map: spectral reflection with coefficient of restitution
+""" 
+See "Is There Life After Zeno? paper
+"""
+function spectral_refl(x, M, dh; e=1.0)
+
+    n = length(x) ÷ 2
+
+    q = x[1:n]          # positions
+    v = x[n+1:end]      # velocities
+
+    Mq = M(q)           # Mass matrix
+
+    # Constraint normal (row -> column)
+    normal = vec(dh(q))
+
+    # Denominator
+    denom = normal' * (Mq \ normal)
+
+    # Full equation
+    P = I - (1 + e) * ((Mq \ (normal * normal')) / denom)
+    vnew = P * v
+
+    return vcat(q, vnew)
 end
 
 ################################
 ################################
 ## Lagrangian dynamics
-
 
 # General Lagrangian system
 struct LagSys{L,G,R,E,B}
@@ -48,34 +61,30 @@ end
 
 # Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
 """
-explaining the thing and the kwargs
+Lagrangian System
  - L
-
+ - 
 """
 function LagSys(L;
             guard=nothing,
-            reset = (x,e) -> spectral_refl(x,e),
+            reset = (x, M, dh, e) -> spectral_refl(x, M, dh; e),
             e = 1.0,
             B = AutoForwardDiff())
 
     return LagSys(L, guard, reset, e, B)
 end
 
-# Solve a Lagrangian problem
-function solve(prob::Prob{<:LagSys}, solver; kwargs...) # solver specifically for LagProb struct, kwargs for step size or tolerances (optional / solver dependent)
-    
-    fun = prob.sys
-    F(x, t) = lagrangian_vec_field(fun.L, x, t)
+# Solution object for Lagrangian problems
+struct LagSol{T, X, T_e1, T_z}
+    T::T        # Time data
+    X::X        # Position data
+    T_e1::T_e1  # Time of first event
+    T_z::T_z    # Time of Zeno
+end
 
-    sys = prob.sys
+# Does this need to be a general constructor or can I go straight to initializing the solution state?
+function LagSol
 
-    # If no guard is provided, return the normal continuous solve
-    if isnothing(sys.guard)
-        return solver(F, prob.init, prob.tspan; kwargs...)
-    end
-
-    # If a guard is provided, return the hybrid specific solve function
-    return hybrid_solve(prob, solver; kwargs...)
 end
 
 # Equations of motion from Euler-Lagrange equations using ForwardDiff
@@ -110,7 +119,7 @@ end
     end
 
     # Find the complete vector field from a Lagrangian using automatic differentiation
-    function lagrangian_vec_field(L, x::AbstractVector, t)
+    function lagrangian_vec_field(L::Function, x::AbstractVector, t)
 
         # Integer division
         n = length(x) ÷ 2
@@ -127,81 +136,36 @@ end
         return vcat(qdot, qddot)
     end
 
-# *Still need to make this go somewhere* Option to input M, C, and F directly
-struct ManualLag{M, C, F}
-    M::M    # Mass matrix, could be noninvertable
-    C::C    # Coriolis matrix
-    F::F    # Force
-end
+# Option to input M, C, and F directly
+    struct ManualLag{M, C, F}
+        M::M    # Mass matrix, could be noninvertable
+        C::C    # Coriolis matrix
+        F::F    # Force
+    end
+
+    function lagrangian_vec_field(L::ManualLag, x::AbstractVector, t)
+        # Unpack matrices
+        M, C, F = L
+
+        # Calculate the vector field
 
 
-### Hybrid Lagrangian systems:
+        return
+    end
 
-# Solve dispatch specific to hybrid systems
-function hybrid_solve(prob, solver; kwargs...)
-
+# Solve a Lagrangian problem
+function solve(prob::prob{LagSys}, solver; kwargs...) # solver specifically for LagProb struct, kwargs for step size or tolerances (optional / solver dependent)
+    
     sys = prob.sys
-
-    x = prob.init
-    t0, tf = prob.tspan
+    f = lagrangian_vec_field(sys.L, x, t)
+    sol = initsol(prob)     # See line 85
 
     
 
-    return sol
+
+
+    return 
 end
-#=
-This was my first thought. I want the event detection to be within the solver though (I think)
-    function solve(prob::LagProb{<:HybridLagSys}, solver; kwargs...)
-
-        sys = prob.sys
-
-        x = prob.init
-        t0, tf = prob.tspan
-
-        trajectory = []
-
-        while t0 < tf
-
-            # Continuous dynamics
-            F(x,t) = lagrangian_vec_field(sys.L, x, t)
-
-            # Integrate until event
-            sol = solver(F, x, (t0, tf); event = sys.h, kwargs...)
-
-            push!(trajectory, sol)
-
-            # No event occurred
-            if terminal(sol)
-                break
-            end
-
-            # Apply reset map after impact
-            x = sys.reset(sol.x[end])
-
-            # Restart after event time
-            t0 = sol.t[end]
-        end
-
-        return trajectory
-    end
-=#
-
-# Default reset map: spectral reflection with coefficient of restitution
-function spectral_refl(x, e)
-
-    n = length(x) ÷ 2
-
-    q = x[1:n]          # positions
-    qdot = x[n+1:end]   # velocities
-
-    # positions unchanged, velocities reflected
-
-
-
-
-    return vcat(q, qdot)
-end
-
 
 ################################
 ################################
@@ -221,7 +185,7 @@ function HamSys(H; guard=nothing, reset = (x,e) -> spectral_refl(x,e), e = 1.0)
 end
 
 # Solve a Hamiltonian problem
-function solve(prob::Prob{HamSys}, solver; kwargs...)
+function solve(prob::prob{HamSys}, solver; kwargs...)
     
     # Extract the Hamiltonian
     system = prob.sys
