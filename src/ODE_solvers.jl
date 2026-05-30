@@ -189,6 +189,25 @@ function locate_event(::LinearLocator, sys, f, xₖ, tₖ, Δt, h_now, tol)
     return t_star, x_star
 end
 
+#SOLVE WRAPPER:
+#Goal: Get a clean friendly thinf for users, while keeping it fast. 
+#Reasoning: We could just put this all in the solveloop but here is why i chose not to. 
+#solveloop is our hig-performance calculator. It wants to only focus on the math. If we passed 'prob' directly into solveloop the engine would 
+#have to extract 'f=vector_field(sys)' or initialize memory inside. By doing it here we handle the prep work exactly once and pass a prepared
+#and type-stable toolkit for solveloop. This stemmed from the difference we saw in the exact solver the first time it ran vs the second. 
+function solve(prob::AbstractHybridProblem, solver::AbstractODESolver; event_method::AbstractEventLocator=BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12)
+    sys = prob.sys
+
+    #Extract the physics once before the loop starts
+    f = vector_field(sys)
+
+    #Allocate the memory once before the loop
+    sol = init_solution(prob)
+
+    #Pass prepped variables to the raw engine
+    return solveloop(sol, prob, f; solver=solver, event_method=event_method, dt_initial=dt_initial, max_iter=max_iter, tol=tol) #writing equals incase not inputted 
+end
+
 #SOLVE LOOP 
 #goal: Run the main simulation loop for any valid hybrid system and solver
 #Reasoning: Notice we do not have "if LinearSystem" or "If forwardEuler" statements. Because we pass the solver and sys and event method as args,

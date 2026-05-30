@@ -1,7 +1,4 @@
-using Pkg
-Pkg.activate(".")
 using HybridDynamics
-using LinearAlgebra
 using Plots
 
 
