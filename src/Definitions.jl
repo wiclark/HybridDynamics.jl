@@ -42,6 +42,10 @@ struct ExponentialSolver <: AbstractODESolver end
 #Richardson Extrapolation tag
 struct RichardsonExtrapolation <: AbstractODESolver end
 
+struct AdamsBashforth2 <: AbstractODESolver end
+
+struct AdamsBashforth3 <: AbstractODESolver end
+
 #-----------------------
 #LOCATOR TAGS
 #These are similar to the solver tags. But these define how the solver finds the exact crossing time once an event is detected. 

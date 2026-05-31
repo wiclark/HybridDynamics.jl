@@ -28,7 +28,7 @@ tspan = (0.0, 5.0)
 
 prob = GeneralProblem(f_ball, h_floor, Δ_bounce, x0, tspan)
 
-sol = solve(prob, ForwardEuler() )
+sol = solve(prob, AdamsBashforth2() )
 
 function get_rid_of_jump_lines(sol)
     t = Float64[]

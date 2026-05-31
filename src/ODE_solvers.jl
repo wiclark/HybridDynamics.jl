@@ -119,6 +119,29 @@ function richardson_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFl
     return (4 .* z2 .- z1) ./ 3.0
 end
 
+function adamsbashforth2_step(f::Function, xₖ::Vector, tₖ::AbstractFloat, Δt::AbstractFloat, x_prev::Vector, t_prev::AbstractFloat)
+    #calc previous time step size
+    dt_previous = tₖ - t_prev
+
+    #eval current and past derivatives
+    fₖ = f(xₖ, tₖ)
+    f_prev = f(x_prev, t_prev)
+
+    #AB2 formula 
+    α = Δt / dt_previous
+    return xₖ .+ Δt .* ((1.0 + .5 * α) .* fₖ .- (0.5 * α) .* f_prev)
+end
+
+function adamsbashforth3_step(f::Function, xₖ::Vector, tₖ::AbstractFloat, Δt::AbstractFloat, x_prev1::Vector, t_prev1::AbstractFloat, x_prev2::Vector, t_prev2::AbstractFloat)
+    fₖ = f(xₖ, tₖ)
+    f_prev1 = f(x_prev1, t_prev1)
+    f_prev2 = f(x_prev2, t_prev2)
+
+    return xₖ .+ Δt .* ( (23/12) .* fₖ .- (16/12) .* f_prev1 .+ (5/12) .* f_prev2 )
+end
+    
+
+
 #Event detection utility. 
 #If a guard surface was crossed and during the ODE step. We check for a sign change between start and end of the step. 
 #Made as a function so we can use it to all solvers with the same logic. We will need another idea for event detection when signs dont change but I havent gotten that far
@@ -175,6 +198,62 @@ function take_step(::RichardsonExtrapolation, sys, f, xₖ, tₖ, Δt, tol)
 
     return x_predict, eventtrigger, h_now
 end
+
+#LINEAR MULTISTEP METHODS STUFF
+#This take_step is used to differentiate between the LMM and the other types. Passing sol is what does it. Then we use the LMM only when we have this type of arguments
+function take_step(solver::AbstractODESolver, sys, f, xₖ, tₖ, Δt, tol, sol)
+    return take_step(solver, sys, f, xₖ, tₖ, Δt, tol)
+end
+
+#AB2
+function take_step(::AdamsBashforth2, sys, f, xₖ, tₖ, Δt, tol, sol)
+    #check how many continuous steps have occurred since last jump
+    #sol.jump_indices[end] tells us where the current trajectory started
+    history_len = isempty(sol.jump_indices) ? length(sol.x) : (length(sol.x) - sol.jump_indices[end] + 1)
+
+    if history_len < 2
+        #post jump reset phase:
+        #we dont have enough points yet. we use Forward Euler to guess for now
+        x_predict = modified_trap_step(f, xₖ, Δt, tₖ)
+    else
+        #Multistep phase: extract current and previous data points
+        x_prev = sol.x[end-1]
+        t_prev = sol.t[end-1]
+        x_predict = adamsbashforth2_step(f, xₖ, tₖ, Δt, x_prev, t_prev)
+    end
+
+    #usual guard and event logic
+    h_now = guard(sys, xₖ)
+    h_next = guard(sys, x_predict)
+    eventtrigger = crossed_guard(h_now, h_next; tol=tol)
+    return x_predict, eventtrigger, h_now
+end
+
+function take_step(::AdamsBashforth3, sys, f, xₖ, tₖ, Δt, tol, sol)
+    #Determine how many cont steps we have since last jump
+    history_len = isempty(sol.jump_indices) ? length(sol.x) : (length(sol.x) - sol.jump_indices[end] + 1)
+
+    if history_len < 3
+        #startup phase: less than 3 points of cont history we need. Use Richardson extra to build
+        x_predict = richardson_step(f, xₖ, Δt, tₖ)
+    else 
+        #multistep phase: get history time
+        x_prev1 = sol.x[end-1]
+        t_prev1 = sol.t[end-1]
+
+        x_prev2 = sol.x[end-2]
+        t_prev2 = sol.t[end-2]
+
+        x_predict = adamsbashforth3_step(f, xₖ, tₖ, Δt, x_prev1, t_prev1, x_prev2, t_prev2)
+    end
+    #guard stuff
+    h_now = guard(sys,xₖ)
+    h_next = guard(sys, x_predict)
+    eventtrigger = crossed_guard(h_now, h_next; tol=tol)
+
+    return x_predict, eventtrigger, h_now
+end
+
 
 #Locator Dispatches
 #Isolates the root finding mathematics inside each one. This gets rid of global helpers so when we add new locators its really easy
@@ -270,7 +349,7 @@ function solveloop(sol, prob::AbstractHybridProblem, f; solver::AbstractODESolve
 
         #ATTEMPT CONTINUOUS STEP
         #Dispatch calls the specific math for the chosen solver. Returns pre state and boolean flag for if guard was crossed. 
-        x_predict, event_triggered, h_now = take_step(solver, sys, f, xₖ, tₖ, dt_step, tol)
+        x_predict, event_triggered, h_now = take_step(solver, sys, f, xₖ, tₖ, dt_step, tol, sol)
 
         #DISCRETE EVENT HANDLING
         if event_triggered

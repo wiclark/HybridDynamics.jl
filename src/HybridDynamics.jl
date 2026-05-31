@@ -9,11 +9,25 @@ include("Systems/Lag_Ham.jl")
 include("Systems/General.jl")
 include("ODE_solvers.jl")
 
+#Basic Def Structs
 export AbstractHybridSystem, AbstractHybridProblem
+
+#Linear/Affine System/Problem structs
 export LinearSystem, AffineSystem, LinearProblem, AffineProblem
+
+#General System/Problem structs
 export GeneralSystem, GeneralProblem
-export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver, RichardsonExtrapolation
+
+#ODE Step solvers - Interpolation
+export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver
+
+#ODE Step solvers - Extrapolation 
+export AdamsBashforth2, AdamsBashforth3, RichardsonExtrapolation
+
+#EventDetection locators
 export LinearLocator, BisectionLocator
+
+#Linear/Affine additives
 export beating_and_blocking_sets, is_trivially_blocking
 
 end
