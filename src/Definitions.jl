@@ -37,6 +37,11 @@ struct ModifiedMidpoint <: AbstractODESolver end
 #Tag for exact integration of Linear systems via the matrix Exponential 
 struct ExponentialSolver <: AbstractODESolver end
 
+#Extrapolation struct tags
+
+#Richardson Extrapolation tag
+struct RichardsonExtrapolation <: AbstractODESolver end
+
 #-----------------------
 #LOCATOR TAGS
 #These are similar to the solver tags. But these define how the solver finds the exact crossing time once an event is detected. 

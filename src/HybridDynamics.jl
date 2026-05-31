@@ -12,7 +12,7 @@ include("ODE_solvers.jl")
 export AbstractHybridSystem, AbstractHybridProblem
 export LinearSystem, AffineSystem, LinearProblem, AffineProblem
 export GeneralSystem, GeneralProblem
-export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver
+export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver, RichardsonExtrapolation
 export LinearLocator, BisectionLocator
 export beating_and_blocking_sets, is_trivially_blocking
 

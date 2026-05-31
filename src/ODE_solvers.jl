@@ -104,6 +104,21 @@ function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
     end
 end
 
+#Extrapolation Step
+#Richardson Extrapolation based on modifed midpoint from Wiki
+function richardson_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
+    #Take one full step size h
+    z1 = modified_midpoint_step(f,z,h,t)
+
+    #Take two smaller steps of h/2
+    h_half = h / 2
+    z_half = modified_midpoint_step(f,z,h_half,t)
+    z2 = modified_midpoint_step(f, z_half,h_half,t+h_half)
+
+    #Extrapolate to get rid of lower order error
+    return (4 .* z2 .- z1) ./ 3.0
+end
+
 #Event detection utility. 
 #If a guard surface was crossed and during the ODE step. We check for a sign change between start and end of the step. 
 #Made as a function so we can use it to all solvers with the same logic. We will need another idea for event detection when signs dont change but I havent gotten that far
@@ -143,6 +158,21 @@ function take_step(::ExponentialSolver, sys, f, xₖ, tₖ, Δt, tol)
     h_now = guard(sys, xₖ)
     h_next = guard(sys, x_predict)
     eventtrigger = crossed_guard(h_now, h_next; tol=tol)
+    return x_predict, eventtrigger, h_now
+end
+
+#Extrapolation 
+function take_step(::RichardsonExtrapolation, sys, f, xₖ, tₖ, Δt, tol)
+    #calc with richardson extrapolation
+    x_predict = richardson_step(f, xₖ, Δt, tₖ)
+
+    #eval guard conditions 
+    h_now = guard(sys, xₖ)
+    h_next = guard(sys, x_predict)
+
+    #check event 
+    eventtrigger = crossed_guard(h_now, h_next; tol=tol)
+
     return x_predict, eventtrigger, h_now
 end
 
