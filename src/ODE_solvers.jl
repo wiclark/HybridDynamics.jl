@@ -259,42 +259,37 @@ end
 #Isolates the root finding mathematics inside each one. This gets rid of global helpers so when we add new locators its really easy
 
 #Bisection Method (Iterative)
-function locate_event(::BisectionLocator, sys, f, xₖ, tₖ, Δt, h_now, tol)
-    # 1. Capture the vector field for this specific system
-    vf = vector_field(sys)
-    
-    # 2. Perform Bisection using the system's interface
-    τ_star = 0.0
+function locate_event(::BisectionLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)
     τ_l, τ_r = 0.0, Δt
     h_l = h_now
     
     for _ in 1:100 # max_iter
         if (τ_r - τ_l) < tol break end
+
+        #test midpoint
         τ_m = (τ_l + τ_r) / 2.0
-        
-        # We use the system's f (vector_field) and guard here
-        x_m = xₖ + τ_m * vf(xₖ, tₖ) 
-        
-        if signbit(h_l) != signbit(guard(sys, x_m))
+
+        x_m, _, _ = take_step(solver, sys, f, xₖ, tₖ, τ_m, tol, sol)
+        h_m = guard(sys, x_m)
+    
+        if signbit(h_l) != signbit(guard(sys, h_m))
             τ_r = τ_m
         else
             τ_l = τ_m
-            h_l = guard(sys, x_m)
+            h_l = h_m
         end
     end
     
     t_star = tₖ + τ_l
-    x_star = xₖ + τ_l * vf(xₖ, tₖ)
+    x_star, _, _ = take_step(solver, sys, f, xₖ, tₖ, τ_l, tol, sol)
     return t_star, x_star
 end
 #Linear Interpolation
-function locate_event(::LinearLocator, sys, f, xₖ, tₖ, Δt, h_now, tol)
-    #Linear Interpolation as usual
-    x_predict = xₖ + Δt * f(xₖ, tₖ)
-    h_next = guard(sys, x_predict)
+function locate_event(::LinearLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)
+    _, _, h_next = take_step(solver, sys, f, xₖ, tₖ, Δt, tol, sol)
     θ = -h_now / (h_next - h_now)
     t_star = tₖ + θ * Δt
-    x_star = xₖ + θ * (x_predict - xₖ)
+    x_star, _, _ = take_step(solver,sys, f, xₖ, tₖ, θ * Δt, tol, sol)
     return t_star, x_star
 end
 
@@ -355,7 +350,7 @@ function solveloop(sol, prob::AbstractHybridProblem, f; solver::AbstractODESolve
         if event_triggered
 
             #Pinpoint the exact impact time and state using the chosen locator strategy 
-            t_star, x_star = locate_event(event_method, sys, f, xₖ, tₖ, dt_step, h_now, tol)
+            t_star, x_star = locate_event(event_method, sys, solver, f, xₖ, tₖ, dt_step, h_now, tol, sol)
 
             #ZENO DETECTION
             #If current jump is at effectively same time as the last, increment the counter. Otherwise reset. 
