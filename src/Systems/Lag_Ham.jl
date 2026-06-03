@@ -61,9 +61,9 @@ end
 
 # Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
 """
-Lagrangian System
+explaining the thing and the kwargs
  - L
- - 
+
 """
 function LagSys(L;
             guard=nothing,
