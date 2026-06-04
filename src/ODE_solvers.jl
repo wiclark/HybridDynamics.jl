@@ -159,7 +159,9 @@ function take_step(::ForwardEuler, sys, f, xₖ, tₖ, Δt, tol)
     h_next = guard(sys, x_predict) #Evalutes guard function at predicted next position to check if we moved through it
     eventtrigger = crossed_guard(h_now, h_next; tol=tol) #compares the above to check if we crossed guard. 
 
-    return x_predict, eventtrigger, h_now
+    dt_next = Δt * 1.2 
+
+    return x_predict, eventtrigger, h_now, dt_next
 end
 
 function take_step(::ModifiedTrap, sys, f, xₖ, tₖ, Δt, tol)
@@ -172,7 +174,9 @@ function take_step(::ModifiedTrap, sys, f, xₖ, tₖ, Δt, tol)
     #check for sign change (I hope to make htis more dignified later)
     eventtrigger = crossed_guard(h_now, h_next; tol=tol)
 
-    return x_predict, eventtrigger, h_now
+    dt_next = Δt * 1.2
+
+    return x_predict, eventtrigger, h_now, dt_next
 end
 
 function take_step(::ExponentialSolver, sys, f, xₖ, tₖ, Δt, tol)
@@ -181,7 +185,8 @@ function take_step(::ExponentialSolver, sys, f, xₖ, tₖ, Δt, tol)
     h_now = guard(sys, xₖ)
     h_next = guard(sys, x_predict)
     eventtrigger = crossed_guard(h_now, h_next; tol=tol)
-    return x_predict, eventtrigger, h_now
+    dt_next = Δt * 1.2
+    return x_predict, eventtrigger, h_now, dt_next
 end
 
 #Extrapolation 
@@ -196,7 +201,9 @@ function take_step(::RichardsonExtrapolation, sys, f, xₖ, tₖ, Δt, tol)
     #check event 
     eventtrigger = crossed_guard(h_now, h_next; tol=tol)
 
-    return x_predict, eventtrigger, h_now
+    dt_next = Δt * 1.2
+
+    return x_predict, eventtrigger, h_now, dt_next
 end
 
 #LINEAR MULTISTEP METHODS STUFF
@@ -226,7 +233,8 @@ function take_step(::AdamsBashforth2, sys, f, xₖ, tₖ, Δt, tol, sol)
     h_now = guard(sys, xₖ)
     h_next = guard(sys, x_predict)
     eventtrigger = crossed_guard(h_now, h_next; tol=tol)
-    return x_predict, eventtrigger, h_now
+    dt_next = Δt * 1.2
+    return x_predict, eventtrigger, h_now, dt_next
 end
 
 function take_step(::AdamsBashforth3, sys, f, xₖ, tₖ, Δt, tol, sol)
@@ -250,8 +258,9 @@ function take_step(::AdamsBashforth3, sys, f, xₖ, tₖ, Δt, tol, sol)
     h_now = guard(sys,xₖ)
     h_next = guard(sys, x_predict)
     eventtrigger = crossed_guard(h_now, h_next; tol=tol)
+    dt_next = Δt * 1.2
 
-    return x_predict, eventtrigger, h_now
+    return x_predict, eventtrigger, h_now, dt_next
 end
 
 
@@ -269,10 +278,10 @@ function locate_event(::BisectionLocator, sys, solver, f, xₖ, tₖ, Δt, h_now
         #test midpoint
         τ_m = (τ_l + τ_r) / 2.0
 
-        x_m, _, _ = take_step(solver, sys, f, xₖ, tₖ, τ_m, tol, sol)
+        x_m, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, τ_m, tol, sol)
         h_m = guard(sys, x_m)
     
-        if signbit(h_l) != signbit(guard(sys, h_m))
+        if signbit(h_l) != signbit(h_m)
             τ_r = τ_m
         else
             τ_l = τ_m
@@ -281,15 +290,15 @@ function locate_event(::BisectionLocator, sys, solver, f, xₖ, tₖ, Δt, h_now
     end
     
     t_star = tₖ + τ_l
-    x_star, _, _ = take_step(solver, sys, f, xₖ, tₖ, τ_l, tol, sol)
+    x_star, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, τ_l, tol, sol)
     return t_star, x_star
 end
 #Linear Interpolation
 function locate_event(::LinearLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)
-    _, _, h_next = take_step(solver, sys, f, xₖ, tₖ, Δt, tol, sol)
+    _, _, h_next, _ = take_step(solver, sys, f, xₖ, tₖ, Δt, tol, sol)
     θ = -h_now / (h_next - h_now)
     t_star = tₖ + θ * Δt
-    x_star, _, _ = take_step(solver,sys, f, xₖ, tₖ, θ * Δt, tol, sol)
+    x_star, _, _, _ = take_step(solver,sys, f, xₖ, tₖ, θ * Δt, tol, sol)
     return t_star, x_star
 end
 
@@ -317,7 +326,7 @@ end
 #Reasoning: Notice we do not have "if LinearSystem" or "If forwardEuler" statements. Because we pass the solver and sys and event method as args,
 #multiple dispatch automatically routes the math to where we want it. 
 #This function is purely an "Orchestrator". It only cares about the broad strokes where it steps -> checks events -> resolves impact -> logs data. 
-function solveloop(sol, prob::AbstractHybridProblem, f; solver::AbstractODESolver = ForwardEuler(), event_method::AbstractEventLocator = BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12)
+function solveloop(sol, prob::AbstractHybridProblem, f; solver::AbstractODESolver = ForwardEuler(), event_method::AbstractEventLocator = BisectionLocator(), dt_initial = 0.01, dt_min = 1e-12, max_iter = 10^6, tol = 1e-12)
     
     #Initialization
     sys = prob.sys
@@ -344,7 +353,7 @@ function solveloop(sol, prob::AbstractHybridProblem, f; solver::AbstractODESolve
 
         #ATTEMPT CONTINUOUS STEP
         #Dispatch calls the specific math for the chosen solver. Returns pre state and boolean flag for if guard was crossed. 
-        x_predict, event_triggered, h_now = take_step(solver, sys, f, xₖ, tₖ, dt_step, tol, sol)
+        x_predict, event_triggered, h_now, dt_next = take_step(solver, sys, f, xₖ, tₖ, dt_step, tol, sol)
 
         #DISCRETE EVENT HANDLING
         if event_triggered
@@ -385,6 +394,9 @@ function solveloop(sol, prob::AbstractHybridProblem, f; solver::AbstractODESolve
             #Lock in post-impact state to continue the loop
             xₖ = x⁺ 
             tₖ = t_star
+
+            #Shrink step size for next step to avoid overshooting and missing possible events. 
+            dt = dt_min
         
         #IF NOT EVENT go to next step Log it then Loop.
         else
@@ -392,6 +404,8 @@ function solveloop(sol, prob::AbstractHybridProblem, f; solver::AbstractODESolve
             xₖ = x_predict
             push!(sol.t, tₖ)
             push!(sol.x, xₖ)
+
+            dt = min(dt_next, dt_initial)
         end
     end
     return sol
