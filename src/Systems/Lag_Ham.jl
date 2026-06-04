@@ -46,36 +46,11 @@ function spectral_refl(x, M, dh; e=1.0)
     return vcat(q, vnew)
 end
 
-################################
-################################
-## Lagrangian dynamics
+# Zero on guard. I guess this works
+guard(sys::Union{LagSys, HamSys}, x) = dot(sys.guard, x)
 
-# General Lagrangian system
-struct LagSys{L,G,R,E,B}
-    L::L          # Lagrangian
-    guard::G      # guard/event function
-    reset::R      # reset map
-    e::E          # coefficient of restitution
-    B::B          # backend use to arrive at EOM
-end
-
-# Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
-"""
-explaining the thing and the kwargs
- - L
-
-"""
-function LagSys(L;
-            guard=nothing,
-            reset = (x, M, dh, e) -> spectral_refl(x, M, dh; e),
-            e = 1.0,
-            B = AutoForwardDiff())
-
-    return LagSys(L, guard, reset, e, B)
-end
-
-# Solution object for Lagrangian problems
-struct LagSol{T, X, T_e1, T_z}
+# General solution struct for Lagrangian and Hamiltonian systems
+struct LHSol{T, X, T_e1, T_z}
     T::T        # Time data
     X::X        # Position data
     T_e1::T_e1  # Time of first event
@@ -83,8 +58,38 @@ struct LagSol{T, X, T_e1, T_z}
 end
 
 # Does this need to be a general constructor or can I go straight to initializing the solution state?
-function LagSol
+function LHSol(prob)
+    return LHSol([prob.tspan[1]], [prob.init], Float64[], Float64[])
+end
 
+################################
+################################
+## Lagrangian dynamics
+
+# General Lagrangian system
+struct LagSys{L,G,N,R,E,B}
+    L::L          # Lagrangian
+    guard::G      # guard/event function
+    normal::N     # Normal to the guard, ΔG
+    reset::R      # reset map
+    e::E          # coefficient of restitution
+    B::B          # backend use to arrive at EOM
+end
+
+# Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
+"""
+Lagrangian System
+ - L
+
+"""
+function LagSys(L;
+            guard=nothing,
+            normal(x)=ForwardDiff.gradient(guard, x),
+            reset = (x, M, dh, e) -> spectral_refl(x, M, dh; e),
+            e = 1.0,
+            B = AutoForwardDiff())
+
+    return LagSys(L, guard, normal, reset, e, B)
 end
 
 # Equations of motion from Euler-Lagrange equations using ForwardDiff
@@ -119,7 +124,9 @@ end
     end
 
     # Find the complete vector field from a Lagrangian using automatic differentiation
-    function lagrangian_vec_field(L::Function, x::AbstractVector, t)
+    function vec_field(sys::LagSys, x::AbstractVector, t)
+
+        L = sys.L
 
         # Integer division
         n = length(x) ÷ 2
@@ -143,29 +150,14 @@ end
         F::F    # Force
     end
 
-    function lagrangian_vec_field(L::ManualLag, x::AbstractVector, t)
+    function vec_field(L::ManualLag, x::AbstractVector, t)
         # Unpack matrices
         M, C, F = L
 
         # Calculate the vector field
 
-
         return
     end
-
-# Solve a Lagrangian problem
-function solve(prob::prob{LagSys}, solver; kwargs...) # solver specifically for LagProb struct, kwargs for step size or tolerances (optional / solver dependent)
-    
-    sys = prob.sys
-    f = lagrangian_vec_field(sys.L, x, t)
-    sol = initsol(prob)     # See line 85
-
-    
-
-
-
-    return 
-end
 
 ################################
 ################################
@@ -184,22 +176,8 @@ function HamSys(H; guard=nothing, reset = (x,e) -> spectral_refl(x,e), e = 1.0)
     HamSys(H, guard, reset, e)
 end
 
-# Solve a Hamiltonian problem
-function solve(prob::prob{HamSys}, solver; kwargs...)
-    
-    # Extract the Hamiltonian
-    system = prob.sys
-    H = system.H
-
-    # Create the vector field from the hamiltonian
-    F(x, t) = hamiltonian_vec_field(H, x, t)
-
-    # Solve for trajectories along the above vector field
-    return solver(F, prob.init, prob.tspan; kwargs...)
-end
-
 # Find the vector field from Hamilton's equations
-function hamiltonian_vec_field(Hsys, x::AbstractVector, t)
+function vec_field(sys::HamSys, x::AbstractVector, t)
 
     n = length(x) ÷ 2
 
@@ -207,8 +185,8 @@ function hamiltonian_vec_field(Hsys, x::AbstractVector, t)
     q = x[1:n]
     p = x[n+1:end]
 
-    # Gradient of H with respect to state vector x = [q; p], this is where multiple dispatch takes care of different kind of hams
-    gradH = hamiltonian_gradient(Hsys, x)
+    # Gradient of H with respect to state vector x = [q; p]
+    gradH = hamiltonian_gradient(sys, x)
 
     dqdt = gradH[n+1:end]      # ∂H/∂p
     dpdt = -gradH[1:n]         # -∂H/∂q
@@ -218,8 +196,8 @@ function hamiltonian_vec_field(Hsys, x::AbstractVector, t)
 end
 
 # Find the gradient of Hamiltonians that can be differentiated using ForwardDiff
-function hamiltonian_gradient(Hsys, x)
-    ForwardDiff.gradient(Hsys.H, x)
+function hamiltonian_gradient(HamSys, x)
+    ForwardDiff.gradient(HamSys.H, x)
 end
 
  # Some way to find the gradient without ForwardDiff (untested)
@@ -249,3 +227,146 @@ end
 # end
 
 # Could add another dispatch method to better deal with interpolating data style hams
+
+
+################################
+################################
+## Solver
+
+# solver specifically for Lagrangian and Hamiltonian systems
+function solve(prob::prob{S}, solver; event_method::AbstractEventLocator=BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12, kwargs...) where {S<:Union{LagSys, HamSys}}
+    
+    sys = prob.sys
+    G = sys.guard
+    dh = sys.normal
+
+    # Create vector field for ODE solving
+    f(x,t) = vec_field(sys, x, t)
+    # Need mass matrix
+    M = 
+    #Define reset map    
+    reset(x, M, dh; e=1.0) = sys.R(x, M, dh; e=1.0)
+
+    sol = LHSol(prob)     # See line 57
+
+    t_start, t_end = prob.tspan     # Extract start and end times for bounds
+
+    Δt = dt_initial                 #Initialize current time step with user input
+    iter = 0                        #Start iteration counter
+
+    # Run sim until end of specified time span
+    while sol.T[end] < t_end 
+        
+    # Safties
+        # Stop if we hit the iteration limit to avoid memory doomsday
+        iter += 1
+        if iter > max_iter 
+            @warn "Maximum Iteration Count ($max_iter) exceeded."
+            break
+        end
+
+        # Terminate if the remaining time is below machine precision
+        if t_end - sol.T[end] <= eps(t_end)
+            break
+        end
+
+        #Truncate time step if we overshoot the final sim time
+        dt_step = (sol.T[end] + Δt > t_end) ? (t_end - sol.T[end]) : Δt
+
+    # Actually solve now
+
+        xₖ = sol.X[end] #Retrieve current state at start of step
+        tₖ = sol.T[end] #Retrieve current time at start of step
+
+        #ATTEMPT CONTINUOUS STEP
+        #Dispatch calls the specific math for the chosen solver. Returns pre state and boolean flag for if guard was crossed. 
+        x_predict, event_triggered, h_now = take_step(solver, sys, f, xₖ, tₖ, dt_step, tol, sol)
+        t_next = tₖ + dt_step
+
+   if event_triggered
+
+        #ZENO DETECTION
+        veloapprox = (xₖ .- sol.X[end - 1]) / dt_step
+        if abs(G(xₖ)) < tol && abs(dot(dh(xₖ), veloapprox))
+            
+            @warn "Zeno condition detected" xₖ
+
+            # Reinitialize on guard
+            x₀ = project_to_guard(xₖ, G, dh)
+
+            v = veloapprox
+            # Compute normal
+            n = dh(x₀)
+
+            # Project velocity into tangent space
+            vₜ = v - (dot(n, v) / dot(n, n)) * n
+
+            # Replace current state with constrained state
+            xₖ = x₀
+
+            # Continue with reduced timestep since weird stuff is happening
+            dt_step = dt_step * 0.5
+
+        # Not Zeno, normal reset map
+        else
+            #Pinpoint the exact impact time and state using the chosen locator strategy 
+            t_star, x_star = locate_event(event_method, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)            
+
+            # Reset map - defaults to spectral reflection
+            x⁺ = reset(xₖ, M, dh; e=1.0)
+
+            #PLOTTING ARCH
+            #We explicitly push both the pre-impact state x_star and post-impact state x⁺ to the same timestamp t_star.
+            #This allows our post-processing functions to give NaN values between the points preventing lines between plots when we do that.
+            #Also old code, can be gotten rid of/ altered?
+            push!(sol.T, t_star, t_star)
+            push!(sol.X, x_star, x⁺)
+            
+            # #Record event data for analysis
+            # push!(sol.jump_times, t_star)
+            # push!(sol.jump_indices, length(sol.x)) 
+
+            #Lock in post-impact state to continue the loop
+            xₖ = x⁺ 
+            tₖ = t_star
+        
+            #Shrink step size for next step to avoid overshooting and missing possible events. 
+            dt = dt_min
+        end
+
+    #IF NOT EVENT go to next step Log it then Loop.
+        else
+            tₖ += dt_step
+            xₖ = x_predict
+            push!(sol.T, tₖ)
+            push!(sol.X, xₖ)
+
+            dt = min(dt_next, dt_initial)
+        end
+    end
+
+    return sol
+end
+
+function project_to_guard(x, G, J; tol=1e-12, max_iter=20)
+    x_proj = copy(x)
+
+    for i in 1:max_iter
+        g = G(x_proj)
+
+        if norm(g) < tol
+            return x_proj
+        end
+
+        Jx = J(x_proj)
+
+        # Least-squares Newton step:
+        # δx = - J⁺ g
+        δx = -(Jx' * (Jx * Jx') \ g)
+
+        x_proj += δx
+    end
+
+    @warn "Vector guard projection did not converge"
+    return x_proj
+end

@@ -12,6 +12,9 @@ include("ODE_solvers.jl")
 #Basic Def Structs
 export AbstractHybridSystem, AbstractHybridProblem
 
+# Lagrangian system struct
+export LagSys
+
 #Linear/Affine System/Problem structs
 export LinearSystem, AffineSystem, LinearProblem, AffineProblem
 
