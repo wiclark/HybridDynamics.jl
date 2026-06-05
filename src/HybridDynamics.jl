@@ -19,6 +19,8 @@ export LagSys
 export LinearSystem, AffineSystem
 #Problem struct
 export Problem
+#Lagrangian System structs
+export LagSys
 
 #General System/Problem structs
 export GeneralSystem, GeneralProblem
