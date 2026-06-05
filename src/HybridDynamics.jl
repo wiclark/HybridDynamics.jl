@@ -16,7 +16,9 @@ export AbstractHybridSystem, AbstractHybridProblem
 export LagSys
 
 #Linear/Affine System/Problem structs
-export LinearSystem, AffineSystem, LinearProblem, AffineProblem
+export LinearSystem, AffineSystem
+#Problem struct
+export Problem
 
 #General System/Problem structs
 export GeneralSystem, GeneralProblem
@@ -46,15 +48,9 @@ Note: if you want more details on the specific things going on, go to the commen
 1. ADDING A NEW SYSTEM TYPE
 To add a new system (e.g., 'MySystem.jl'), define a struct that subtypes 'AbstractHybridSystem' in a new file within '/src/Systems/'.
 
-Mandatory Implementation for All Systems:
-    - get_dimension(sys::MySysem) -> Int
-    - vector_field(sys::MySystem) -> Function(x,t)
-    - guard(sys::MySystem, x) -> Real (returns 0 at crossing) #doesnt always need to be zero, see Definitions.jl for more
-    - apply_reset(sys::MySystem, x) -> Vector (returns state after jump)
-
-Option Implementation for All Systems:
-    - cheack_beating_status(sys::MySystem, ...) -> Symbol (default :continue)
-    Overrid this only if the system is prone to beating/blocking behavior
+Create the corresponding problem and solution structs for the new system. Then create createfunctions that construct the problem/solution structs from inputs. 
+    Define a init_solution function that initializes the solution struct with the initial conditions.
+        Construct the solve function that accomodates your system. Along with any secondary functions you need to define that may be special to your system. 
 
 2) ADDING A NEW SOLVER
 If you need to add a new integration method (e.g., RK4, etc):
@@ -68,7 +64,8 @@ HOW:
             2) Compute h_now = guard(sys, xₖ)
             3) Compute h_next = guard(sys, x_predict)
             4) eventrigger = (signbit(h_now) != signbit(h_next))
-            4) Return (x_predict, eventtriggered, h_now)
+            5) dt_next = Δt * 1.2 (or some other logic for adaptive stepping)
+            6) Return (x_predict, eventtriggered, h_now, dt_next)
         
 
 3) ADDING A NEW EVENT LOCATOR (INTER/EXTRAPOLATION METHODS)

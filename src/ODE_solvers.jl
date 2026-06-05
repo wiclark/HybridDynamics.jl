@@ -164,7 +164,7 @@ end
 #Event detection utility. 
 #If a guard surface was crossed and during the ODE step. We check for a sign change between start and end of the step. 
 #Made as a function so we can use it to all solvers with the same logic. We will need another idea for event detection when signs dont change but I havent gotten that far
-function crossed_guard(h_now, h_next; tol=1e-12)
+function crossed_guard(h_now, h_next; tol=1e-6)
     #returns true if sign flipped, or if we start on the guard and push through
     return (h_now * h_next < 0) || (abs(h_now) <= tol && h_next < -tol)
 end
@@ -314,118 +314,11 @@ function locate_event(::BisectionLocator, sys, solver, f, xₖ, tₖ, Δt, h_now
 end
 #Linear Interpolation
 function locate_event(::LinearLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)
-    _, _, h_next, _ = take_step(solver, sys, f, xₖ, tₖ, Δt, tol, sol)
+    x_predict, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, Δt, tol, sol)
+    h_next = guard(sys, x_predict) 
     θ = -h_now / (h_next - h_now)
     t_star = tₖ + θ * Δt
-    x_star, _, _, _ = take_step(solver,sys, f, xₖ, tₖ, θ * Δt, tol, sol)
+    x_star, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, θ * Δt, tol, sol)
     return t_star, x_star
 end
 
-#SOLVE WRAPPER:
-#Goal: Get a clean friendly thinf for users, while keeping it fast. 
-#Reasoning: We could just put this all in the solveloop but here is why i chose not to. 
-#solveloop is our hig-performance calculator. It wants to only focus on the math. If we passed 'prob' directly into solveloop the engine would 
-#have to extract 'f=vector_field(sys)' or initialize memory inside. By doing it here we handle the prep work exactly once and pass a prepared
-#and type-stable toolkit for solveloop. This stemmed from the difference we saw in the exact solver the first time it ran vs the second. 
-function solve(prob::AbstractHybridProblem, solver::AbstractODESolver; event_method::AbstractEventLocator=BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12)
-    sys = prob.sys
-
-    #Extract the physics once before the loop starts
-    f = vector_field(sys)
-
-    #Allocate the memory once before the loop
-    sol = init_solution(prob)
-
-    #Pass prepped variables to the raw engine
-    return solveloop(sol, prob, f; solver=solver, event_method=event_method, dt_initial=dt_initial, max_iter=max_iter, tol=tol) #writing equals incase not inputted 
-end
-
-#SOLVE LOOP 
-#goal: Run the main simulation loop for any valid hybrid system and solver
-#Reasoning: Notice we do not have "if LinearSystem" or "If forwardEuler" statements. Because we pass the solver and sys and event method as args,
-#multiple dispatch automatically routes the math to where we want it. 
-#This function is purely an "Orchestrator". It only cares about the broad strokes where it steps -> checks events -> resolves impact -> logs data. 
-function solveloop(sol, prob::AbstractHybridProblem, f; solver::AbstractODESolver = ForwardEuler(), event_method::AbstractEventLocator = BisectionLocator(), dt_initial = 0.01, dt_min = 1e-12, max_iter = 10^6, tol = 1e-12)
-    
-    #Initialization
-    sys = prob.sys
-    xₖ = prob.x₀
-    tₖ = prob.tspan[1]
-    t_end = prob.tspan[2]
-    dt = dt_initial
-    
-    #State trackers for Zeno eventually? 
-    instant_jumps = 0
-    last_jump_t = -Inf
-    n = get_dimension(sys)
-
-    for iter in 1:max_iter
-        
-        #Termination check: use eps(end) to account for floating point errors. Without this might get stuck at like 9.9999999999999 instead of 10.
-        if tₖ >= t_end - eps(t_end)
-            break
-        end
-
-        #OVERSHOOT PROTECTION
-        #This ensures solver lands exactly on t_end for the final step rather than going over and simulation outside inputs.
-        dt_step = min(dt, t_end - tₖ)
-
-        #ATTEMPT CONTINUOUS STEP
-        #Dispatch calls the specific math for the chosen solver. Returns pre state and boolean flag for if guard was crossed. 
-        x_predict, event_triggered, h_now, dt_next = take_step(solver, sys, f, xₖ, tₖ, dt_step, tol, sol)
-
-        #DISCRETE EVENT HANDLING
-        if event_triggered
-
-            #Pinpoint the exact impact time and state using the chosen locator strategy 
-            t_star, x_star = locate_event(event_method, sys, solver, f, xₖ, tₖ, dt_step, h_now, tol, sol)
-
-            #ZENO DETECTION
-            #If current jump is at effectively same time as the last, increment the counter. Otherwise reset. 
-            #Note this is just from my previous loop. We can get rid of it here if we want to keep things cleaner.
-            if abs(t_star - last_jump_t) < tol
-                instant_jumps += 1
-            else
-                instant_jumps = 1
-            end
-            last_jump_t = t_star
-            
-            #BLOCKING/BEATING TRAP
-            #Also from my old loop, see above. 
-            #If system gets stuck on guard surface, gives us info. 
-            status = check_beating_status(sys, instant_jumps, n, x_star, t_star, tol)
-            if status != :continue; break; end
-
-            #Apply Reset map believe it or not
-            x⁺ = apply_reset(sys, x_star)
-
-            #PLOTTING ARCH
-            #We explicitly push both the pre-impact state x_star and post-impact state x⁺ to the same timestamp t_star.
-            #This allows our post-processing functions to give NaN values between the points preventing lines between plots when we do that.
-            #Also old code, can be gotten rid of/ altered?
-            push!(sol.t, t_star, t_star)
-            push!(sol.x, x_star, x⁺)
-            
-            #Record event data for analysis
-            push!(sol.jump_times, t_star)
-            push!(sol.jump_indices, length(sol.x)) 
-
-            #Lock in post-impact state to continue the loop
-            xₖ = x⁺ 
-            tₖ = t_star
-
-            #Shrink step size for next step to avoid overshooting and missing possible events. 
-            dt = dt_min
-        
-        #IF NOT EVENT go to next step Log it then Loop.
-        else
-            tₖ += dt_step
-            xₖ = x_predict
-            push!(sol.t, tₖ)
-            push!(sol.x, xₖ)
-
-            dt = min(dt_next, dt_initial)
-        end
-    end
-    return sol
-end
