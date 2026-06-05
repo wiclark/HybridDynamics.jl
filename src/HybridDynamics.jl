@@ -16,7 +16,7 @@ export AbstractHybridSystem, AbstractHybridProblem
 export Problem
 
 #Linear/Affine System structs
-export LinearSystem, AffineSystem
+export LinearSystem, AffineSystem, LagSys
 
 #General System/Problem structs
 export GeneralSystem, GeneralProblem
