@@ -30,7 +30,7 @@ if use_affine
     κ = [.1, -.2]
 
     sys = AffineSystem(A, b, λ, a, C, κ)
-    prob = AffineProblem(sys, x0, tspan)
+    prob = Problem(sys, x0, tspan)
     plot_title = "Affine System Test"
 
     sol_trap = solve(prob, ModifiedTrap(); event_method=LinearLocator())
@@ -45,7 +45,7 @@ if use_affine
     display(p)
 else 
     sys = LinearSystem(A, λ, C)
-    prob = LinearProblem(sys, x0, tspan)
+    prob = Problem(sys, x0, tspan)
     plot_title = "Linear and Exact Solution Test"
     
     # Both solvers run to compare the purely linear system

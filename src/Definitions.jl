@@ -21,6 +21,9 @@ abstract type AbstractHybridSystem end
 #Parent Category for a simulation scenario which takes the system, initial conditions, and timespan 
 abstract type AbstractHybridProblem end
 
+#Parent Category for Solution types.
+abstract type AbstractHybridSolution end
+
 #-----------------
 #SOLVE TAGS
 #These are empty structs. Their purpose is to act as a tag for the Julia compiler. When a user passes 'ModifiedMidpoint()' to the solver, the compiler uses multiple dispatch to route to the 'take_step' function written for that tag. 
@@ -55,3 +58,11 @@ struct LinearLocator <: AbstractEventLocator end
 
 #Tag to use a bisection method serach. Can be very accurate but also very slow with complex systems
 struct BisectionLocator <: AbstractEventLocator end
+
+#Problem Struct that takes any Hybrid System
+struct Problem{T<: AbstractHybridSystem} <: AbstractHybridProblem 
+    sys::T              #Physical System
+    x₀::Vector{Float64} #Initial state vector
+    tspan::Tuple{Float64, Float64} #start time, end time
+end
+

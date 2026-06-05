@@ -1,12 +1,3 @@
-"""
-LINEAR AND AFFINE SYSTEMS TOOLKIT
-
-TABLE OF CONTENTS
-1) System structs and Problem Definitions
-2) Interface Fullfillment (get_dimension, vector_field, guard, apply_reset)
-3) Exact Flow (Matrix Exponential)
-4) Simulation Utilities (Bisection and Event Check)
-"""
 #EVERYTHING FOR LINEAR SYSTEMS 
 
 #Linear System Structs: Goal to define the date for a linear system and its problem.
@@ -16,11 +7,6 @@ struct LinearSystem <: AbstractHybridSystem
     A::Matrix{Float64} #State Transition matrix (dx/dt = Ax)
     λ::Vector{Float64} #Normal Vector for the Guard Surface
     C::Matrix{Float64} #Reset map matrix (x⁺ = Cx)
-end
-struct LinearProblem <: AbstractHybridProblem
-    sys::LinearSystem               #Phyisical System defined above
-    x₀::Vector{Float64}             #Initial state vector
-    tspan::Tuple{Float64, Float64}  #(start time, end time)
 end
 
 #Constructor to help user see data types 
@@ -40,12 +26,6 @@ struct AffineSystem <: AbstractHybridSystem
     κ::Vector{Float64}  #Discrete affine vector const x⁺ = Cx + κ
 end
 
-struct AffineProblem <: AbstractHybridProblem
-    sys::AffineSystem               #Physical system defined above
-    x₀::Vector{Float64}             #initial condition
-    tspan::Tuple{Float64, Float64}  #time span
-end
-
 # Constructor to help user see data types
 function AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector)
     return AffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ))
@@ -53,13 +33,13 @@ end
 
 #SOLUTION STRUCTS AND HELPERS. 
 #Goal to provide standard date for simulation outputs. Keeps cont trajectories and discrete events organized. Currently affine and linear are the samem but kept separate to allow specific plotting later?
-struct LinearSolution
+struct LinearSolution <: AbstractHybridSolution
     t::Vector{Float64}          #Time history
     x::Vector{Vector{Float64}}  #State History
     jump_times::Vector{Float64} #Exact timestamps where an event has occurred 
     jump_indices::Vector{Int}   #Indices in 'x' and 't' where jumps map to
 end
-struct AffineSolution
+struct AffineSolution <: AbstractHybridSolution
     t::Vector{Float64}          #Time history
     x::Vector{Vector{Float64}}  #State History
     jump_times::Vector{Float64} #Exact timestamps where an event has occurred
@@ -67,11 +47,11 @@ struct AffineSolution
 end
 
 #Constructor
-function CreateSolution(prob::LinearProblem, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
+function CreateSolution(prob::Problem{LinearSystem}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
     return LinearSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
 end
 #Constructor
-function CreateSolution(prob::AffineProblem, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
+function CreateSolution(prob::Problem{AffineSystem}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
     return AffineSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
 end
 
@@ -130,10 +110,10 @@ end
 #Solution Initialization
 #Goal is to setup the empty memory containers before solver starts running. 
 #pre-allocating the vectors with the exact starting conditions ensures that the solver loop is stable 
-function init_solution(prob::LinearProblem) 
+function init_solution(prob::Problem{LinearSystem}) 
     return LinearSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
 end
-function init_solution(prob::AffineProblem)
+function init_solution(prob::Problem{AffineSystem})
     return AffineSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
 end
 
@@ -339,7 +319,7 @@ end
 
 
 #SOLVER
-function solve(prob::Union{LinearProblem, AffineProblem}, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=BisectionLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6)
+function solve(prob::Problem, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=BisectionLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6)
     sys = prob.sys
 
     f = hasproperty(sys, :b) ? ((x,t) -> sys.A * x + sys.b) : ((x,t) -> sys.A * x) 
