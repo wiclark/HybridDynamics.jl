@@ -46,9 +46,6 @@ function spectral_refl(x, M, dh; e=1.0)
     return vcat(q, vnew)
 end
 
-# Zero on guard. I guess this works
-guard(sys::Union{LagSys, HamSys}, x) = dot(sys.guard, x)
-
 # General solution struct for Lagrangian and Hamiltonian systems
 struct LHSol{T, X, T_e1, T_z}
     T::T        # Time data
@@ -194,6 +191,9 @@ function vec_field(sys::HamSys, x::AbstractVector, t)
     # Recombine derivatives into single vecotr field
     return vcat(dqdt, dpdt)
 end
+
+# Zero on guard. I guess this works
+guard(sys::Union{LagSys, HamSys}, x) = dot(sys.guard, x)
 
 # Find the gradient of Hamiltonians that can be differentiated using ForwardDiff
 function hamiltonian_gradient(HamSys, x)
