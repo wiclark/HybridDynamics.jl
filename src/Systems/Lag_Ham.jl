@@ -186,6 +186,9 @@ function vec_field(sys::HamSys, x::AbstractVector, t)
     return vcat(dqdt, dpdt)
 end
 
+# Zero on guard. I guess this works
+guard(sys::Union{LagSys, HamSys}, x) = dot(sys.guard, x)
+
 # Find the gradient of Hamiltonians that can be differentiated using ForwardDiff
 function hamiltonian_gradient(HamSys, x)
     ForwardDiff.gradient(HamSys.H, x)

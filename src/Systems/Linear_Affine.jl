@@ -1,12 +1,3 @@
-"""
-LINEAR AND AFFINE SYSTEMS TOOLKIT
-
-TABLE OF CONTENTS
-1) System structs and Problem Definitions
-2) Interface Fullfillment (get_dimension, vector_field, guard, apply_reset)
-3) Exact Flow (Matrix Exponential)
-4) Simulation Utilities (Bisection and Event Check)
-"""
 #EVERYTHING FOR LINEAR SYSTEMS 
 
 #Linear System Structs: Goal to define the date for a linear system and its problem.
@@ -17,19 +8,6 @@ struct LinearSystem <: AbstractHybridSystem
     λ::Vector{Float64} #Normal Vector for the Guard Surface
     C::Matrix{Float64} #Reset map matrix (x⁺ = Cx)
 end
-struct LinearProblem <: AbstractHybridProblem
-    sys::LinearSystem               #Phyisical System defined above
-    x₀::Vector{Float64}             #Initial state vector
-    tspan::Tuple{Float64, Float64}  #(start time, end time)
-end
-
-#Linear Interface Functions (see Definitions file)
-#Goal to satisfy the 4 methods defined in the Def file. The solver never looks inside sys.A or sys.λ to hopefully make faster
-get_dimension(sys::LinearSystem) = size(sys.A, 1)       #return n from the n × n state matrix
-vector_field(sys::LinearSystem) = (x, t) -> sys.A * x   #Continuous dynamics: dx/dt = Ax
-guard(sys::LinearSystem, x) = dot(sys.λ, x)             #Event Surface: Evals to 0 on guard
-apply_reset(sys::LinearSystem, x) = sys.C * x           #Discrete Dynamics: applies the jump matrix
-
 
 #Constructor to help user see data types 
 function LinearSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix)
@@ -48,18 +26,6 @@ struct AffineSystem <: AbstractHybridSystem
     κ::Vector{Float64}  #Discrete affine vector const x⁺ = Cx + κ
 end
 
-struct AffineProblem <: AbstractHybridProblem
-    sys::AffineSystem               #Physical system defined above
-    x₀::Vector{Float64}             #initial condition
-    tspan::Tuple{Float64, Float64}  #time span
-end
-
-# Implementations of the interface functions. Shows we can add more to the solve loop easily
-get_dimension(sys::AffineSystem) = size(sys.A, 1)                   #return n from the n × n state matrix
-vector_field(sys::AffineSystem) = (x, t) -> sys.A * x + sys.b       #Continuous dynamics: dx/dt = Ax + b
-guard(sys::AffineSystem, x) = dot(sys.λ, x) + sys.a                 #Event Surface with the 'a' offset
-apply_reset(sys::AffineSystem, x) = sys.C * x + sys.κ               #Discrete Dynamics: applies the jump matrix with 'κ' offset
-
 # Constructor to help user see data types
 function AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector)
     return AffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ))
@@ -67,13 +33,13 @@ end
 
 #SOLUTION STRUCTS AND HELPERS. 
 #Goal to provide standard date for simulation outputs. Keeps cont trajectories and discrete events organized. Currently affine and linear are the samem but kept separate to allow specific plotting later?
-struct LinearSolution
+struct LinearSolution <: AbstractHybridSolution
     t::Vector{Float64}          #Time history
     x::Vector{Vector{Float64}}  #State History
     jump_times::Vector{Float64} #Exact timestamps where an event has occurred 
     jump_indices::Vector{Int}   #Indices in 'x' and 't' where jumps map to
 end
-struct AffineSolution
+struct AffineSolution <: AbstractHybridSolution
     t::Vector{Float64}          #Time history
     x::Vector{Vector{Float64}}  #State History
     jump_times::Vector{Float64} #Exact timestamps where an event has occurred
@@ -81,11 +47,11 @@ struct AffineSolution
 end
 
 #Constructor
-function CreateSolution(prob::LinearProblem, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
+function CreateSolution(prob::Problem{LinearSystem}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
     return LinearSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
 end
 #Constructor
-function CreateSolution(prob::AffineProblem, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
+function CreateSolution(prob::Problem{AffineSystem}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
     return AffineSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
 end
 
@@ -144,10 +110,10 @@ end
 #Solution Initialization
 #Goal is to setup the empty memory containers before solver starts running. 
 #pre-allocating the vectors with the exact starting conditions ensures that the solver loop is stable 
-function init_solution(prob::LinearProblem) 
+function init_solution(prob::Problem{LinearSystem}) 
     return LinearSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
 end
-function init_solution(prob::AffineProblem)
+function init_solution(prob::Problem{AffineSystem})
     return AffineSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
 end
 
@@ -332,4 +298,118 @@ function basis_beating_and_blocking_sets(sys::Union{LinearSystem, AffineSystem})
         k_blocking = analysis.k_blocking
     )
 end
+
+function guard(sys::LinearSystem, x::AbstractVector)
+    return sys.λ' * x
+end
+function guard(sys::AffineSystem, x::AbstractVector)
+    return sys.λ' * x + sys.a 
+end
+
+function apply_reset(sys::LinearSystem, x::AbstractVector)
+    return sys.C * x
+end
+function apply_reset(sys::AffineSystem, x::AbstractVector)
+    return sys.C * x + sys.κ
+end
+
+function get_dimension(sys::Union{LinearSystem, AffineSystem})
+    return size(sys.A, 1)
+end
+
+
+#SOLVER
+function solve(prob::Problem, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=BisectionLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6)
+    sys = prob.sys
+
+    f = hasproperty(sys, :b) ? ((x,t) -> sys.A * x + sys.b) : ((x,t) -> sys.A * x) 
+
+    #Initialize soltution based on linear/affine
+    sol = init_solution(prob)
+
+    #extract start and end times
+    t_start, t_end = prob.tspan
+
+    #initialize time step and iter counter
+    Δt = dt_initial
+    iter = 0
+
+    #trackers for beating and blocking logic
+    instant_jumps = 0
+    last_jump_time = -Inf
+    n = length(prob.x₀)
+
+    #run until end time or max iter
+    while sol.t[end] < t_end
+        iter += 1
+        if iter > max_iter 
+            @warn "Maximum Iteration Count ($max_iter) reached."
+            break
+        end
+
+        #terminate if time is below machine precision
+        if t_end - sol.t[end] < dt_min
+            @info "Time to end of simulation below minimum time step. Ending simulation at t = $(sol.t[end])"
+            break
+        end
+
+        #truncate time step if we overshoot the final time
+        dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
+
+        #continuous integration
+        xₖ = sol.x[end]
+        tₖ = sol.t[end]
+
+        #attempt continuous step
+        x_predict, eventtriggered, h_now, dt_next = take_step(solver, sys, f, xₖ, tₖ, dt_step, tol, sol)
+
+        #discrete event logic
+        if eventtriggered
+            #Pinpoint exact time and state
+            t_star, x_star = locate_event(event_method, sys, solver, f, xₖ, tₖ, dt_step, h_now, tol, sol)
+
+            #Zeno / Beating / Blocking Logic (for now)
+            if abs(t_star - last_jump_time) < tol
+                instant_jumps += 1
+            else 
+                instant_jumps = 0
+            end
+            last_jump_time = t_star
+
+            #Check if system is trapped
+            status = check_beating_status(sys, instant_jumps, n, x_star, t_star, tol)
+            if status != :continue
+                @warn "Simulation terminated at t = $t_star due to status :$status"
+                break
+            end
+
+            #Apply Reset
+            x⁺ = apply_reset(sys, x_star)
+
+            #Tracking data
+            push!(sol.t, t_star, t_star)
+            push!(sol.x, x_star, x⁺)
+
+            #record event data for analysis
+            if hasproperty(sol, :jump_times)
+                push!(sol.jump_times, t_star)
+                push!(sol.jump_indices, length(sol.t))
+            end
+
+            #shrink min step size to avoid overshooting
+            Δt = dt_min
+
+        else
+            t_next = tₖ + dt_step
+            push!(sol.t, t_next)
+            push!(sol.x, x_predict)
+
+            #reset step size
+            Δt = dt_initial
+
+        end
+
+        end
+        return sol
+    end 
 
