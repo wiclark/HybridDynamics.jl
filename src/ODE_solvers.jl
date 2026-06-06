@@ -12,6 +12,25 @@ function forward_euler_step(f::Function, z::Vector, h::AbstractFloat, t::Abstrac
     return z .+ h*f(z, t)
 end
 
+# NOT SINGLE STEP: Forward Euler method. We solve an ODE defined by $f(u,t)$ starting at u0 and over tspan with step size dt. 
+function forward_euler(f::Function,u0,tspan::Tuple{Float64,Float64}; dt::Float64 = 0.01)
+    t_start, t_end = tspan
+
+    #Create a time vector:
+    t = collect(t_start:dt:t_end) #gets the range of values for time and puts thm into an array (vector). So we can index. 
+    num_steps = length(t)
+
+    #intialize the solution array to match the type of initial condition 
+    u = Vector{typeof(u0)}(undef, num_steps) #typeof so we can keep things straight. undef is supposedly faster than zeros() but I didnt fact check that. Makes sense though as we skip some values
+    u[1] = u0
+
+    for i in 1:(num_steps-1)
+        #Eulers update: u_next = u_now + dt * slope
+        u[i+1] = u[i] + dt* f(u[i], t[i])
+    end
+    return t,u
+end
+
 # Modified (fully explicit) Trapezoid Rule
 function modified_trap_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
     z_guess = z .+ h*f(z,t)
@@ -300,6 +319,65 @@ function locate_event(::LinearLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, t
     θ = -h_now / (h_next - h_now)
     t_star = tₖ + θ * Δt
     x_star, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, θ * Δt, tol, sol)
+    return t_star, x_star
+end
+
+function locate_event(::QuadraticLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)
+    #Get three points 
+    h₀ = h_now
+
+    #middle point 
+    x₁, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, Δt / 2.0, tol, sol)
+    h₁ = guard(sys, x₁)
+
+    #endpoint
+    x₂, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, Δt, tol, sol)
+    h₂ = guard(sys, x₂)
+
+    #compute parabola coeffs
+    c = h₀
+    b = (-3.0 * h₀ + 4.0 * h₁ - h₂) / Δt
+    a = 2.0 * (h₀ - 2.0 * h₁ + h₂) / (Δt ^ 2)
+
+    #root finding with Fallbacks
+    if abs(a) < 1e-12
+        #curve is basically zero, fallback to linear interp
+        θ = -h₀ / (h₂ - h₀)
+        τ_star = θ * Δt
+    else 
+        discriminant = b^2 - 4.0 * a * c
+
+        if discriminant < 0
+            #fallback to linear interp
+            θ = -h₀ / (h₂ - h₀)
+            τ_star = θ * Δt
+        else
+            #stable quad root finding
+            q = -.5 * (b + sign(b) * sqrt(discriminant))
+            root_1 = q / a
+            root_2 = c / q
+
+            valid_1 = 0.0 <= root_1 < Δt
+            valid_2 = 0.0 <= root_2 < Δt
+
+            #select right root
+            if valid_1 && valid_2
+                #if parabola crosses twice we pick first one
+                τ_star = min(root_1, root_2)
+            elseif valid_1
+                τ_star = root_1
+            elseif valid_2
+                τ_star = root_2
+            else
+                #roots drifted to narnia? 
+                θ = -h₀ / (h₂ - h₀)
+                τ_star = θ * Δt
+            end
+        end
+    end
+    t_star = tₖ + τ_star
+    x_star, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, τ_star, tol, sol)
+
     return t_star, x_star
 end
 
