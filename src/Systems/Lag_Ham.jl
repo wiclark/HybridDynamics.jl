@@ -1,23 +1,10 @@
-# I want to understand hybrid Lagrangian systems (Hamiltonian will follow)
 
-# using ForwardDiff
 
-struct HybridLagrangianSystem
-    L::Function
-    h::Function
-    e::Function
-end
-
-# I want the following:
-# 1. Generate trajectories (you can call forward diff)
-# 2. Implement an intelligent way to perform event detection
-# 3. Determine whether or not the system is Zeno and state when/where that occurs.
-
-# Allow options for how the solver arrives at the equations of motion (EOM)
-abstract type Backend end
-struct AutoForwardDiff <: Backend end   # Automatic differentiation using ForwardDiff
-struct AutoFiniteDiff  <: Backend end   # Finite differences
-struct ManualEOM       <: Backend end   # Manually provide sumthin?
+# # Allow options for how the solver arrives at the equations of motion (EOM)
+# abstract type Backend end
+# struct AutoForwardDiff <: Backend end   # Automatic differentiation using ForwardDiff
+# struct AutoFiniteDiff  <: Backend end   # Finite differences
+# struct ManualEOM       <: Backend end   # Manually provide sumthin?
 
 
 # Default reset map: spectral reflection with coefficient of restitution
@@ -46,9 +33,6 @@ function spectral_refl(x, M, dh; e=1.0)
     return vcat(q, vnew)
 end
 
-# Zero on guard. I guess this works
-guard(sys::Union{LagSys, HamSys}, x) = dot(sys.guard, x)
-
 # General solution struct for Lagrangian and Hamiltonian systems
 struct LHSol{T, X, T_e1, T_z}
     T::T        # Time data
@@ -67,13 +51,12 @@ end
 ## Lagrangian dynamics
 
 # General Lagrangian system
-struct LagSys{L,G,N,R,E,B}
+struct LagSys{L,G,N,R,E}
     L::L          # Lagrangian
     guard::G      # guard/event function
     normal::N     # Normal to the guard, ΔG
     reset::R      # reset map
     e::E          # coefficient of restitution
-    B::B          # backend use to arrive at EOM
 end
 
 # Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
@@ -83,13 +66,21 @@ Lagrangian System
 
 """
 function LagSys(L;
-            guard=nothing,
-            normal(x)=ForwardDiff.gradient(guard, x),
+            guard = nothing,
+            normal = nothing,
             reset = (x, M, dh, e) -> spectral_refl(x, M, dh; e),
-            e = 1.0,
-            B = AutoForwardDiff())
+            e = 1.0)
 
-    return LagSys(L, guard, normal, reset, e, B)
+    if isnothing(guard) &&  !isnothing(normal)
+        error("Normal to guard was provided, but a guard was not")
+    end
+
+    # Default to auto diff
+    if !isnothing(guard) && isnothing(normal)
+        normal= q -> ForwardDiff.gradient(guard, q)
+    end
+
+    return LagSys(L, guard, normal, reset, e)
 end
 
 # Equations of motion from Euler-Lagrange equations using ForwardDiff
@@ -233,8 +224,17 @@ end
 ################################
 ## Solver
 
+# Zero on guard. I guess this works
+function guard(sys::Union{LagSys, HamSys}, x)
+    if isnothing(sys.guard)
+        return nothing
+    else
+        return dot(sys.guard, x)
+    end
+end
+
 # solver specifically for Lagrangian and Hamiltonian systems
-function solve(prob::prob{S}, solver; event_method::AbstractEventLocator=BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12, kwargs...) where {S<:Union{LagSys, HamSys}}
+function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12, kwargs...) where {S<:Union{LagSys, HamSys}, I, T}
     
     sys = prob.sys
     G = sys.guard
@@ -291,8 +291,8 @@ function solve(prob::prob{S}, solver; event_method::AbstractEventLocator=Bisecti
             
             @warn "Zeno condition detected" xₖ
 
-            # Reinitialize on guard
-            x₀ = project_to_guard(xₖ, G, dh)
+            # # Reinitialize on guard
+            # x₀ = project_to_guard(xₖ, G, dh)
 
             v = veloapprox
             # Compute normal
@@ -301,8 +301,8 @@ function solve(prob::prob{S}, solver; event_method::AbstractEventLocator=Bisecti
             # Project velocity into tangent space
             vₜ = v - (dot(n, v) / dot(n, n)) * n
 
-            # Replace current state with constrained state
-            xₖ = x₀
+            # # Replace current state with constrained state
+            # xₖ = x₀
 
             # Continue with reduced timestep since weird stuff is happening
             dt_step = dt_step * 0.5
@@ -341,32 +341,32 @@ function solve(prob::prob{S}, solver; event_method::AbstractEventLocator=Bisecti
             push!(sol.T, tₖ)
             push!(sol.X, xₖ)
 
-            dt = min(dt_next, dt_initial)
+            dt = min(dt_step, dt_initial)
         end
     end
 
     return sol
 end
 
-function project_to_guard(x, G, J; tol=1e-12, max_iter=20)
-    x_proj = copy(x)
+# function project_to_guard(x, G, J; tol=1e-12, max_iter=20)
+#     x_proj = copy(x)
 
-    for i in 1:max_iter
-        g = G(x_proj)
+#     for i in 1:max_iter
+#         g = G(x_proj)
 
-        if norm(g) < tol
-            return x_proj
-        end
+#         if norm(g) < tol
+#             return x_proj
+#         end
 
-        Jx = J(x_proj)
+#         Jx = J(x_proj)
 
-        # Least-squares Newton step:
-        # δx = - J⁺ g
-        δx = -(Jx' * (Jx * Jx') \ g)
+#         # Least-squares Newton step:
+#         # δx = - J⁺ g
+#         δx = -(Jx' * (Jx * Jx') \ g)
 
-        x_proj += δx
-    end
+#         x_proj += δx
+#     end
 
-    @warn "Vector guard projection did not converge"
-    return x_proj
-end
+#     @warn "Vector guard projection did not converge"
+#     return x_proj
+# end

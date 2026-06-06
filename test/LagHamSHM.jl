@@ -15,15 +15,20 @@ function L(x, t)
 	1/2 * v^2 - q^2
 end;
 
-Lsys = HybridDynamics.LagSys(L)
+# Table/guard
+g(q) = q
+
+Lsys = HybridDynamics.LagSys(L; guard = g)
 
 probl = HybridDynamics.prob(Lsys, init, tspan)
 sl = HybridDynamics.solve(probl, HybridDynamics.ForwardEuler(); dt_initial=0.01)
 
-ql = [x[1] for x in sl[2]]
-vl = [x[2] for x in sl[2]]
-pl = plt.plot(ql, vl, title = "Harmonic osc. phase portrait via Euler-Lagrange", label = "", xlabel = L"q", ylabel = L"\dot{q}")
-display(pl)
+ql = [x[1] for x in sl.X]
+vl = [x[2] for x in sl.X]
+pl1 = plt.plot(ql, vl, title = "Harmonic osc. phase portrait via Euler-Lagrange", label = "", xlabel = L"q", ylabel = L"\dot{q}")
+display(pl1)
+pl2 = plt.plot(sl.T, ql, title = "1-D SHM", xlabel = L"t", ylabel = L"q", label = "")
+display(pl2)
 
 
 ## Hamiltonian example phase portrait

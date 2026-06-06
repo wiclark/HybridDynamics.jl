@@ -165,8 +165,13 @@ end
 #If a guard surface was crossed and during the ODE step. We check for a sign change between start and end of the step. 
 #Made as a function so we can use it to all solvers with the same logic. We will need another idea for event detection when signs dont change but I havent gotten that far
 function crossed_guard(h_now, h_next; tol=1e-12)
+    # Handles the case when no guard is provided
+    if isnothing(h_now)
+        return false
+    else
     #returns true if sign flipped, or if we start on the guard and push through
     return (h_now * h_next < 0) || (abs(h_now) <= tol && h_next < -tol)
+    end
 end
 
 #solver steps we can have. Should be easy to implement more by just adding on. 
