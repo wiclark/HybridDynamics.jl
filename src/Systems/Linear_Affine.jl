@@ -47,11 +47,11 @@ struct AffineSolution <: AbstractHybridSolution
 end
 
 #Constructor
-function CreateSolution(prob::Problem{LinearSystem}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
+function CreateSolution(prob::prob{LinearSystem, I, T}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector) where {I, T}
     return LinearSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
 end
 #Constructor
-function CreateSolution(prob::Problem{AffineSystem}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
+function CreateSolution(prob::prob{AffineSystem, I, T}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector) where {I, T}
     return AffineSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
 end
 
@@ -85,9 +85,9 @@ end
 #Beating/Zeno check
 #Goal is to prevent loops in Linear and Affine systems.
 #Through Multiple dispath, this overrides the default fallback in Definitions.jl only when the solver is Linear or Affine. 
-function check_beating_status(sys::Union{LinearSystem, AffineSystem}, instant_jumps, n, x_current, t_current, tol)
+function check_beating_status(sys::Union{LinearSystem, AffineSystem}, instant_jumps, n, x_current, t_current, tol, trivial_tol_multiplier)
     if (instant_jumps) > (n-1) 
-        if norm(x_current) < tol * 10
+        if norm(x_current) < tol * trivial_tol_multiplier
             @info "Trivial Blocking: System settled at origin at t = $t_current"
             return :blocking_trivial 
         end
@@ -95,7 +95,7 @@ function check_beating_status(sys::Union{LinearSystem, AffineSystem}, instant_ju
 
         if norm(x_next) < norm(x_current) * (1-tol)
             @info "Contractive Beating: State shrinking toward origin at t = $t_current"
-            return :continue #Zeno logic here eventually I think
+            return :contractive_beating
         elseif norm(x_next) > norm(x_current) * (1+tol)
             @warn "Expansive Blocking: State trapped and expanding on guard at t = $t_current"
             return :blocking_expansive
@@ -110,11 +110,11 @@ end
 #Solution Initialization
 #Goal is to setup the empty memory containers before solver starts running. 
 #pre-allocating the vectors with the exact starting conditions ensures that the solver loop is stable 
-function init_solution(prob::Problem{LinearSystem}) 
-    return LinearSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
+function init_solution(prob::prob{LinearSystem, I, T}) where {I, T}
+    return LinearSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
 end
-function init_solution(prob::Problem{AffineSystem})
-    return AffineSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
+function init_solution(prob::prob{AffineSystem, I, T}) where {I, T}
+    return AffineSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
 end
 
 #--------------------------------------------
@@ -319,7 +319,12 @@ end
 
 
 #SOLVER
-function solve(prob::Problem, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=BisectionLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6)
+function solve(prob::prob{F, I, T}, 
+               solver::AbstractODESolver=ModifiedMidpoint(); 
+               event_method::AbstractEventLocator=QuadraticLocator(), 
+               dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, 
+               tol = 1e-6, trivial_tol_multiplier = 10.0, 
+               zeno_ratio = .90, max_zeno_jumps = 100) where {F<:Union{LinearSystem, AffineSystem}, I<:AbstractVector{Float64}, T<:Tuple{Float64, Float64}}
     sys = prob.sys
 
     f = hasproperty(sys, :b) ? ((x,t) -> sys.A * x + sys.b) : ((x,t) -> sys.A * x) 
@@ -337,7 +342,9 @@ function solve(prob::Problem, solver::AbstractODESolver=ModifiedMidpoint(); even
     #trackers for beating and blocking logic
     instant_jumps = 0
     last_jump_time = -Inf
-    n = length(prob.x₀)
+    last_jump_interval = Inf
+    zeno_count = 0
+    n = length(prob.init)
 
     #run until end time or max iter
     while sol.t[end] < t_end
@@ -368,20 +375,31 @@ function solve(prob::Problem, solver::AbstractODESolver=ModifiedMidpoint(); even
             #Pinpoint exact time and state
             t_star, x_star = locate_event(event_method, sys, solver, f, xₖ, tₖ, dt_step, h_now, tol, sol)
 
-            #Zeno / Beating / Blocking Logic (for now)
-            if abs(t_star - last_jump_time) < tol
+            #PATHOLOGY CHECKS
+            jump_interval = t_star - last_jump_interval
+
+            #beating and blocking
+            if jump_interval < tol
                 instant_jumps += 1
             else 
                 instant_jumps = 0
             end
-            last_jump_time = t_star
 
-            #Check if system is trapped
-            status = check_beating_status(sys, instant_jumps, n, x_star, t_star, tol)
-            if status != :continue
+            status = check_beating_status(sys, instant_jumps, n, x_star, t_star, tol, trivial_tol_multiplier)
+            #break on blocking but allow contractive beating or continue status
+            if status == :blocking_expansive || status == :blocking_non_trivial || status == :blocking_trivial
                 @warn "Simulation terminated at t = $t_star due to status :$status"
                 break
             end
+
+            #cont zeno check
+            zeno_count, zeno_status = check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
+            if zeno_status == :terminate
+                break
+            end
+
+            last_jump_interval = jump_interval
+            last_jump_time = t_star
 
             #Apply Reset
             x⁺ = apply_reset(sys, x_star)

@@ -164,7 +164,7 @@ end
 #Event detection utility. 
 #If a guard surface was crossed and during the ODE step. We check for a sign change between start and end of the step. 
 #Made as a function so we can use it to all solvers with the same logic. We will need another idea for event detection when signs dont change but I havent gotten that far
-function crossed_guard(h_now, h_next; tol=1e-12)
+function crossed_guard(h_now, h_next; tol=1e-6)
     # Handles the case when no guard is provided
     if isnothing(h_now)
         return false
@@ -324,6 +324,65 @@ function locate_event(::LinearLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, t
     θ = -h_now / (h_next - h_now)
     t_star = tₖ + θ * Δt
     x_star, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, θ * Δt, tol, sol)
+    return t_star, x_star
+end
+
+function locate_event(::QuadraticLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)
+    #Get three points 
+    h₀ = h_now
+
+    #middle point 
+    x₁, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, Δt / 2.0, tol, sol)
+    h₁ = guard(sys, x₁)
+
+    #endpoint
+    x₂, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, Δt, tol, sol)
+    h₂ = guard(sys, x₂)
+
+    #compute parabola coeffs
+    c = h₀
+    b = (-3.0 * h₀ + 4.0 * h₁ - h₂) / Δt
+    a = 2.0 * (h₀ - 2.0 * h₁ + h₂) / (Δt ^ 2)
+
+    #root finding with Fallbacks
+    if abs(a) < tol
+        #curve is basically zero, fallback to linear interp
+        θ = -h₀ / (h₂ - h₀)
+        τ_star = θ * Δt
+    else 
+        discriminant = b^2 - 4.0 * a * c
+
+        if discriminant < 0
+            #fallback to linear interp
+            θ = -h₀ / (h₂ - h₀)
+            τ_star = θ * Δt
+        else
+            #stable quad root finding
+            q = -.5 * (b + sign(b) * sqrt(discriminant))
+            root_1 = q / a
+            root_2 = c / q
+
+            valid_1 = 0.0 <= root_1 < Δt
+            valid_2 = 0.0 <= root_2 < Δt
+
+            #select right root
+            if valid_1 && valid_2
+                #if parabola crosses twice we pick first one
+                τ_star = min(root_1, root_2)
+            elseif valid_1
+                τ_star = root_1
+            elseif valid_2
+                τ_star = root_2
+            else
+                #roots drifted to narnia? 
+                θ = -h₀ / (h₂ - h₀)
+                τ_star = θ * Δt
+            end
+        end
+    end
+    t_star = tₖ + τ_star
+    x_star, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, τ_star, tol, sol)
+
     return t_star, x_star
 end
 

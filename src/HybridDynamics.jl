@@ -14,13 +14,10 @@ export AbstractHybridSystem, AbstractHybridProblem
 
 # Lagrangian system struct
 export LagSys
-
 #Linear/Affine System/Problem structs
 export LinearSystem, AffineSystem
 #Problem struct
-export Problem
-#Lagrangian System structs
-export LagSys
+export prob
 
 #General System/Problem structs
 export GeneralSystem, GeneralProblem
@@ -32,7 +29,7 @@ export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver
 export AdamsBashforth2, AdamsBashforth3, RichardsonExtrapolation
 
 #EventDetection locators
-export LinearLocator, BisectionLocator
+export LinearLocator, BisectionLocator, QuadraticLocator
 
 #Linear/Affine additives
 export beating_and_blocking_sets, is_trivially_blocking
