@@ -22,13 +22,49 @@ function apply_reset(sys::GeneralSystem, x::AbstractVector)
     return sys.Δ(x)
 end
 
-function solve(prob::Problem{GeneralSystem}, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=BisectionLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6)
+function check_beating_blocking(jump_interval, instant_jump_count, t_star, tol, beating_warn_threshold, max_instant_jumps)
+    status = :continue
+    if jump_interval <= tol
+        instant_jump_count += 1
+        if instant_jump_count == beating_warn_threshold
+            @info "Beating Detected: System has undergone $beating_warn_threshold instant jumps at t = $t_star"
+        elseif instant_jump_count >= max_instant_jumps
+            @warn "Blocking Detected: System trapped on guard ($max_instant_jumps instant jumps). Terminating."
+            status =:terminate
+        end
+    else
+        instant_jump_count = 0
+    end
+    return instant_jump_count, status
+end
+
+function check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
+    status =:continue
+    if jump_interval > tol && jump_interval < last_jump_interval * zeno_ratio #contraction checking
+        zeno_count += 1
+        if zeno_count >= max_zeno_jumps
+            @warn "Zeno Behavior Detected: Jump intervals shrinking rapidly. Terminating."
+            status =:terminate
+        end
+    else
+        zeno_count = 0
+    end
+    return zeno_count, status
+end
+
+function solve(prob::Problem{GeneralSystem}, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=QuadraticLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6, beating_warn_threshold = 3, max_instant_jumps = 100, zeno_ratio = .99, max_zeno_jumps = 100)
     sys = prob.sys
     f = sys.f
     sol = init_solution(prob)
     t_start, t_end = prob.tspan
     Δt = dt_initial 
     iter = 0
+
+    #pathology trackers
+    last_jump_time = -Inf
+    last_jimp_interval = Inf
+    instant_jump_count = 0
+    zeno_count = 0
 
     while sol.t[end] < t_end 
         iter += 1
@@ -57,6 +93,22 @@ function solve(prob::Problem{GeneralSystem}, solver::AbstractODESolver=ModifiedM
         if eventtriggered
             #pinpoint exact time and state even happened
             t_star, x_star = locate_event(event_method, sys, solver, f, xₖ, tₖ, dt_step, h_now, tol, sol)
+
+            #Pathology Checks
+            jump_interval = t_star - last_jump_time
+
+            instant_jump_count, beat_status = check_beating_blocking(jump_interval, instant_jump_count, t_star, tol, beating_warn_threshold, max_instant_jumps)
+            if beat_status == :terminate
+                break
+            end
+
+            zeno_count, zeno_status = check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
+            if zeno_status == :terminate
+                break
+            end
+
+            last_jump_interval = jump_interval
+            last_jump_time = t_star
 
             #apply reset
             x⁺ = sys.Δ(x_star)
