@@ -47,11 +47,11 @@ struct AffineSolution <: AbstractHybridSolution
 end
 
 #Constructor
-function CreateSolution(prob::prob{LinearSystem, I, T}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
+function CreateSolution(prob::prob{LinearSystem, I, T}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector) where {I, T}
     return LinearSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
 end
 #Constructor
-function CreateSolution(prob::prob{AffineSystem, I, T}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
+function CreateSolution(prob::prob{AffineSystem, I, T}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector) where {I, T}
     return AffineSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
 end
 
@@ -107,28 +107,14 @@ function check_beating_status(sys::Union{LinearSystem, AffineSystem}, instant_ju
     return :continue
 end
 
-function check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
-    status =:continue
-    if jump_interval > tol && jump_interval < last_jump_interval * zeno_ratio
-        zeno_count += 1
-        if zeno_count >= max_zeno_jumps
-            @warn "Zeno Behavior Detected: Jump intervals shrinking rapidly. Terminating."
-            status =:terminate
-        end
-    else
-        zeno_count = 0
-    end
-    return zeno_count, status
-end
-
 #Solution Initialization
 #Goal is to setup the empty memory containers before solver starts running. 
 #pre-allocating the vectors with the exact starting conditions ensures that the solver loop is stable 
-function init_solution(prob::prob{LinearSystem, I, T}) 
-    return LinearSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
+function init_solution(prob::prob{LinearSystem, I, T}) where {I, T}
+    return LinearSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
 end
-function init_solution(prob::prob{AffineSystem, I, T})
-    return AffineSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
+function init_solution(prob::prob{AffineSystem, I, T}) where {I, T}
+    return AffineSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
 end
 
 #--------------------------------------------
@@ -333,7 +319,12 @@ end
 
 
 #SOLVER
-function solve(prob::prob{F, I, T}, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=QuadraticLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6, trivial_tol_multiplier = 10.0, zeno_ratio = .90, max_zeno_jumps = 100) where {F<:Union{LinearSystem, AffineSystem}, I, T}
+function solve(prob::prob{F, I, T}, 
+               solver::AbstractODESolver=ModifiedMidpoint(); 
+               event_method::AbstractEventLocator=QuadraticLocator(), 
+               dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, 
+               tol = 1e-6, trivial_tol_multiplier = 10.0, 
+               zeno_ratio = .90, max_zeno_jumps = 100) where {F<:Union{LinearSystem, AffineSystem}, I<:AbstractVector{Float64}, T<:Tuple{Float64, Float64}}
     sys = prob.sys
 
     f = hasproperty(sys, :b) ? ((x,t) -> sys.A * x + sys.b) : ((x,t) -> sys.A * x) 

@@ -11,8 +11,8 @@ struct GeneralSolution <: AbstractHybridSolution
     jump_indices::Vector{Int}
 end
 
-function init_solution(prob::prob{GeneralSystem, I, T}) 
-    return GeneralSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
+function init_solution(prob::prob{GeneralSystem, I, T}) where {I, T}
+    return GeneralSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
 end
 
 function guard(sys::GeneralSystem, x::AbstractVector)
@@ -38,20 +38,6 @@ function check_beating_blocking(jump_interval, instant_jump_count, t_star, tol, 
     return instant_jump_count, status
 end
 
-function check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
-    status =:continue
-    if jump_interval > tol && jump_interval < last_jump_interval * zeno_ratio #contraction checking
-        zeno_count += 1
-        if zeno_count >= max_zeno_jumps
-            @warn "Zeno Behavior Detected: Jump intervals shrinking rapidly. Terminating."
-            status =:terminate
-        end
-    else
-        zeno_count = 0
-    end
-    return zeno_count, status
-end
-
 function solve(prob::prob{F, I, T}, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=QuadraticLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6, beating_warn_threshold = 3, max_instant_jumps = 100, zeno_ratio = .99, max_zeno_jumps = 100) where {F<:GeneralSystem, I, T}
     sys = prob.sys
     f = sys.f
@@ -62,7 +48,7 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=ModifiedMidpoint()
 
     #pathology trackers
     last_jump_time = -Inf
-    last_jimp_interval = Inf
+    last_jump_interval = Inf
     instant_jump_count = 0
     zeno_count = 0
 
@@ -97,14 +83,22 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=ModifiedMidpoint()
             #Pathology Checks
             jump_interval = t_star - last_jump_time
 
-            instant_jump_count, beat_status = check_beating_blocking(jump_interval, instant_jump_count, t_star, tol, beating_warn_threshold, max_instant_jumps)
-            if beat_status == :terminate
-                break
+            if last_jump_time == Inf
+                zeno_count = 0
+            else 
+                zeno_count, zeno_status = check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
+                if zeno_status == :terminate
+                    break
+                end
             end
 
-            zeno_count, zeno_status = check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
-            if zeno_status == :terminate
-                break
+            if zeno_count == 0 && last_jump_time != -Inf
+                instant_jump_count, beat_status = check_beating_blocking(jump_interval, instant_jump_count, t_star, tol, beating_warn_threshold, max_instant_jumps)
+                if beat_status == :terminate
+                    break
+                end
+            else 
+                instant_jump_count = 0
             end
 
             last_jump_interval = jump_interval

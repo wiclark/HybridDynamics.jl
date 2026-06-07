@@ -26,11 +26,11 @@ end
 sys = GeneralSystem(f_ball, h_floor, Δ_bounce)
 
 x0 = [10.0, 0.0]
-tspan = (0.0, 5.0)   
+tspan = (0.0, 4.0)   
 
-prob = Problem(sys, x0, tspan)
+problem = prob(sys, x0, tspan)
 
-sol = solve(prob, AdamsBashforth2())
+sol = solve(problem, ModifiedTrap())
 
 function get_rid_of_jump_lines(sol)
     t = Float64[]

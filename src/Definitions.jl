@@ -1,13 +1,6 @@
 
 #This file is to establish the foundation of everything we use with Multiple Dispatch. It doesnt need to be here exactly but I think it will be a good place to keep it organized. 
 
-# General problem
-struct prob{F <: AbstractHybridSystem, I  <: AbstractVector{Float64}, T <: Tuple{Float64, Float64}} <: AbstractHybridProblem
-    sys::F
-    init::I
-    tspan::T
-end
-
 #---------------------------
 #ABSTRACT TYPES
 #These are the empty categories that hold nothing themselves. By restricting our solver function args to these types, we can make sure the solver can accept ANY system or solver that is in these families.
@@ -20,6 +13,7 @@ abstract type AbstractEventLocator end
 
 #Parent Category for any physical system that features both continuous flow and discrete jumps (unsure how Filippov will integrate but I hope its not too bad)
 abstract type AbstractHybridSystem end
+
 abstract type AbstractHybridProblem end
 
 #Parent Category for Solution types.
@@ -63,4 +57,27 @@ struct BisectionLocator <: AbstractEventLocator end
 #Tag for quadratic event locator
 struct QuadraticLocator <: AbstractEventLocator end
 
+# General problem
+struct prob{F <: AbstractHybridSystem, I  <: AbstractVector{Float64}, T <: Tuple{Float64, Float64}} <: AbstractHybridProblem
+    sys::F
+    init::I
+    tspan::T
+end
 
+#Check Zeno function for now:
+function check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
+    status =:continue
+    if  jump_interval < last_jump_interval * zeno_ratio #contraction checking
+        zeno_count += 1
+        if zeno_count >= max_zeno_jumps
+            @warn "Zeno Behavior Detected: System reached max zeno jumps ($max_zeno_jumps)"
+            status =:terminate
+        elseif jump_interval <= tol && zeno_count > 7
+            @info "Zeno Accumulation Point Reached at t = $t_star. Terminating."
+            status=:terminate
+        end
+    else
+        zeno_count = 0
+    end
+    return zeno_count, status
+end
