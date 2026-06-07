@@ -85,9 +85,9 @@ end
 #Beating/Zeno check
 #Goal is to prevent loops in Linear and Affine systems.
 #Through Multiple dispath, this overrides the default fallback in Definitions.jl only when the solver is Linear or Affine. 
-function check_beating_status(sys::Union{LinearSystem, AffineSystem}, instant_jumps, n, x_current, t_current, tol)
+function check_beating_status(sys::Union{LinearSystem, AffineSystem}, instant_jumps, n, x_current, t_current, tol, trivial_tol_multiplier)
     if (instant_jumps) > (n-1) 
-        if norm(x_current) < tol * 10
+        if norm(x_current) < tol * trivial_tol_multiplier
             @info "Trivial Blocking: System settled at origin at t = $t_current"
             return :blocking_trivial 
         end
@@ -95,7 +95,7 @@ function check_beating_status(sys::Union{LinearSystem, AffineSystem}, instant_ju
 
         if norm(x_next) < norm(x_current) * (1-tol)
             @info "Contractive Beating: State shrinking toward origin at t = $t_current"
-            return :continue #Zeno logic here eventually I think
+            return :contractive_beating
         elseif norm(x_next) > norm(x_current) * (1+tol)
             @warn "Expansive Blocking: State trapped and expanding on guard at t = $t_current"
             return :blocking_expansive
@@ -105,6 +105,20 @@ function check_beating_status(sys::Union{LinearSystem, AffineSystem}, instant_ju
         end
     end
     return :continue
+end
+
+function check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
+    status =:continue
+    if jump_interval > tol && jump_interval < last_jump_interval * zeno_ratio
+        zeno_count += 1
+        if zeno_count >= max_zeno_jumps
+            @warn "Zeno Behavior Detected: Jump intervals shrinking rapidly. Terminating."
+            status =:terminate
+        end
+    else
+        zeno_count = 0
+    end
+    return zeno_count, status
 end
 
 #Solution Initialization
@@ -319,7 +333,7 @@ end
 
 
 #SOLVER
-function solve(prob::Problem, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=BisectionLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6)
+function solve(prob::Problem, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=QuadraticLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6, trivial_tol_multiplier = 10.0, zeno_ratio = .90, max_zeno_jumps = 100)
     sys = prob.sys
 
     f = hasproperty(sys, :b) ? ((x,t) -> sys.A * x + sys.b) : ((x,t) -> sys.A * x) 
@@ -337,6 +351,8 @@ function solve(prob::Problem, solver::AbstractODESolver=ModifiedMidpoint(); even
     #trackers for beating and blocking logic
     instant_jumps = 0
     last_jump_time = -Inf
+    last_jump_interval = Inf
+    zeno_count = 0
     n = length(prob.x₀)
 
     #run until end time or max iter
@@ -368,20 +384,31 @@ function solve(prob::Problem, solver::AbstractODESolver=ModifiedMidpoint(); even
             #Pinpoint exact time and state
             t_star, x_star = locate_event(event_method, sys, solver, f, xₖ, tₖ, dt_step, h_now, tol, sol)
 
-            #Zeno / Beating / Blocking Logic (for now)
-            if abs(t_star - last_jump_time) < tol
+            #PATHOLOGY CHECKS
+            jump_interval = t_star - last_jump_interval
+
+            #beating and blocking
+            if jump_interval < tol
                 instant_jumps += 1
             else 
                 instant_jumps = 0
             end
-            last_jump_time = t_star
 
-            #Check if system is trapped
-            status = check_beating_status(sys, instant_jumps, n, x_star, t_star, tol)
-            if status != :continue
+            status = check_beating_status(sys, instant_jumps, n, x_star, t_star, tol, trivial_tol_multiplier)
+            #break on blocking but allow contractive beating or continue status
+            if status == :blocking_expansive || status == :blocking_non_trivial || status == :blocking_trivial
                 @warn "Simulation terminated at t = $t_star due to status :$status"
                 break
             end
+
+            #cont zeno check
+            zeno_count, zeno_status = check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
+            if zeno_status == :terminate
+                break
+            end
+
+            last_jump_interval = jump_interval
+            last_jump_time = t_star
 
             #Apply Reset
             x⁺ = apply_reset(sys, x_star)
