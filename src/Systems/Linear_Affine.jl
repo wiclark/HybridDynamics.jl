@@ -47,11 +47,11 @@ struct AffineSolution <: AbstractHybridSolution
 end
 
 #Constructor
-function CreateSolution(prob::Problem{LinearSystem}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
+function CreateSolution(prob::prob{LinearSystem, I, T}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
     return LinearSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
 end
 #Constructor
-function CreateSolution(prob::Problem{AffineSystem}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
+function CreateSolution(prob::prob{AffineSystem, I, T}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
     return AffineSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
 end
 
@@ -124,10 +124,10 @@ end
 #Solution Initialization
 #Goal is to setup the empty memory containers before solver starts running. 
 #pre-allocating the vectors with the exact starting conditions ensures that the solver loop is stable 
-function init_solution(prob::Problem{LinearSystem}) 
+function init_solution(prob::prob{LinearSystem, I, T}) 
     return LinearSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
 end
-function init_solution(prob::Problem{AffineSystem})
+function init_solution(prob::prob{AffineSystem, I, T})
     return AffineSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
 end
 
@@ -333,7 +333,7 @@ end
 
 
 #SOLVER
-function solve(prob::Problem, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=QuadraticLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6, trivial_tol_multiplier = 10.0, zeno_ratio = .90, max_zeno_jumps = 100)
+function solve(prob::prob{F, I, T}, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=QuadraticLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6, trivial_tol_multiplier = 10.0, zeno_ratio = .90, max_zeno_jumps = 100) where {F<:Union{LinearSystem, AffineSystem}, I, T}
     sys = prob.sys
 
     f = hasproperty(sys, :b) ? ((x,t) -> sys.A * x + sys.b) : ((x,t) -> sys.A * x) 
@@ -353,7 +353,7 @@ function solve(prob::Problem, solver::AbstractODESolver=ModifiedMidpoint(); even
     last_jump_time = -Inf
     last_jump_interval = Inf
     zeno_count = 0
-    n = length(prob.x₀)
+    n = length(prob.init)
 
     #run until end time or max iter
     while sol.t[end] < t_end

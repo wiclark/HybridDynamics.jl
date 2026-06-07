@@ -1,17 +1,12 @@
 
 #This file is to establish the foundation of everything we use with Multiple Dispatch. It doesnt need to be here exactly but I think it will be a good place to keep it organized. 
 
-#Instead of writing a lot of if/else statements in our solveloop we define these abstract types.
-#The methods at the bottom are used to define parts of new systems we might add so that we can still use the architecture here. 
-#If we want to add a new system we can simply declare it as a subtype of AbstractHybridSystem and define the four functions at the bottom. The solver then will automatically know how to simulate it.
-
 # General problem
-struct prob{F, I, T}
+struct prob{F <: AbstractHybridSystem, I  <: AbstractVector{Float64}, T <: Tuple{Float64, Float64}} <: AbstractHybridProblem
     sys::F
     init::I
     tspan::T
 end
-
 
 #---------------------------
 #ABSTRACT TYPES
@@ -65,10 +60,7 @@ struct LinearLocator <: AbstractEventLocator end
 #Tag to use a bisection method serach. Can be very accurate but also very slow with complex systems
 struct BisectionLocator <: AbstractEventLocator end
 
-#Problem Struct that takes any Hybrid System
-struct Problem{T<: AbstractHybridSystem} <: AbstractHybridProblem 
-    sys::T              #Physical System
-    x₀::Vector{Float64} #Initial state vector
-    tspan::Tuple{Float64, Float64} #start time, end time
-end
+#Tag for quadratic event locator
+struct QuadraticLocator <: AbstractEventLocator end
+
 

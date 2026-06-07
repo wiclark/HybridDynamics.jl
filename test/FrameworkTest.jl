@@ -33,7 +33,7 @@ if use_affine
     prob = Problem(sys, x0, tspan)
     plot_title = "Affine System Test"
 
-    sol_trap = solve(prob, ModifiedTrap(); event_method=LinearLocator())
+    sol_trap = solve(prob, ModifiedTrap())
 
     p = plot(title=plot_title, xlabel="x1", ylabel="x2", grid=true, aspect_ratio=:equal)
 
@@ -49,8 +49,8 @@ else
     plot_title = "Linear and Exact Solution Test"
     
     # Both solvers run to compare the purely linear system
-    sol_trap = solve(prob, ModifiedTrap(); event_method=LinearLocator())
-    sol_exp  = solve(prob, ExponentialSolver(); event_method=BisectionLocator())
+    sol_trap = solve(prob, ModifiedTrap())
+    sol_exp  = solve(prob, ExponentialSolver())
 
     p = plot(title=plot_title, xlabel="x1", ylabel="x2", aspect_ratio=:equal)
     

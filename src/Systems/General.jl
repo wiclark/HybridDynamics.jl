@@ -11,7 +11,7 @@ struct GeneralSolution <: AbstractHybridSolution
     jump_indices::Vector{Int}
 end
 
-function init_solution(prob::Problem{GeneralSystem}) 
+function init_solution(prob::prob{GeneralSystem, I, T}) 
     return GeneralSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
 end
 
@@ -52,7 +52,7 @@ function check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, 
     return zeno_count, status
 end
 
-function solve(prob::Problem{GeneralSystem}, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=QuadraticLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6, beating_warn_threshold = 3, max_instant_jumps = 100, zeno_ratio = .99, max_zeno_jumps = 100)
+function solve(prob::prob{F, I, T}, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=QuadraticLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6, beating_warn_threshold = 3, max_instant_jumps = 100, zeno_ratio = .99, max_zeno_jumps = 100) where {F<:GeneralSystem, I, T}
     sys = prob.sys
     f = sys.f
     sol = init_solution(prob)
