@@ -5,6 +5,14 @@
 #The methods at the bottom are used to define parts of new systems we might add so that we can still use the architecture here. 
 #If we want to add a new system we can simply declare it as a subtype of AbstractHybridSystem and define the four functions at the bottom. The solver then will automatically know how to simulate it.
 
+# General problem
+struct prob{F, I, T}
+    sys::F
+    init::I
+    tspan::T
+end
+
+
 #---------------------------
 #ABSTRACT TYPES
 #These are the empty categories that hold nothing themselves. By restricting our solver function args to these types, we can make sure the solver can accept ANY system or solver that is in these families.
@@ -17,8 +25,6 @@ abstract type AbstractEventLocator end
 
 #Parent Category for any physical system that features both continuous flow and discrete jumps (unsure how Filippov will integrate but I hope its not too bad)
 abstract type AbstractHybridSystem end
-
-#Parent Category for a simulation scenario which takes the system, initial conditions, and timespan 
 abstract type AbstractHybridProblem end
 
 #Parent Category for Solution types.

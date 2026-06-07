@@ -1,81 +1,86 @@
-# I want to understand hybrid Lagrangian systems (Hamiltonian will follow)
 
-using ForwardDiff
 
-struct HybridLagrangianSystem
-    L::Function
-    h::Function
-    e::Function
+# # Allow options for how the solver arrives at the equations of motion (EOM)
+# abstract type Backend end
+# struct AutoForwardDiff <: Backend end   # Automatic differentiation using ForwardDiff
+# struct AutoFiniteDiff  <: Backend end   # Finite differences
+# struct ManualEOM       <: Backend end   # Manually provide sumthin?
+
+
+# Default reset map: spectral reflection with coefficient of restitution
+""" 
+See "Is There Life After Zeno? paper
+"""
+function spectral_refl(x, M, dh; e=1.0)
+
+    n = length(x) ÷ 2
+
+    q = x[1:n]          # positions
+    v = x[n+1:end]      # velocities
+
+    Mq = M(q)           # Mass matrix
+
+    # Constraint normal (row -> column)
+    normal = vec(dh(q))
+
+    # Denominator
+    denom = normal' * (Mq \ normal)
+
+    # Full equation
+    P = I - (1 + e) * ((Mq \ (normal * normal')) / denom)
+    vnew = P * v
+
+    return vcat(q, vnew)
 end
 
-# I want the following:
-# 1. Generate trajectories (you can call forward diff)
-# 2. Implement an intelligent way to perform event detection
-# 3. Determine whether or not the system is Zeno and state when/where that occurs.
+# General solution struct for Lagrangian and Hamiltonian systems
+struct LHSol{T, X, T_e1, T_z}
+    T::T        # Time data
+    X::X        # Position data
+    T_e1::T_e1  # Time of first event
+    T_z::T_z    # Time of Zeno
+end
 
-
-#  Overarching type, might not be necessary
-# abstract type AbstractDynamics end
-
-
-# Allow options for how the solver arrives at the equations of motion (EOM)
-abstract type Backend end
-struct AutoForwardDiff <: Backend end   # Automatic differentiation using ForwardDiff
-struct AutoFiniteDiff  <: Backend end   # Finite differences
-struct ManualEOM       <: Backend end   # Manually provide sumthin?
-
-
-# General problem structure
-struct Prob{F, I, T}
-    sys::F
-    init::I
-    tspan::T
+# Does this need to be a general constructor or can I go straight to initializing the solution state?
+function LHSol(prob)
+    return LHSol([prob.tspan[1]], [prob.init], Float64[], Float64[])
 end
 
 ################################
 ################################
 ## Lagrangian dynamics
 
-
 # General Lagrangian system
-struct LagSys{L,G,R,E,B}
+struct LagSys{L,G,N,R,E}
     L::L          # Lagrangian
     guard::G      # guard/event function
+    normal::N     # Normal to the guard, ΔG
     reset::R      # reset map
     e::E          # coefficient of restitution
-    B::B          # backend use to arrive at EOM
 end
 
 # Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
 """
-explaining the thing and the kwargs
+Lagrangian System
  - L
 
 """
 function LagSys(L;
-            guard=nothing,
-            reset = (x,e) -> spectral_refl(x,e),
-            e = 1.0,
-            B = AutoForwardDiff())
+            guard = nothing,
+            normal = nothing,
+            reset = (x, M, dh, e) -> spectral_refl(x, M, dh; e),
+            e = 1.0)
 
-    return LagSys(L, guard, reset, e, B)
-end
-
-# Solve a Lagrangian problem
-function solve(prob::Prob{<:LagSys}, solver; kwargs...) # solver specifically for LagProb struct, kwargs for step size or tolerances (optional / solver dependent)
-    
-    fun = prob.sys
-    F(x, t) = lagrangian_vec_field(fun.L, x, t)
-
-    sys = prob.sys
-
-    # If no guard is provided, return the normal continuous solve
-    if isnothing(sys.guard)
-        return solver(F, prob.init, prob.tspan; kwargs...)
+    if isnothing(guard) &&  !isnothing(normal)
+        error("Normal to guard was provided, but a guard was not")
     end
 
-    # If a guard is provided, return the hybrid specific solve function
-    return hybrid_solve(prob, solver; kwargs...)
+    # Default to auto diff
+    if !isnothing(guard) && isnothing(normal)
+        normal= q -> ForwardDiff.gradient(guard, q)
+    end
+
+    return LagSys(L, guard, normal, reset, e)
 end
 
 # Equations of motion from Euler-Lagrange equations using ForwardDiff
@@ -110,7 +115,9 @@ end
     end
 
     # Find the complete vector field from a Lagrangian using automatic differentiation
-    function lagrangian_vec_field(L, x::AbstractVector, t)
+    function vec_field(sys::LagSys, x::AbstractVector, t)
+
+        L = sys.L
 
         # Integer division
         n = length(x) ÷ 2
@@ -127,81 +134,21 @@ end
         return vcat(qdot, qddot)
     end
 
-# *Still need to make this go somewhere* Option to input M, C, and F directly
-struct ManualLag{M, C, F}
-    M::M    # Mass matrix, could be noninvertable
-    C::C    # Coriolis matrix
-    F::F    # Force
-end
-
-
-### Hybrid Lagrangian systems:
-
-# Solve dispatch specific to hybrid systems
-function hybrid_solve(prob, solver; kwargs...)
-
-    sys = prob.sys
-
-    x = prob.init
-    t0, tf = prob.tspan
-
-    
-
-    return sol
-end
-#=
-This was my first thought. I want the event detection to be within the solver though (I think)
-    function solve(prob::LagProb{<:HybridLagSys}, solver; kwargs...)
-
-        sys = prob.sys
-
-        x = prob.init
-        t0, tf = prob.tspan
-
-        trajectory = []
-
-        while t0 < tf
-
-            # Continuous dynamics
-            F(x,t) = lagrangian_vec_field(sys.L, x, t)
-
-            # Integrate until event
-            sol = solver(F, x, (t0, tf); event = sys.h, kwargs...)
-
-            push!(trajectory, sol)
-
-            # No event occurred
-            if terminal(sol)
-                break
-            end
-
-            # Apply reset map after impact
-            x = sys.reset(sol.x[end])
-
-            # Restart after event time
-            t0 = sol.t[end]
-        end
-
-        return trajectory
+# Option to input M, C, and F directly
+    struct ManualLag{M, C, F}
+        M::M    # Mass matrix, could be noninvertable
+        C::C    # Coriolis matrix
+        F::F    # Force
     end
-=#
 
-# Default reset map: spectral reflection with coefficient of restitution
-function spectral_refl(x, e)
+    function vec_field(L::ManualLag, x::AbstractVector, t)
+        # Unpack matrices
+        M, C, F = L
 
-    n = length(x) ÷ 2
+        # Calculate the vector field
 
-    q = x[1:n]          # positions
-    qdot = x[n+1:end]   # velocities
-
-    # positions unchanged, velocities reflected
-
-
-
-
-    return vcat(q, qdot)
-end
-
+        return
+    end
 
 ################################
 ################################
@@ -220,22 +167,8 @@ function HamSys(H; guard=nothing, reset = (x,e) -> spectral_refl(x,e), e = 1.0)
     HamSys(H, guard, reset, e)
 end
 
-# Solve a Hamiltonian problem
-function solve(prob::Prob{HamSys}, solver; kwargs...)
-    
-    # Extract the Hamiltonian
-    system = prob.sys
-    H = system.H
-
-    # Create the vector field from the hamiltonian
-    F(x, t) = hamiltonian_vec_field(H, x, t)
-
-    # Solve for trajectories along the above vector field
-    return solver(F, prob.init, prob.tspan; kwargs...)
-end
-
 # Find the vector field from Hamilton's equations
-function hamiltonian_vec_field(Hsys, x::AbstractVector, t)
+function vec_field(sys::HamSys, x::AbstractVector, t)
 
     n = length(x) ÷ 2
 
@@ -243,8 +176,8 @@ function hamiltonian_vec_field(Hsys, x::AbstractVector, t)
     q = x[1:n]
     p = x[n+1:end]
 
-    # Gradient of H with respect to state vector x = [q; p], this is where multiple dispatch takes care of different kind of hams
-    gradH = hamiltonian_gradient(Hsys, x)
+    # Gradient of H with respect to state vector x = [q; p]
+    gradH = hamiltonian_gradient(sys, x)
 
     dqdt = gradH[n+1:end]      # ∂H/∂p
     dpdt = -gradH[1:n]         # -∂H/∂q
@@ -253,9 +186,12 @@ function hamiltonian_vec_field(Hsys, x::AbstractVector, t)
     return vcat(dqdt, dpdt)
 end
 
+# Zero on guard. I guess this works
+guard(sys::Union{LagSys, HamSys}, x) = dot(sys.guard, x)
+
 # Find the gradient of Hamiltonians that can be differentiated using ForwardDiff
-function hamiltonian_gradient(Hsys, x)
-    ForwardDiff.gradient(Hsys.H, x)
+function hamiltonian_gradient(HamSys, x)
+    ForwardDiff.gradient(HamSys.H, x)
 end
 
  # Some way to find the gradient without ForwardDiff (untested)
@@ -285,3 +221,155 @@ end
 # end
 
 # Could add another dispatch method to better deal with interpolating data style hams
+
+
+################################
+################################
+## Solver
+
+# Zero on guard. I guess this works
+function guard(sys::Union{LagSys, HamSys}, x)
+    if isnothing(sys.guard)
+        return nothing
+    else
+        return dot(sys.guard, x)
+    end
+end
+
+# solver specifically for Lagrangian and Hamiltonian systems
+function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12, kwargs...) where {S<:Union{LagSys, HamSys}, I, T}
+    
+    sys = prob.sys
+    G = sys.guard
+    dh = sys.normal
+
+    # Create vector field for ODE solving
+    f(x,t) = vec_field(sys, x, t)
+    # Need mass matrix
+    M = 
+    #Define reset map    
+    reset(x, M, dh; e=1.0) = sys.R(x, M, dh; e=1.0)
+
+    sol = LHSol(prob)     # See line 57
+
+    t_start, t_end = prob.tspan     # Extract start and end times for bounds
+
+    Δt = dt_initial                 #Initialize current time step with user input
+    iter = 0                        #Start iteration counter
+
+    # Run sim until end of specified time span
+    while sol.T[end] < t_end 
+        
+    # Safties
+        # Stop if we hit the iteration limit to avoid memory doomsday
+        iter += 1
+        if iter > max_iter 
+            @warn "Maximum Iteration Count ($max_iter) exceeded."
+            break
+        end
+
+        # Terminate if the remaining time is below machine precision
+        if t_end - sol.T[end] <= eps(t_end)
+            break
+        end
+
+        #Truncate time step if we overshoot the final sim time
+        dt_step = (sol.T[end] + Δt > t_end) ? (t_end - sol.T[end]) : Δt
+
+    # Actually solve now
+
+        xₖ = sol.X[end] #Retrieve current state at start of step
+        tₖ = sol.T[end] #Retrieve current time at start of step
+
+        #ATTEMPT CONTINUOUS STEP
+        #Dispatch calls the specific math for the chosen solver. Returns pre state and boolean flag for if guard was crossed. 
+        x_predict, event_triggered, h_now = take_step(solver, sys, f, xₖ, tₖ, dt_step, tol, sol)
+        t_next = tₖ + dt_step
+
+   if event_triggered
+
+        #ZENO DETECTION
+        veloapprox = (xₖ .- sol.X[end - 1]) / dt_step
+        if abs(G(xₖ)) < tol && abs(dot(dh(xₖ), veloapprox))
+            
+            @warn "Zeno condition detected" xₖ
+
+            # # Reinitialize on guard
+            # x₀ = project_to_guard(xₖ, G, dh)
+
+            v = veloapprox
+            # Compute normal
+            n = dh(x₀)
+
+            # Project velocity into tangent space
+            vₜ = v - (dot(n, v) / dot(n, n)) * n
+
+            # # Replace current state with constrained state
+            # xₖ = x₀
+
+            # Continue with reduced timestep since weird stuff is happening
+            dt_step = dt_step * 0.5
+
+        # Not Zeno, normal reset map
+        else
+            #Pinpoint the exact impact time and state using the chosen locator strategy 
+            t_star, x_star = locate_event(event_method, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)            
+
+            # Reset map - defaults to spectral reflection
+            x⁺ = reset(xₖ, M, dh; e=1.0)
+
+            #PLOTTING ARCH
+            #We explicitly push both the pre-impact state x_star and post-impact state x⁺ to the same timestamp t_star.
+            #This allows our post-processing functions to give NaN values between the points preventing lines between plots when we do that.
+            #Also old code, can be gotten rid of/ altered?
+            push!(sol.T, t_star, t_star)
+            push!(sol.X, x_star, x⁺)
+            
+            # #Record event data for analysis
+            # push!(sol.jump_times, t_star)
+            # push!(sol.jump_indices, length(sol.x)) 
+
+            #Lock in post-impact state to continue the loop
+            xₖ = x⁺ 
+            tₖ = t_star
+        
+            #Shrink step size for next step to avoid overshooting and missing possible events. 
+            dt = dt_min
+        end
+
+    #IF NOT EVENT go to next step Log it then Loop.
+        else
+            tₖ += dt_step
+            xₖ = x_predict
+            push!(sol.T, tₖ)
+            push!(sol.X, xₖ)
+
+            dt = min(dt_step, dt_initial)
+        end
+    end
+
+    return sol
+end
+
+# function project_to_guard(x, G, J; tol=1e-12, max_iter=20)
+#     x_proj = copy(x)
+
+#     for i in 1:max_iter
+#         g = G(x_proj)
+
+#         if norm(g) < tol
+#             return x_proj
+#         end
+
+#         Jx = J(x_proj)
+
+#         # Least-squares Newton step:
+#         # δx = - J⁺ g
+#         δx = -(Jx' * (Jx * Jx') \ g)
+
+#         x_proj += δx
+#     end
+
+#     @warn "Vector guard projection did not converge"
+#     return x_proj
+# end
