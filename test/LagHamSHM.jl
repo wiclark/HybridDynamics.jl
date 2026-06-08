@@ -8,17 +8,18 @@ import Plots as plt
 init = [1.,0.];
 tspan = (0., 5.);
 
-function L(x, t)
-	q = x[1]
-	v = x[2]
+function M(q)
+    [1.0]
+end
 
-	1/2 * v^2 - q^2
-end;
+function V(q)
+    q[1]^2
+end
 
 # Table/guard
-g(q) = q
+g(q) = q[1]
 
-Lsys = HybridDynamics.LagSys(L; guard = g)
+Lsys = HybridDynamics.LagSys(M, V; guard = g)
 
 probl = HybridDynamics.prob(Lsys, init, tspan)
 sl = HybridDynamics.solve(probl, HybridDynamics.ForwardEuler(); dt_initial=0.01)

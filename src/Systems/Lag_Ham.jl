@@ -11,7 +11,7 @@
 """ 
 See "Is There Life After Zeno? paper
 """
-function spectral_refl(x, M, dh; e=1.0)
+function spectral_refl(x, M, dh, e)
 
     n = length(x) ÷ 2
 
@@ -34,16 +34,17 @@ function spectral_refl(x, M, dh; e=1.0)
 end
 
 # General solution struct for Lagrangian and Hamiltonian systems
-struct LHSol{T, X, T_e1, T_z}
+struct LHSol{T, X, I, T_e1, T_z}
     T::T        # Time data
     X::X        # Position data
+    interp::I   # Store interpolated polynomial
     T_e1::T_e1  # Time of first event
     T_z::T_z    # Time of Zeno
 end
 
 # Does this need to be a general constructor or can I go straight to initializing the solution state?
 function LHSol(prob)
-    return LHSol([prob.tspan[1]], [prob.init], Float64[], Float64[])
+    return LHSol([prob.tspan[1]], [prob.init], nothing, Float64[], Float64[])
 end
 
 ################################
@@ -51,176 +52,143 @@ end
 ## Lagrangian dynamics
 
 # General Lagrangian system
-struct LagSys{L,G,N,R,E}
-    L::L          # Lagrangian
+struct LagSys{M,V,G,N,R,E} <: AbstractHybridSystem
+    M::M          # Mass matrix function M(q)
+    V::V          # Potential energy function V(q)
     guard::G      # guard/event function
     normal::N     # Normal to the guard, ΔG
     reset::R      # reset map
     e::E          # coefficient of restitution
 end
 
-# Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
+# Make the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
 """
 Lagrangian System
- - L
-
+ - M(q): mass matrix
+ - V(q): potential energy
 """
-function LagSys(L;
-            guard = nothing,
-            normal = nothing,
-            reset = (x, M, dh, e) -> spectral_refl(x, M, dh; e),
-            e = 1.0)
+function LagSys(M, V;
+                guard = nothing,
+                normal = nothing,
+                reset = (x, Mfun, dh, sys::LagSys) -> spectral_refl(x, Mfun, dh, sys.e),
+                e = 1.0)
 
-    if isnothing(guard) &&  !isnothing(normal)
+    if isnothing(guard) && !isnothing(normal)
         error("Normal to guard was provided, but a guard was not")
     end
 
-    # Default to auto diff
     if !isnothing(guard) && isnothing(normal)
-        normal= q -> ForwardDiff.gradient(guard, q)
+        normal = q -> ForwardDiff.gradient(guard, q)
     end
 
-    return LagSys(L, guard, normal, reset, e)
+    return LagSys{typeof(M), typeof(V), typeof(guard), typeof(normal), typeof(reset), typeof(e)}(
+        M, V, guard, normal, reset, e
+    )
 end
 
-# Equations of motion from Euler-Lagrange equations using ForwardDiff
+# Equations of motion from Euler-Lagrange expressed via M(q) and V(q)
+function lagrangian_force(M, V, q::AbstractVector, qdot::AbstractVector)
+    ForwardDiff.gradient(q_ -> 0.5 * dot(qdot, M(q_) * qdot) - V(q_), q)
+end
 
-    # dL/dq is the force
-    function lagrangian_force(L::Function, q::AbstractVector, qdot::AbstractVector)
-        ForwardDiff.gradient(q -> L(q, qdot), q)
-    end
+function lagrangian_momentum(M, q::AbstractVector, qdot::AbstractVector)
+    M(q) * qdot
+end
 
-    # dL/dqdot is the momentum
-    function lagrangian_momentum(L::Function, q::AbstractVector, qdot::AbstractVector)
-        ForwardDiff.gradient(qdot -> L(q, qdot), qdot)
-    end
+function lagrangian_mass_matrix(M, q::AbstractVector)
+    M(q)
+end
 
-    # Mass matrix
-    function lagrangian_mass_matrix(L::Function, q::AbstractVector, qdot::AbstractVector)
-        ForwardDiff.hessian(qdot -> L(q, qdot), qdot)
-    end
+function lagrangian_coriolis(M, q::AbstractVector, qdot::AbstractVector)
+    jac = ForwardDiff.jacobian(q_ -> M(q_) * qdot, q)
+    jac * qdot
+end
 
-    # Coriolis matrix
-    function lagrangian_coriolis(L::Function, q::AbstractVector, qdot::AbstractVector)
-        jac = ForwardDiff.jacobian(q -> ForwardDiff.gradient(qdot -> L(q, qdot), qdot), q)
-        jac * qdot
-    end
+function lagrangian_acceleration(M, V, q::AbstractVector, qdot::AbstractVector)
+    Mq = lagrangian_mass_matrix(M, q)
+    C = lagrangian_coriolis(M, q, qdot)
+    F = lagrangian_force(M, V, q, qdot)
+    Mq \ (F - C)
+end
 
-    # Inertial acceleration
-    function lagrangian_acceleration(L::Function, q::AbstractVector, qdot::AbstractVector)
-        M = lagrangian_mass_matrix(L, q, qdot)
-        C = lagrangian_coriolis(L, q, qdot)
-        F = lagrangian_force(L, q, qdot)
-        M \ (F - C)
-    end
+function vec_field(sys::LagSys, x::AbstractVector, t)
+    n = length(x) ÷ 2
+    q = x[1:n]
+    qdot = x[n+1:end]
+    qddot = lagrangian_acceleration(sys.M, sys.V, q, qdot)
+    return vcat(qdot, qddot)
+end
 
-    # Find the complete vector field from a Lagrangian using automatic differentiation
-    function vec_field(sys::LagSys, x::AbstractVector, t)
 
-        L = sys.L
-
-        # Integer division
-        n = length(x) ÷ 2
-
-        q = Vector(x[1:n])
-        qdot = Vector(x[n+1:end])
-
-        # Wrap L(x,t) into internal L(q,qdot), so I don't have to rewrite everything internally for now
-        Lsplit(q, qdot) = L(vcat(q, qdot), t)
-
-        # Solve for acceleration
-        qddot = lagrangian_acceleration(Lsplit, q, qdot)
-
-        return vcat(qdot, qddot)
-    end
-
-# Option to input M, C, and F directly
-    struct ManualLag{M, C, F}
-        M::M    # Mass matrix, could be noninvertable
-        C::C    # Coriolis matrix
-        F::F    # Force
-    end
-
-    function vec_field(L::ManualLag, x::AbstractVector, t)
-        # Unpack matrices
-        M, C, F = L
-
-        # Calculate the vector field
-
-        return
-    end
 
 ################################
 ################################
 ## Hamiltonian dynamics
 
-# Define a general Hamiltonian problem
-struct HamSys{H,G,R,E}
-    H::H          # Hamiltonian
-    guard::G          # guard/event function
-    reset::R      # reset map
-    e::E          # coefficient of restitution 
-end
+    # Define a general Hamiltonian problem
+    struct HamSys{H,G,R,E}
+        H::H          # Hamiltonian
+        guard::G          # guard/event function
+        reset::R      # reset map
+        e::E          # coefficient of restitution 
+    end
 
-# Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
-function HamSys(H; guard=nothing, reset = (x,e) -> spectral_refl(x,e), e = 1.0)
-    HamSys(H, guard, reset, e)
-end
+    # Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
+    function HamSys(H; guard=nothing, reset = (x,e) -> spectral_refl(x,e), e = 1.0)
+        HamSys(H, guard, reset, e)
+    end
 
-# Find the vector field from Hamilton's equations
-function vec_field(sys::HamSys, x::AbstractVector, t)
+    # Find the vector field from Hamilton's equations
+    function vec_field(sys::HamSys, x::AbstractVector, t)
 
-    n = length(x) ÷ 2
+        n = length(x) ÷ 2
 
-    # Split up state vector
-    q = x[1:n]
-    p = x[n+1:end]
+        # Split up state vector
+        q = x[1:n]
+        p = x[n+1:end]
 
-    # Gradient of H with respect to state vector x = [q; p]
-    gradH = hamiltonian_gradient(sys, x)
+        # Gradient of H with respect to state vector x = [q; p]
+        gradH = hamiltonian_gradient(sys, x)
 
-    dqdt = gradH[n+1:end]      # ∂H/∂p
-    dpdt = -gradH[1:n]         # -∂H/∂q
+        dqdt = gradH[n+1:end]      # ∂H/∂p
+        dpdt = -gradH[1:n]         # -∂H/∂q
 
-    # Recombine derivatives into single vecotr field
-    return vcat(dqdt, dpdt)
-end
+        # Recombine derivatives into single vecotr field
+        return vcat(dqdt, dpdt)
+    end
 
-# Zero on guard. I guess this works
-guard(sys::Union{LagSys, HamSys}, x) = dot(sys.guard, x)
+    # Find the gradient of Hamiltonians that can be differentiated using ForwardDiff
+    function hamiltonian_gradient(HamSys, x)
+        ForwardDiff.gradient(HamSys.H, x)
+    end
 
-# Find the gradient of Hamiltonians that can be differentiated using ForwardDiff
-function hamiltonian_gradient(HamSys, x)
-    ForwardDiff.gradient(HamSys.H, x)
-end
+    # Some way to find the gradient without ForwardDiff (untested)
+    # function hamiltonian_gradient(Hsys, x)
+        
+    #     H = Hsys.H
+    #     h = Hsys.h
 
- # Some way to find the gradient without ForwardDiff (untested)
-# function hamiltonian_gradient(Hsys, x)
-    
-#     H = Hsys.H
-#     h = Hsys.h
+    #     # initialize place to store the output
+    #     grad = similar(x)
 
-#     # initialize place to store the output
-#     grad = similar(x)
+    #     # This feels like a bad way of doing this but I think it's correct
+    #     for i in eachindex(x)
 
-#     # This feels like a bad way of doing this but I think it's correct
-#     for i in eachindex(x)
+    #         xp = copy(x)
+    #         xm = copy(x)
 
-#         xp = copy(x)
-#         xm = copy(x)
+    #         # perturb the point forward and backward
+    #         xp[i] += h
+    #         xm[i] -= h
 
-#         # perturb the point forward and backward
-#         xp[i] += h
-#         xm[i] -= h
+    #         # Central finite diff approximation
+    #         grad[i] = (H(xp) - H(xm)) / (2h)
+    #     end
 
-#         # Central finite diff approximation
-#         grad[i] = (H(xp) - H(xm)) / (2h)
-#     end
+    #     return grad
+    # end
 
-#     return grad
-# end
-
-# Could add another dispatch method to better deal with interpolating data style hams
+    # Could add another dispatch method to better deal with interpolating data style hams
 
 
 ################################
@@ -231,9 +199,8 @@ end
 function guard(sys::Union{LagSys, HamSys}, x)
     if isnothing(sys.guard)
         return nothing
-    else
-        return dot(sys.guard, x)
     end
+    return sys.guard(x)
 end
 
 # solver specifically for Lagrangian and Hamiltonian systems
@@ -242,13 +209,14 @@ function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=B
     sys = prob.sys
     G = sys.guard
     dh = sys.normal
+    e = sys.e
+    reset = sys.reset
 
     # Create vector field for ODE solving
     f(x,t) = vec_field(sys, x, t)
-    # Need mass matrix
-    M = 
-    #Define reset map    
-    reset(x, M, dh; e=1.0) = sys.R(x, M, dh; e=1.0)
+
+    # Mass matrix function for event resets
+    M(x) = sys isa LagSys ? sys.M(x[1:n]) : error("Mass matrix is only available for LagSys")
 
     sol = LHSol(prob)     # See line 57
 
@@ -310,13 +278,16 @@ function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=B
             # Continue with reduced timestep since weird stuff is happening
             dt_step = dt_step * 0.5
 
+            # NEED TO ADD PUSHES
+            push!(sol.interp, NaN) # idk if this is how I want this to work but there shouldn't be interpolation between discrete jumps
+
         # Not Zeno, normal reset map
         else
             #Pinpoint the exact impact time and state using the chosen locator strategy 
             t_star, x_star = locate_event(event_method, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)            
 
             # Reset map - defaults to spectral reflection
-            x⁺ = reset(xₖ, M, dh; e=1.0)
+            x⁺ = reset(xₖ, M, dh, sys)
 
             #PLOTTING ARCH
             #We explicitly push both the pre-impact state x_star and post-impact state x⁺ to the same timestamp t_star.
@@ -339,6 +310,14 @@ function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=B
 
     #IF NOT EVENT go to next step Log it then Loop.
         else
+
+
+            # # Solve for interpolation
+            # interp = HermiteInterp()
+
+            # # Push to solution struct
+            # push!(sol.interp, interp)
+
             tₖ += dt_step
             xₖ = x_predict
             push!(sol.T, tₖ)

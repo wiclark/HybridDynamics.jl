@@ -168,10 +168,9 @@ function crossed_guard(h_now, h_next; tol=1e-12)
     # Handles the case when no guard is provided
     if isnothing(h_now)
         return false
-    else
+    end
     #returns true if sign flipped, or if we start on the guard and push through
     return (h_now * h_next < 0) || (abs(h_now) <= tol && h_next < -tol)
-    end
 end
 
 #solver steps we can have. Should be easy to implement more by just adding on. 
@@ -327,3 +326,31 @@ function locate_event(::LinearLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, t
     return t_star, x_star
 end
 
+
+######
+# I don't know where to put this
+# Cubic Hermite interpolant for dense output stuff
+
+struct HermiteInterp
+    t0::Float64             # times
+    t1::Float64
+    x0::Vector{Float64}     # states
+    x1::Vector{Float64}
+    f0::Vector{Float64}     # derivatives
+    f1::Vector{Float64}
+end
+
+function (h::HermiteInterp)(t)
+    θ = (t - h.t0) / (h.t1 - h.t0)
+    h00 = 2θ^3 - 3θ^2 + 1
+    h10 = θ^3 - 2θ^2 + θ
+    h01 = -2θ^3 + 3θ^2
+    h11 = θ^3 - θ^2
+
+    dt = h.t1 - h.t0
+
+    return h00 .* h.x0 .+
+           h10 .* (dt .* h.f0) .+
+           h01 .* h.x1 .+
+           h11 .* (dt .* h.f1)
+end
