@@ -26,6 +26,7 @@ function initsol(prob::prob{FilippovSys})
     return FilippovSol([prob.tspan[1]], [prob.init])
 end
 
+# INTERNAL
 # Returns a vector field at state `x` for a Filippov system
 function filippov_vector_field(sys, x;
         Ftol=1e-10,
@@ -84,7 +85,7 @@ function filippov_vector_field(sys, x;
     end
 end
 
-
+# EXTERNAL
 # Filippov-specific solve
 function solve(prob::prob{<:FilippovSys}, solver; dt_initial = 0.01, max_iter = 10^6, tol = 1e-12, kwargs...)
     
