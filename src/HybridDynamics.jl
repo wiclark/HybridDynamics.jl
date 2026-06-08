@@ -90,7 +90,7 @@ VARIABLE DICTIONARY:
 * tₖ:   The current time in the simulation
 * Δt:   The time step (duration of current step)
 * tol:  The tolerance (error threshold for adaptive steps or root-finding)
-* h_now:    The guard calue at the start of the step (sign indicates position relative to guard surface)
+* h_now:    The guard value at the start of the step (sign indicates position relative to guard surface)
 * h_next:   The guard value at the end of the predicted step
 * eventtriggered: A Bool flag indicating if the guard was crossed. 
 * t_star:   The precise time of impact/event

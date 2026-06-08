@@ -64,6 +64,7 @@ struct prob{F <: AbstractHybridSystem, I  <: AbstractVector{Float64}, T <: Tuple
     tspan::T
 end
 
+#Internal for now
 #Check Zeno function for now:
 function check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
     status =:continue

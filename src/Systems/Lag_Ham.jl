@@ -1,16 +1,6 @@
 
-
-# # Allow options for how the solver arrives at the equations of motion (EOM)
-# abstract type Backend end
-# struct AutoForwardDiff <: Backend end   # Automatic differentiation using ForwardDiff
-# struct AutoFiniteDiff  <: Backend end   # Finite differences
-# struct ManualEOM       <: Backend end   # Manually provide sumthin?
-
-
-# Default reset map: spectral reflection with coefficient of restitution
-""" 
-See "Is There Life After Zeno? paper
-"""
+# INTERNAL
+# Default reset map: spectral reflection with coefficient of restitution. See "Is There Life After Zeno? paper
 function spectral_refl(x, M, dh; e=1.0)
 
     n = length(x) ÷ 2
@@ -59,6 +49,7 @@ struct LagSys{L,G,N,R,E}
     e::E          # coefficient of restitution
 end
 
+# EXTERNAL
 # Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
 """
 Lagrangian System
@@ -83,6 +74,7 @@ function LagSys(L;
     return LagSys(L, guard, normal, reset, e)
 end
 
+# INTERNAL
 # Equations of motion from Euler-Lagrange equations using ForwardDiff
 
     # dL/dq is the force
@@ -114,6 +106,7 @@ end
         M \ (F - C)
     end
 
+    # INTERNAL
     # Find the complete vector field from a Lagrangian using automatic differentiation
     function vec_field(sys::LagSys, x::AbstractVector, t)
 
@@ -134,25 +127,13 @@ end
         return vcat(qdot, qddot)
     end
 
-# Option to input M, C, and F directly
-    struct ManualLag{M, C, F}
-        M::M    # Mass matrix, could be noninvertable
-        C::C    # Coriolis matrix
-        F::F    # Force
-    end
 
-    function vec_field(L::ManualLag, x::AbstractVector, t)
-        # Unpack matrices
-        M, C, F = L
-
-        # Calculate the vector field
-
-        return
-    end
 
 ################################
 ################################
-## Hamiltonian dynamics
+
+# IGNORE FOR NOW
+# Hamiltonian dynamics
 
 # Define a general Hamiltonian problem
 struct HamSys{H,G,R,E}
@@ -224,15 +205,17 @@ end
 ################################
 ## Solver
 
-# Zero on guard. I guess this works
+# INTERNAL
+# Zero on guard. I guess this works?
 function guard(sys::Union{LagSys, HamSys}, x)
     if isnothing(sys.guard)
         return nothing
     else
-        return dot(sys.guard, x)
+        return sys.guard(x)
     end
 end
 
+# EXTERNAL
 # solver specifically for Lagrangian and Hamiltonian systems
 function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12, kwargs...) where {S<:Union{LagSys, HamSys}, I, T}
     
