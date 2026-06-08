@@ -42,7 +42,11 @@ function check_beating_blocking(jump_interval, instant_jump_count, t_star, tol, 
 end
 
 #External
-function solve(prob::prob{F, I, T}, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=QuadraticLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6, beating_warn_threshold = 3, max_instant_jumps = 100, zeno_ratio = .99, max_zeno_jumps = 100) where {F<:GeneralSystem, I, T}
+function solve(prob::prob{F, I, T}, solver::AbstractODESolver=ModifiedMidpoint(); 
+               event_method::AbstractEventLocator=QuadraticLocator(), dt_initial=.01, dt_min = 1e-6, 
+               max_iter = 10^6, tol = 1e-6, beating_warn_threshold = 3, max_instant_jumps = 100, 
+               zeno_ratio = .99, max_zeno_jumps = 100, history_window = 3, min_zeno_confirmations = 3) where {F<:GeneralSystem, I, T}
+    
     sys = prob.sys
     f = sys.f
     sol = init_solution(prob)
@@ -50,9 +54,9 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=ModifiedMidpoint()
     Δt = dt_initial 
     iter = 0
 
-    #pathology trackers
+    # Pathology trackers
     last_jump_time = -Inf
-    last_jump_interval = Inf
+    last_intervals = Float64[] # Replaces last_jump_interval with a rolling history window
     instant_jump_count = 0
     zeno_count = 0
 
@@ -63,65 +67,69 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=ModifiedMidpoint()
             break
         end
 
-        #terminaite if time is below machine precision
+        # Terminate if time is below machine precision
         if t_end - sol.t[end] < dt_min
             @info "Time step below minimum threshold $dt_min. Terminating."
             break
         end
 
-        #truncate time step if we overshoot
+        # Truncate time step if we overshoot
         dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
-        #continuous integration
+        # Continuous integration
         xₖ = sol.x[end]
         tₖ = sol.t[end]
 
-        #attempt cont step
+        # Attempt continuous step
         x_predict, eventtriggered, h_now, dt_next = take_step(solver, sys, f, xₖ, tₖ, dt_step, tol, sol)
 
-        #discrete event logic
+        # Discrete event logic
         if eventtriggered
-            #pinpoint exact time and state even happened
+            # Pinpoint exact time and state event happened
             t_star, x_star = locate_event(event_method, sys, solver, f, xₖ, tₖ, dt_step, h_now, tol, sol)
 
-            #Pathology Checks
+            # Apply reset early to calculate the spatial step size
+            x⁺ = sys.Δ(x_star)
+            state_step = norm(x⁺ - x_star)
+
+            # Calculate temporal step size
             jump_interval = t_star - last_jump_time
 
-            if last_jump_time == Inf
+            # Unified Pathology Engine
+            if last_jump_time == -Inf
                 zeno_count = 0
-            else 
-                zeno_count, zeno_status = check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
-                if zeno_status == :terminate
-                    break
-                end
-            end
-
-            if zeno_count == 0 && last_jump_time != -Inf
-                instant_jump_count, beat_status = check_beating_blocking(jump_interval, instant_jump_count, t_star, tol, beating_warn_threshold, max_instant_jumps)
-                if beat_status == :terminate
-                    break
-                end
-            else 
                 instant_jump_count = 0
+            else 
+                zeno_count, instant_jump_count, pathology_status = check_system_pathology(
+                    jump_interval, last_intervals, state_step,
+                    zeno_count, instant_jump_count, t_star, tol,
+                    zeno_ratio, max_zeno_jumps, beating_warn_threshold,
+                    max_instant_jumps, min_zeno_confirmations
+                )
+                
+                if pathology_status == :terminate
+                    break
+                end
             end
 
-            last_jump_interval = jump_interval
+            # Update tracking histories
+            push!(last_intervals, jump_interval)
+            if length(last_intervals) > history_window
+                popfirst!(last_intervals)
+            end
             last_jump_time = t_star
 
-            #apply reset
-            x⁺ = sys.Δ(x_star)
-
-            #track data: pre and post jump states
+            # Track data: pre and post jump states
             push!(sol.t, t_star, t_star)
             push!(sol.x, x_star, x⁺)
 
-            #record for event analysis
+            # Record for event analysis
             if hasproperty(sol, :jump_times)
                 push!(sol.jump_times, t_star)
                 push!(sol.jump_indices, length(sol.t))
             end
 
-            #shrink main step size to avoid overshooting
+            # Shrink main step size to avoid overshooting
             Δt = dt_min
 
         else

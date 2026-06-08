@@ -163,25 +163,53 @@ end
 
 #Event detection utility. 
 #If a guard surface was crossed and during the ODE step. We check for a sign change between start and end of the step. 
-#Made as a function so we can use it to all solvers with the same logic. We will need another idea for event detection when signs dont change but I havent gotten that far
-function crossed_guard(h_now, h_next; tol=1e-6)
-    # Handles the case when no guard is provided
+
+function crossed_guard(h_now, h_mid, h_next; tol=1e-6)\
     if isnothing(h_now)
         return false
-    else
-    #returns true if sign flipped, or if we start on the guard and push through
-    return (h_now * h_next < 0) || (abs(h_now) <= tol && h_next < -tol)
     end
+
+    #Standardendpoint check returns true if sign flipped or if we start on guard and push through
+    if (h_now * h_next < 0) || (abs(h_now) <= tol && h_next < -tol)
+        return true
+    end
+    
+    #Quad step. Fit P(τ) = aτ^2 + bτ + c for τ∈[0,1] using start mid and end points
+    c = h_now
+    b = 4 * h_mid - 3 * h_now - h_next
+    a = 2 * h_next + 2 * h_now - 4 * h_mid
+    
+    #if a is positive, parabola is concave up
+    #this should be only shape that dips below zero to come back with positive endpoints
+    if a > tol
+        τ_vertex = -b / (2 * a)
+
+        #check if vertex (lowest point) is in current step int
+        if 0.0 < τ_vertex < 1.0
+            h_min = a * τ_vertex^2 + b * τ_vertex + c
+
+            #if dips below guard, trigger event
+            if h_min <= tol
+                return true
+            end
+        end
+    end
+    return false
 end
 
 #solver steps we can have. Should be easy to implement more by just adding on. 
-#only for FEuler
+#Look at FEuler to see the format of everything else. 
+
 function take_step(::ForwardEuler, sys, f, xₖ, tₖ, Δt, tol)
     x_predict = forward_euler_step(f, xₖ, Δt, tₖ) #next state based on the linear/affine dynamics
 
+    #Calc midpoint for quad
+    x_mid = (xₖ .+ x_predict) ./ 2.0
+
     h_now = guard(sys, xₖ) #evaluates guard function at current position to see how far we are from it
+    h_mid = guard(sys, x_mid) #eval guard at midpoint between start and end point for quad check
     h_next = guard(sys, x_predict) #Evalutes guard function at predicted next position to check if we moved through it
-    eventtrigger = crossed_guard(h_now, h_next; tol=tol) #compares the above to check if we crossed guard. 
+    eventtrigger = crossed_guard(h_now, h_mid, h_next; tol=tol) #compares the above to check if we crossed guard. 
 
     dt_next = Δt * 1.2 
 
@@ -191,12 +219,15 @@ end
 function take_step(::ModifiedTrap, sys, f, xₖ, tₖ, Δt, tol)
     x_predict = modified_trap_step(f, xₖ, Δt, tₖ) #calc next state using modifed trap method
 
+    x_mid = modified_trap_step(f, xₖ, Δt / 2.0, tₖ)
+
     #eval guard condition at the start and predicted positions
     h_now = guard(sys, xₖ) 
+    h_mid = guard(sys, x_mid)
     h_next = guard(sys, x_predict)
 
     #check for sign change (I hope to make htis more dignified later)
-    eventtrigger = crossed_guard(h_now, h_next; tol=tol)
+    eventtrigger = crossed_guard(h_now, h_mid, h_next; tol=tol)
 
     dt_next = Δt * 1.2
 
@@ -206,9 +237,11 @@ end
 function take_step(::ExponentialSolver, sys, f, xₖ, tₖ, Δt, tol)
     flowmap = LinearFlow(sys.A)
     x_predict = flow(flowmap, Δt, xₖ)
+    x_mid = flow(flowmap, Δt / 2.0, xₖ)
     h_now = guard(sys, xₖ)
+    h_mid = guard(sys, x_mid)
     h_next = guard(sys, x_predict)
-    eventtrigger = crossed_guard(h_now, h_next; tol=tol)
+    eventtrigger = crossed_guard(h_now, h_mid, h_next; tol=tol)
     dt_next = Δt * 1.2
     return x_predict, eventtrigger, h_now, dt_next
 end
@@ -218,12 +251,15 @@ function take_step(::RichardsonExtrapolation, sys, f, xₖ, tₖ, Δt, tol)
     #calc with richardson extrapolation
     x_predict = richardson_step(f, xₖ, Δt, tₖ)
 
+    x_mid = richardson_step(f, xₖ, Δt / 2.0, tₖ)
+
     #eval guard conditions 
     h_now = guard(sys, xₖ)
+    h_mid = guard(sys, x_mid)
     h_next = guard(sys, x_predict)
 
     #check event 
-    eventtrigger = crossed_guard(h_now, h_next; tol=tol)
+    eventtrigger = crossed_guard(h_now, h_mid, h_next; tol=tol)
 
     dt_next = Δt * 1.2
 
@@ -246,17 +282,20 @@ function take_step(::AdamsBashforth2, sys, f, xₖ, tₖ, Δt, tol, sol)
         #post jump reset phase:
         #we dont have enough points yet. we use Forward Euler to guess for now
         x_predict = modified_trap_step(f, xₖ, Δt, tₖ)
+        x_mid = modified_trap_step(f, xₖ, Δt / 2.0, tₖ)
     else
         #Multistep phase: extract current and previous data points
         x_prev = sol.x[end-1]
         t_prev = sol.t[end-1]
         x_predict = adamsbashforth2_step(f, xₖ, tₖ, Δt, x_prev, t_prev)
+        x_mid = modified_trap_step(f, xₖ, Δt / 2.0, tₖ)
     end
 
     #usual guard and event logic
     h_now = guard(sys, xₖ)
+    h_mid = guard(sys, x_mid)
     h_next = guard(sys, x_predict)
-    eventtrigger = crossed_guard(h_now, h_next; tol=tol)
+    eventtrigger = crossed_guard(h_now, h_mid, h_next; tol=tol)
     dt_next = Δt * 1.2
     return x_predict, eventtrigger, h_now, dt_next
 end
@@ -268,6 +307,7 @@ function take_step(::AdamsBashforth3, sys, f, xₖ, tₖ, Δt, tol, sol)
     if history_len < 3
         #startup phase: less than 3 points of cont history we need. Use Richardson extra to build
         x_predict = richardson_step(f, xₖ, Δt, tₖ)
+        x_mid = richardson_step(f, xₖ, Δt / 2.0, tₖ)
     else 
         #multistep phase: get history time
         x_prev1 = sol.x[end-1]
@@ -277,11 +317,14 @@ function take_step(::AdamsBashforth3, sys, f, xₖ, tₖ, Δt, tol, sol)
         t_prev2 = sol.t[end-2]
 
         x_predict = adamsbashforth3_step(f, xₖ, tₖ, Δt, x_prev1, t_prev1, x_prev2, t_prev2)
+
+        x_mid = richardson_step(f, xₖ, Δt / 2.0, tₖ)
     end
     #guard stuff
     h_now = guard(sys,xₖ)
+    h_mid = guard(sys, x_mid)
     h_next = guard(sys, x_predict)
-    eventtrigger = crossed_guard(h_now, h_next; tol=tol)
+    eventtrigger = crossed_guard(h_now, h_mid, h_next; tol=tol)
     dt_next = Δt * 1.2
 
     return x_predict, eventtrigger, h_now, dt_next
@@ -331,7 +374,7 @@ function locate_event(::QuadraticLocator, sys, solver, f, xₖ, tₖ, Δt, h_now
     #Get three points 
     h₀ = h_now
 
-    #middle point 
+    #middle point. We just take a half step instead of going one before the start point. I think itll be more stable. 
     x₁, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, Δt / 2.0, tol, sol)
     h₁ = guard(sys, x₁)
 

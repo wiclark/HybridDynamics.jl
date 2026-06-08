@@ -1,7 +1,7 @@
 using HybridDynamics
 using Plots
 
-use_affine = true #CHANGE THIS FOR LINEAR VS AFFINE TEST
+use_affine = false #CHANGE THIS FOR LINEAR VS AFFINE TEST
 
 A = [0.0 -1.0; 1.0 1.0]
 λ = [1.0, 0.0]
@@ -33,7 +33,7 @@ if use_affine
     problem = prob(sys, x0, tspan)
     plot_title = "Affine System Test"
 
-    sol_trap = solve(problem, ModifiedTrap())
+    sol_trap = solve(problem, ModifiedMidpoint())
 
     p = plot(title=plot_title, xlabel="x1", ylabel="x2", grid=true, aspect_ratio=:equal)
 
@@ -49,7 +49,7 @@ else
     plot_title = "Linear and Exact Solution Test"
     
     # Both solvers run to compare the purely linear system
-    sol_trap = solve(problem, ModifiedTrap())
+    sol_trap = solve(problem, AdamsBashforth3())
     sol_exp  = solve(problem, ExponentialSolver())
 
     p = plot(title=plot_title, xlabel="x1", ylabel="x2", aspect_ratio=:equal)

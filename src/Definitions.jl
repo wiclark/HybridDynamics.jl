@@ -68,12 +68,16 @@ end
 #Check Zeno function for now:
 function check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
     status =:continue
-    if  jump_interval < last_jump_interval * zeno_ratio #contraction checking
+
+    is_contracting = jump_interval < last_jump_interval * zeno_ratio
+    is_already_at_accumulation = (jump_interval <= tol && last_jump_interval <= tol)
+
+    if  is_contracting || is_already_at_accumulation
         zeno_count += 1
         if zeno_count >= max_zeno_jumps
             @warn "Zeno Behavior Detected: System reached max zeno jumps ($max_zeno_jumps)"
             status =:terminate
-        elseif jump_interval <= tol && zeno_count > 7
+        elseif jump_interval <= tol && zeno_count > 3
             @info "Zeno Accumulation Point Reached at t = $t_star. Terminating."
             status=:terminate
         end
@@ -81,4 +85,62 @@ function check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, 
         zeno_count = 0
     end
     return zeno_count, status
+end
+
+function check_system_pathology(
+    jump_interval, last_intervals, 
+    state_step,
+    zeno_count, instant_jump_count,
+    t_star, tol, zeno_ratio, max_zeno_jumps,
+    beating_warn_threshold, max_instant_jumps,
+    min_zeno_confirmations = 3)
+
+    status = :continue
+
+    #Time min checks
+    t_at_floor = jump_interval <= tol
+
+    #time contraction check. Is it smaller than the max of recent history? 
+    t_contracting = !isempty(last_intervals) && jump_interval < maximum(last_intervals) * zeno_ratio
+
+    #State min check
+    x_at_floor = state_step <= tol
+
+    #Case 1: Zeno Termination
+    #Time is effectivly flatlined and discrete jump is gone. If we have the history of tight jumps, we call it Zeno
+    if t_at_floor && x_at_floor && zeno_count >= min_zeno_confirmations
+        @info "Zeno Accumulation Point Reached at t = $t_star. Terminating."
+        return zeno_count, instant_jump_count, :terminate
+    end
+
+    #Case 2:  Active Zeno tracking
+    if t_contracting || (t_at_floor && !x_at_floor)
+        if t_contracting
+            zeno_count += 1
+        end
+        instant_jump_count = 0
+
+        if zeno_count >= max_zeno_jumps
+            @warn "Zeno Behaviour Detected: System reached max zeno jumps ($max_zeno_jumps)."
+            return zeno_count, instant_jump_count, :terminate
+        end
+    else 
+        if !t_at_floor
+            zeno_count = 0 
+        end
+    end
+
+    #Case 3: Beating and blocking detection
+    if t_at_floor && !x_at_floor
+        instant_jump_count += 1
+        if instant_jump_count == beating_warn_threshold
+            @info "Beating Detected: System has undergone $beating_warn_threshold instant jumps at t = $t_star."
+        elseif instant_jump_count >= max_instant_jumps
+            @warn "Blocking Detected: System Trapped on Guard ($max_instant_jumps instant jumps). Terminating."
+            return zeno_count, instant_jump_count, :terminate
+        end
+    else
+        instant_jump_count = 0
+    end
+    return zeno_count, instant_jump_count, status
 end
