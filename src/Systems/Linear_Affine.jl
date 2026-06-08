@@ -9,6 +9,7 @@ struct LinearSystem <: AbstractHybridSystem
     C::Matrix{Float64} #Reset map matrix (x⁺ = Cx)
 end
 
+#External
 #Constructor to help user see data types 
 function LinearSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix)
     return LinearSystem(Float64.(A), Float64.(λ), Float64.(C))
@@ -26,6 +27,7 @@ struct AffineSystem <: AbstractHybridSystem
     κ::Vector{Float64}  #Discrete affine vector const x⁺ = Cx + κ
 end
 
+#External
 # Constructor to help user see data types
 function AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector)
     return AffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ))
@@ -46,10 +48,12 @@ struct AffineSolution <: AbstractHybridSolution
     jump_indices::Vector{Int}   #Indices in 'x' and 't' where jumps map to
 end
 
+#Technically external, Can be used by user to make solution to see whats going on. 
 #Constructor
 function CreateSolution(prob::prob{LinearSystem, I, T}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector) where {I, T}
     return LinearSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
 end
+#Technically external, Can be used by user to make solution to see whats going on.
 #Constructor
 function CreateSolution(prob::prob{AffineSystem, I, T}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector) where {I, T}
     return AffineSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
@@ -63,6 +67,7 @@ struct LinearFlow{TM<:AbstractMatrix, TV<:AbstractVector}
     V_inv::TM   #inverse of eigenvectors
 end
 
+#Internal
 #Constructor that performs heavy math ONCE
 function LinearFlow(A)
     eig = eigen(A) #Perform eigen decomp
@@ -71,6 +76,7 @@ function LinearFlow(A)
     return LinearFlow(eig.vectors, eig.values, inv(eig.vectors))
 end
 
+#Internal
 #Actual step function for the exact solver
 function flow(flowmap::LinearFlow, τ, x) 
 
@@ -85,6 +91,8 @@ end
 #Beating/Zeno check
 #Goal is to prevent loops in Linear and Affine systems.
 #Through Multiple dispath, this overrides the default fallback in Definitions.jl only when the solver is Linear or Affine. 
+
+#Internal (could be external if we want?)
 function check_beating_status(sys::Union{LinearSystem, AffineSystem}, instant_jumps, n, x_current, t_current, tol, trivial_tol_multiplier)
     if (instant_jumps) > (n-1) 
         if norm(x_current) < tol * trivial_tol_multiplier
@@ -110,15 +118,19 @@ end
 #Solution Initialization
 #Goal is to setup the empty memory containers before solver starts running. 
 #pre-allocating the vectors with the exact starting conditions ensures that the solver loop is stable 
+
+#internal
 function init_solution(prob::prob{LinearSystem, I, T}) where {I, T}
     return LinearSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
 end
+#internal
 function init_solution(prob::prob{AffineSystem, I, T}) where {I, T}
     return AffineSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
 end
 
 #--------------------------------------------
 #BEATING AND BLOCKING SETS
+#External
 function beating_and_blocking_sets(sys::AbstractHybridSystem)
     #Deconstructs the system structure to get the matrices and vectors we need.
     λ, C = sys.λ, sys.C
@@ -185,6 +197,7 @@ function beating_and_blocking_sets(sys::AbstractHybridSystem)
         k_blocking = k_∞        #Smallest integer k such that we have the blocking set.
     )
 end
+#External
 function beating_and_blocking_sets(sys::AffineSystem)
     λ, a, C, κ = sys.λ, sys.a, sys.C, sys.κ
 
@@ -248,6 +261,7 @@ function beating_and_blocking_sets(sys::AffineSystem)
 end
 
 #TRIVIALLY BLOCKING
+#External
 function is_trivially_blocking(sys::LinearSystem)
 
     #The blocking set is the null space of the matrix O we formed in the analysis part. 
@@ -266,6 +280,7 @@ function is_trivially_blocking(sys::LinearSystem)
     return rank(analysis.blocking_set) == n
 
 end
+#External
 function is_trivially_blocking(sys::AffineSystem)
     #Perform beating and blocking sets analysis to find constraint matrix and offset
     analysis = beating_and_blocking_sets(sys)
@@ -276,6 +291,7 @@ function is_trivially_blocking(sys::AffineSystem)
     return rank(analysis.blocking_set) == n && isapprox(norm(analysis.blocking_offsets), 0, atol=1e-12)
 end
 
+#External
 function basis_beating_and_blocking_sets(sys::Union{LinearSystem, AffineSystem})
     #run function we already have to get constraint matrices
     analysis = beating_and_blocking_sets(sys)
@@ -299,26 +315,32 @@ function basis_beating_and_blocking_sets(sys::Union{LinearSystem, AffineSystem})
     )
 end
 
+#Internal
 function guard(sys::LinearSystem, x::AbstractVector)
     return sys.λ' * x
 end
+#Internal
 function guard(sys::AffineSystem, x::AbstractVector)
     return sys.λ' * x + sys.a 
 end
 
+#internal
 function apply_reset(sys::LinearSystem, x::AbstractVector)
     return sys.C * x
 end
+#internal
 function apply_reset(sys::AffineSystem, x::AbstractVector)
     return sys.C * x + sys.κ
 end
 
+#Internal
 function get_dimension(sys::Union{LinearSystem, AffineSystem})
     return size(sys.A, 1)
 end
 
 
 #SOLVER
+#Very External
 function solve(prob::prob{F, I, T}, 
                solver::AbstractODESolver=ModifiedMidpoint(); 
                event_method::AbstractEventLocator=QuadraticLocator(), 

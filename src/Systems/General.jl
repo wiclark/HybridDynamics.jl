@@ -11,17 +11,20 @@ struct GeneralSolution <: AbstractHybridSolution
     jump_indices::Vector{Int}
 end
 
+#Internal
 function init_solution(prob::prob{GeneralSystem, I, T}) where {I, T}
     return GeneralSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
 end
-
+#Internal
 function guard(sys::GeneralSystem, x::AbstractVector)
     return sys.h(x)
 end
+#Internal
 function apply_reset(sys::GeneralSystem, x::AbstractVector)
     return sys.Δ(x)
 end
 
+#Internal
 function check_beating_blocking(jump_interval, instant_jump_count, t_star, tol, beating_warn_threshold, max_instant_jumps)
     status = :continue
     if jump_interval <= tol
@@ -38,6 +41,7 @@ function check_beating_blocking(jump_interval, instant_jump_count, t_star, tol, 
     return instant_jump_count, status
 end
 
+#External
 function solve(prob::prob{F, I, T}, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=QuadraticLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6, beating_warn_threshold = 3, max_instant_jumps = 100, zeno_ratio = .99, max_zeno_jumps = 100) where {F<:GeneralSystem, I, T}
     sys = prob.sys
     f = sys.f
