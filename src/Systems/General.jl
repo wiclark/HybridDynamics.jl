@@ -83,7 +83,7 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=ModifiedMidpoint()
             #Pathology Checks
             jump_interval = t_star - last_jump_time
 
-            if last_jump_time == Inf
+            if last_jump_time == -Inf
                 zeno_count = 0
             else 
                 zeno_count, zeno_status = check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
