@@ -23,6 +23,10 @@ abstract type AbstractHybridSolution end
 #SOLVE TAGS
 #These are empty structs. Their purpose is to act as a tag for the Julia compiler. When a user passes 'ModifiedMidpoint()' to the solver, the compiler uses multiple dispatch to route to the 'take_step' function written for that tag. 
 
+######
+### WC: I would break down these structures more.
+######
+#=
 #Tag for standard Forward Euler integration 
 struct ForwardEuler <: AbstractODESolver end
 
@@ -43,6 +47,22 @@ struct RichardsonExtrapolation <: AbstractODESolver end
 struct AdamsBashforth2 <: AbstractODESolver end
 
 struct AdamsBashforth3 <: AbstractODESolver end
+=#
+struct RK <: AbstractODESolver end
+struct ForwardEuler <: RK end
+struct ModifiedTrap <: RK end
+struct ModifiedMidpoint <: RK end
+struct RichardsonExtrapolation <: RK end # I think so, at least
+
+struct ExponentialSolver <: AbstractODESolver end
+
+struct LMM <: AbstractODESolver end
+struct AdamsBashforth2 <: LMM end
+struct AdamsBashforth3 <: LMM end
+
+######
+### WC: Would it make more sense to define these structures in the ODE_solvers? This way you don't have to edit multiple files to add a new solver.
+######
 
 #-----------------------
 #LOCATOR TAGS
@@ -64,6 +84,10 @@ struct prob{F <: AbstractHybridSystem, I  <: AbstractVector{Float64}, T <: Tuple
     tspan::T
 end
 
+
+######
+### WC: Why are these functions in this file? Shouldn't these be all located in General.jl?
+######
 #Internal for now
 #Check Zeno function for now:
 function check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
