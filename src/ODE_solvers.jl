@@ -7,10 +7,18 @@
 
 ## Single step, fully explicit methods
 
+######
+### WC: what all is being used here? 'forward_euler' does not call 'forward_euler_step'. Fat should be trimmed.
+######
+
 # Forward Euler
 function forward_euler_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
     return z .+ h*f(z, t)
 end
+
+######
+### WC: Using t_start:dt:t_end will cause issues. Suppose, for example, that we have A = 0.0:0.1:2.12. What is A[end]?
+######
 
 # NOT SINGLE STEP: Forward Euler method. We solve an ODE defined by $f(u,t)$ starting at u0 and over tspan with step size dt. 
 function forward_euler(f::Function,u0,tspan::Tuple{Float64,Float64}; dt::Float64 = 0.01)
@@ -138,6 +146,10 @@ function richardson_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFl
     return (4 .* z2 .- z1) ./ 3.0
 end
 
+######
+### WC: These two methods have a fixed value of Δt. There is no need to require t_prev (or t_prev1 and t_prev2)
+######
+
 function adamsbashforth2_step(f::Function, xₖ::Vector, tₖ::AbstractFloat, Δt::AbstractFloat, x_prev::Vector, t_prev::AbstractFloat)
     #calc previous time step size
     dt_previous = tₖ - t_prev
@@ -162,7 +174,12 @@ end
 
 
 #Event detection utility. 
-#If a guard surface was crossed and during the ODE step. We check for a sign change between start and end of the step. 
+#If a guard surface was crossed and during the ODE step. We check for a sign change between start and end of the step.
+
+######
+### WC: Your parabolic version is incorrect. You do not necessarily know that the points have a uniform Δt (e.g., RK45). 
+###     See my version below:
+######
 
 function crossed_guard(h_now, h_mid, h_next; tol=1e-6)\
     if isnothing(h_now)
@@ -197,25 +214,64 @@ function crossed_guard(h_now, h_mid, h_next; tol=1e-6)\
     return false
 end
 
+
+### WC: My version: Returns true/false along with the predicted impact time
+###     I am padding the returns by NaN if I don't care about that result.
+function crossed_guard_will(h_prev, h_now, h_next, t_prev, t_now, t_next; tol=1e-6)
+    # I'm not sure why you have this, so I'll keep it anyway
+    if isnothing(h_now)
+        return false, t_next-t_now, NaN
+    end
+
+    # Performing the linear version. Why is the 'or' part required? You have the absolute value of now, but not for the next?
+    if (h_now * h_next < 0)
+        return true, t_now-h_now*(t_next-t_now)/(h_next-h_now), NaN
+    end
+
+    # Performing the quadratic version. If the discriminant is positive, there are roots.
+    # Recall, that by the IVT, the linear test guarantees a crossing. The quadratic test does not guarantee one. This triggering should be treated as a warning.
+    a, b, c = [t_prev^2 t_pref 1;t_now^2 t_now 1;t_next^2 t_next 1] \ [h_prev, h_now, h_next]
+    if b^2-4*a*c > 0
+        # We will return the smallest root. This will correspond to the '=' solution
+        proposed_root = (-b-sqrt(b^2-4*a*c))/(2*a)
+        # Another good point to text would be the critical point. If there is a crossing, this point is predicted to have crossed the most.
+        # We will record this number. As a crossing should be the most extreme, between t_now and this critical point, the linear test should work.
+        critical_point = -b/(2*a)
+        if t_now < proposed_root < t_next
+            return true, proposed_root, critical_point
+        end
+    end
+end
+
+
 #solver steps we can have. Should be easy to implement more by just adding on. 
 #Look at FEuler to see the format of everything else. 
 
 function take_step(::ForwardEuler, sys, f, xₖ, tₖ, Δt, tol)
     x_predict = forward_euler_step(f, xₖ, Δt, tₖ) #next state based on the linear/affine dynamics
 
+    ### WC: no, don't do this. the midpoint as the average is a garbage approximation
+    ###     If anything, take a half Euler step. (Better would be to take in the pervious state.)
+    ###     Upon reflection, you really should take the previous state as an additional input to this function (you don't know that Δt is constant)
+
     #Calc midpoint for quad
-    x_mid = (xₖ .+ x_predict) ./ 2.0
+    #x_mid = (xₖ .+ x_predict) ./ 2.0
+    x_mid = forward_euler_step(f, xₖ, Δt/2, tₖ)
 
     h_now = guard(sys, xₖ) #evaluates guard function at current position to see how far we are from it
     h_mid = guard(sys, x_mid) #eval guard at midpoint between start and end point for quad check
     h_next = guard(sys, x_predict) #Evalutes guard function at predicted next position to check if we moved through it
-    eventtrigger = crossed_guard(h_now, h_mid, h_next; tol=tol) #compares the above to check if we crossed guard. 
+    #eventtrigger = crossed_guard(h_now, h_mid, h_next; tol=tol) #compares the above to check if we crossed guard. 
+    eventtrigger, dt_next, _ = crossed_guard(h_now, h_mid, h_next; tol=tol)
 
-    dt_next = Δt * 1.2 
+    #dt_next = Δt * 1.2 
 
     return x_predict, eventtrigger, h_now, dt_next
 end
 
+######
+### WC: This seems too simliar to the previous version to warrant another dispatch
+######
 function take_step(::ModifiedTrap, sys, f, xₖ, tₖ, Δt, tol)
     x_predict = modified_trap_step(f, xₖ, Δt, tₖ) #calc next state using modifed trap method
 
@@ -234,6 +290,9 @@ function take_step(::ModifiedTrap, sys, f, xₖ, tₖ, Δt, tol)
     return x_predict, eventtrigger, h_now, dt_next
 end
 
+######
+### WC: I feel like there should be a smarter way to implement this case. One that actually uses the matrix exponential.
+######
 function take_step(::ExponentialSolver, sys, f, xₖ, tₖ, Δt, tol)
     flowmap = LinearFlow(sys.A)
     x_predict = flow(flowmap, Δt, xₖ)
@@ -246,6 +305,10 @@ function take_step(::ExponentialSolver, sys, f, xₖ, tₖ, Δt, tol)
     return x_predict, eventtrigger, h_now, dt_next
 end
 
+
+######
+### WC: Same comment as above. Why another dispatch?
+######
 #Extrapolation 
 function take_step(::RichardsonExtrapolation, sys, f, xₖ, tₖ, Δt, tol)
     #calc with richardson extrapolation
@@ -272,6 +335,10 @@ function take_step(solver::AbstractODESolver, sys, f, xₖ, tₖ, Δt, tol, sol)
     return take_step(solver, sys, f, xₖ, tₖ, Δt, tol)
 end
 
+######
+### WC: This actually feels quite different from the pervious dispatches. Is it because these are LMMs and you are tracking the history?
+###     In that case, you should only have to have two dispatches for 'take_step'. One for Runge-Kutta methods and one for LMMs. Possibly a third/fourth for adaptive step versions
+######
 #AB2
 function take_step(::AdamsBashforth2, sys, f, xₖ, tₖ, Δt, tol, sol)
     #check how many continuous steps have occurred since last jump
@@ -281,6 +348,9 @@ function take_step(::AdamsBashforth2, sys, f, xₖ, tₖ, Δt, tol, sol)
     if history_len < 2
         #post jump reset phase:
         #we dont have enough points yet. we use Forward Euler to guess for now
+        ######
+        ### WC: Don't you mean modified trapezoid?
+        ######
         x_predict = modified_trap_step(f, xₖ, Δt, tₖ)
         x_mid = modified_trap_step(f, xₖ, Δt / 2.0, tₖ)
     else
@@ -295,11 +365,19 @@ function take_step(::AdamsBashforth2, sys, f, xₖ, tₖ, Δt, tol, sol)
     h_now = guard(sys, xₖ)
     h_mid = guard(sys, x_mid)
     h_next = guard(sys, x_predict)
+    ######
+    ### WC: This should be updated as above.
+    ######
     eventtrigger = crossed_guard(h_now, h_mid, h_next; tol=tol)
     dt_next = Δt * 1.2
     return x_predict, eventtrigger, h_now, dt_next
 end
 
+######
+### WC: This shouldn't really require an additional dispatch. You should be write one for an abstract LMM (of arbitrary step length)
+### Actually, do you actually need xₖ, tₖ as inputs. Aren't these already stored in 'sys'?
+### I suppose that you would have to supply a predicting algorithm
+######
 function take_step(::AdamsBashforth3, sys, f, xₖ, tₖ, Δt, tol, sol)
     #Determine how many cont steps we have since last jump
     history_len = isempty(sol.jump_indices) ? length(sol.x) : (length(sol.x) - sol.jump_indices[end] + 1)
@@ -330,11 +408,43 @@ function take_step(::AdamsBashforth3, sys, f, xₖ, tₖ, Δt, tol, sol)
     return x_predict, eventtrigger, h_now, dt_next
 end
 
+######
+### WC: Observe. Also do something with take_step(::RK,...)
+######
+function take_step(::LMM, sys, f, xₖ, tₖ, Δt, tol, sol, prediction_stepper, k)
+    # Determine how many cont steps we have since last jump
+    history_len = isempty(sol.jump_indices) ? length(sol.x) : (length(sol.x) - sol.jump_indices[end] + 1)
+
+    # Do we have a sufficiently rich history?
+    if history_len < k
+        x_predict = prediction_stepper(f, xₖ, Δt, tₖ)
+        x_mid = prediction_stepper(f, xₖ, Δt / 2.0, tₖ)
+    else
+        # This is the part where you need a little creativity
+        x_prev = sol.x[end-k:end]
+        t_prev = sol.t[end-k:end]
+        x_predict = LLM(f, xₖ, tₖ, x_prev, t_prev)
+        # I still don't like this. You should be comparing to the previous evaluation, not the next half one
+        x_mid = prediction_stepper(f, xₖ, Δt / 2.0, tₖ)
+    end
+    # Guard stuff
+    h_now = guard(sys,xₖ)
+    h_mid = guard(sys, x_mid)
+    h_next = guard(sys, x_predict)
+    eventtrigger, dt_next, _ = crossed_guard(h_now, h_mid, h_next; tol=tol)
+
+    return x_predict, event_trigger, h_now, dt_next
+end
+
 
 #Locator Dispatches
 #Isolates the root finding mathematics inside each one. This gets rid of global helpers so when we add new locators its really easy
 
 #Bisection Method (Iterative)
+######
+### WC: This requires that the LMMs can have variable step size as τ_m is going to vary and not be equal to Δt.
+### Either fix the LMMs or only allow RK methods to work here.
+######
 function locate_event(::BisectionLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)
     τ_l, τ_r = 0.0, Δt
     h_l = h_now
@@ -361,6 +471,9 @@ function locate_event(::BisectionLocator, sys, solver, f, xₖ, tₖ, Δt, h_now
     return t_star, x_star
 end
 #Linear Interpolation
+######
+### WC: Why is there no for loop here? This should generate iterations on approximations to the crossing.
+######
 function locate_event(::LinearLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)
     x_predict, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, Δt, tol, sol)
     h_next = guard(sys, x_predict) 
@@ -370,6 +483,10 @@ function locate_event(::LinearLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, t
     return t_star, x_star
 end
 
+######
+### WC: I am not convinced that quadratic needs to be implemented here. It is much more important to be utilized in 'crossed_guard'
+### Newton's method may actually be a fun mathod to implement, but I suspect that linear will suffice.
+######
 function locate_event(::QuadraticLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)
     #Get three points 
     h₀ = h_now
