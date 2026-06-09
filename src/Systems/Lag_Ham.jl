@@ -4,10 +4,7 @@
 ######
 ### WC: You should include a complete reference.
 ######
-######
-### WC: The word is **SPECULAR REFLECTION**
-######
-function spectral_refl(x, M, dh; e=1.0)
+function specular_refl(x, M, dh; e=1.0)
 
     n = length(x) ÷ 2
 
@@ -69,7 +66,7 @@ struct LagSys{L,G,N,R,E}
 end
 
 # EXTERNAL
-# Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
+# Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic specular reflection
 """
 Lagrangian System
  - L
@@ -78,7 +75,7 @@ Lagrangian System
 function LagSys(L;
             guard = nothing,
             normal = nothing,
-            reset = (x, M, dh, e) -> spectral_refl(x, M, dh; e),
+            reset = (x, M, dh, e) -> specular_refl(x, M, dh; e),
             e = 1.0)
 
     if isnothing(guard) &&  !isnothing(normal)
@@ -163,7 +160,7 @@ struct HamSys{H,G,R,E}
 end
 
 # Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
-function HamSys(H; guard=nothing, reset = (x,e) -> spectral_refl(x,e), e = 1.0)
+function HamSys(H; guard=nothing, reset = (x,e) -> specularl_refl(x,e), e = 1.0)
     HamSys(H, guard, reset, e)
 end
 
@@ -324,7 +321,7 @@ function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=B
             #Pinpoint the exact impact time and state using the chosen locator strategy 
             t_star, x_star = locate_event(event_method, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)            
 
-            # Reset map - defaults to spectral reflection
+            # Reset map - defaults to specular reflection
             x⁺ = reset(xₖ, M, dh; e=1.0)
 
             #PLOTTING ARCH
@@ -333,10 +330,6 @@ function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=B
             #Also old code, can be gotten rid of/ altered?
             push!(sol.T, t_star, t_star)
             push!(sol.X, x_star, x⁺)
-            
-            # #Record event data for analysis
-            # push!(sol.jump_times, t_star)
-            # push!(sol.jump_indices, length(sol.x)) 
 
             #Lock in post-impact state to continue the loop
             xₖ = x⁺ 
@@ -359,26 +352,3 @@ function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=B
 
     return sol
 end
-
-# function project_to_guard(x, G, J; tol=1e-12, max_iter=20)
-#     x_proj = copy(x)
-
-#     for i in 1:max_iter
-#         g = G(x_proj)
-
-#         if norm(g) < tol
-#             return x_proj
-#         end
-
-#         Jx = J(x_proj)
-
-#         # Least-squares Newton step:
-#         # δx = - J⁺ g
-#         δx = -(Jx' * (Jx * Jx') \ g)
-
-#         x_proj += δx
-#     end
-
-#     @warn "Vector guard projection did not converge"
-#     return x_proj
-# end
