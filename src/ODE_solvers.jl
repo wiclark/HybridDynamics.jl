@@ -85,24 +85,50 @@ function updated_step(LTE::AbstractFloat, tol::AbstractFloat, h::AbstractFloat, 
 end
 
 # Runge-Kutta 23
-function rk_23_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, tf::AbstractFloat)
+function rk_23_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, tf::AbstractFloat, sys)
     # As this is an adaptive step solver, h is the step size from the previous step
     # As the step size is not of fixed size, we specify the terminal time, tf, of the problem
     h = minimum([h, tf-t])
     # Set the tolerence
     tol = 1e-4
 
+    #Intialization to make sure they exist
+    z2 = z; z3 = z
+
     # Loop through to find an acceptable step
     while true
+        h_now = guard(sys, z)
         # Compute the two predictions and their difference
         k1 = f(z, t)
-        k2 = f(z+h*k1, t+h)
+
+        z2 = z + h*k1
+        k2 = f(z2, t+h)
+        h2    = guard(sys, z2)
+
+        z3 = z + h/4*(k1+k2)
         k3 = f(z+h/4*(k1+k2), t+h/2)
+        h3    = guard(sys, z3)
+
         z1_3 = z + h*(1/6*k1+1/6*k2+2/3*k3)
         z1_2 = z + h*(1/2*k1+1/2*k2)
+
         LTE = norm(z1_2 - z1_3)
         # Reject or accept?
         h_new = updated_step(LTE, tol, h, 3)
+        
+        h_end = guard(sys, z1_2)
+
+        #did any intermediate stage cross guard?
+        stage_crossed = (h_now * h2 < 0) || (h_now * h3 < 0)
+        #Did final state completely miss crossing?
+        end_missed = (h_now * h_end > 0)
+
+        #if we crossed inside step but missed at end, force rejection
+        if stage_crossed && end_missed
+            h = h / 2.0 #force smaller step
+            continue
+        end
+
         if LTE < tol
             return z1_2, h, h_new
         else
@@ -111,34 +137,66 @@ function rk_23_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
         end
         if h < 1e-12
             @warn "Step size has decreased below 1e-12"
+            return z1_2, h, h_new #force break to avoid looping forever
         end
     end
 end
 
 # Runge-Kutta 45
-function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, tf::AbstractFloat)
+function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, tf::AbstractFloat, sys)
     # As this is an adaptive step solver, h is the step size from the pervious step
     # As the step size is not of fixed size, we specify the terminal time, tf, of the problem
     h = minimum([h, tf-t])
     # Set the tolerence
     tol = 1e-4
 
+    #Initialization to make them exist
+    z2 = z; z3 = z; z4 = z; z5 = z; z6 = z
     # Loop through to find an acceptable step
     while true
+        h_now = guard(sys, z)
         # Compute the two predictions and their difference
         k1 = f(z, t)
+
+        z2 = z + h*1/5*k1
         k2 = f(z+h*1/5*k1, t+h*1/5)
+        h2 = guard(sys, z2)
+
+        z3 = z + h*(3/40*k1 + 9/40*k2)
         k3 = f(z+h*(3/40*k1+9/40*k2), t+h*3/10)
+        h3 = guard(sys, z3)
+
+        z4 = z + h*(44/45*k1 - 56/15*k2 + 32/9*k3)
         k4 = f(z+h*(44/45*k1-56/15*k2+32/9*k3), t+h*4/5)
+        h4 = guard(sys, z4)
+
+        z5 = z + h*(19372/6561*k1 - 25360/2187*k2 + 64448/6561*k3 - 212/729*k4)
         k5 = f(z+h*(19372/6561*k1-25360/2187*k2+64448/6561*k3-212/729*k4),t+h*8/9)
+        h5 = guard(sys, z5)
+
+        z6 = z + h*(9017/3168*k1 - 355/33*k2 + 46732/5247*k3 + 49/176*k4 - 5105/18656*k5)
         k6 = f(z+h*(9017/3168*k1-355/33*k2+46732/5247*k3+49/176*k4-5105/18656*k5), t+h)
-        k7 = f(z+h*(35/384*k1+0*k2+500/1113*k3+125/192*k4-2187/6784*k5+11/84*k6),t+h)
+        h6 = guard(sys, z6)
+
+        k7 = f(z + h*(35/384*k1 + 0*k2 + 500/1113*k3 + 125/192*k4 - 2187/6784*k5 + 11/84*k6), t+h)
+
         # The two updates
         z1_4 = z + h*k7
         z1_5 = z + h*(5179/57600*k1 + 0*k2 + 7571/16695*k3 + 393/640*k4 - 92097/339200*k5 + 187/2100*k6 + 1/40*k7)
         LTE = norm(z1_4 - z1_5)
         # Reject or accept?
         h_new = updated_step(LTE, tol, h, 5)
+
+        h_end = guard(sys, z1_4)
+
+        stage_crossed = (h_now * h2 < 0) || (h_now * h3 < 0) || (h_now * h4 < 0) || (h_now * h5 < 0) || (h_now * h6 < 0)
+        end_missed = (h_now * h_end > 0)
+
+        if stage_crossed && end_missed
+            h = h / 2.0 #force smaller step
+            continue
+        end
+
         if LTE < tol
             return z1_4, h, h_new
         else
@@ -146,6 +204,7 @@ function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
         end
         if h < 1e-12
             @warn "Step size has decreased below 1e-12"
+            return z1_4, h, h_new
         end
     end
 end
@@ -179,8 +238,8 @@ compute_step(::RichardsonExtrapolation, f, x, Δt, t) = richardson_step(f, x, Δ
 #Adaptive step methods
 const AdaptiveRK = Union{RK23, RK45}
 #Helper function to take the step via multiple dispatch
-compute_step(::RK23, f, x, Δt, t, tf) = rk_23_step(f, x, Δt, t, tf)
-compute_step(::RK45, f, x, Δt, t, tf) = rk_45_step(f, x, Δt, t, tf)
+compute_step(::RK23, f, x, Δt, t, tf, sys) = rk_23_step(f, x, Δt, t, tf, sys)
+compute_step(::RK45, f, x, Δt, t, tf, sys) = rk_45_step(f, x, Δt, t, tf, sys)
 
 #Note sol is not used, we do this to make using the function easier. We would need an if/else statement everytime we use this function without it
 function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint()) 
@@ -194,7 +253,7 @@ function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, 
     h_next = guard(sys, x_predict)
 
     #Use cross guard check
-    eventtrigger, dt_next, _ = crossed_guard_will(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
+    eventtrigger, dt_next, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
 
     return x_predict, eventtrigger, h_now, Δt, dt_next
 end
@@ -204,23 +263,23 @@ function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, t�
     tf = prob.tspan[2] #terminal time
 
     #Take adaptive step (passes tf to prevent overshooting)
-    x_predict, dt_used, dt_next = compute_step(solver, f, xₖ, Δt, tₖ, tf)
+    x_predict, dt_used, dt_next = compute_step(solver, f, xₖ, Δt, tₖ, tf, sys)
 
     #Get midpoint for quad guard check
     #For a half-step the local ceiling is just midpoint of time 
-    x_mid, _, _ = compute_step(solver, f, xₖ, dt_used / 2.0, tₖ, tₖ + (dt_used / 2.0))
+    x_mid, _, _ = compute_step(solver, f, xₖ, dt_used / 2.0, tₖ, tf, sys)
 
     #eval guards
     h_now  = guard(sys, xₖ)
     h_mid  = guard(sys, x_mid)
     h_next = guard(sys, x_predict)
 
-    eventtrigger, _, _ = crossed_guard_will(h_now, h_mid, h_next, tₖ, tₖ + dt_used / 2.0, tₖ + dt_used; tol=tol)
+    eventtrigger, _, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + dt_used / 2.0, tₖ + dt_used; tol=tol)
 
     return x_predict, eventtrigger, h_now, dt_used, dt_next
 end
 
-
+#===========================#
 #Helper function to tell engine how many history steps are needed for LMM
 lmm_order(::AdamsBashforth2) = 2
 lmm_order(::AdamsBashforth3) = 3
@@ -279,7 +338,7 @@ function take_step(solver::LMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt,
         h_mid  = guard(sys, x_mid)
         h_next = guard(sys, x_predict)
 
-        eventtrigger, dt_next, _ = crossed_guard_will(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
+        eventtrigger, dt_next, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
         return x_predict, eventtrigger, h_now, dt_next
     else
         #Multistep phase: We do have rich enough history. Extract past states
@@ -298,7 +357,7 @@ function take_step(solver::LMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt,
         x_prev = sol.x[end-1]
         h_prev = guard(sys, x_prev)
 
-        eventtrigger, dt_next, _ = crossed_guard_will(h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol = tol)
+        eventtrigger, dt_next, _ = crossed_guard(h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol = tol)
 
         return x_predict, eventtrigger, h_now, dt_next
     end
@@ -308,46 +367,59 @@ function take_step(solver::LMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt,
     h_mid  = guard(sys, x_mid)
     h_next = guard(sys, x_predict)
 
-    eventtrigger, dt_next, _ = crossed_guard_will(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
+    eventtrigger, dt_next, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
 
     return x_predict, eventtrigger, h_now, Δt, dt_next
 end
 
 
-
+#====================================#
 #Event detection utility. 
 #If a guard surface was crossed and during the ODE step. We check for a sign change between start and end of the step.
+function crossed_guard(h_prev, h_now, h_next, t_prev, t_now, t_next; tol=1e-6)
 
-######
-### WC: Your parabolic version is incorrect. You do not necessarily know that the points have a uniform Δt (e.g., RK45). 
-###     See my version below:
-######
-
-### WC: My version: Returns true/false along with the predicted impact time
-###     I am padding the returns by NaN if I don't care about that result.
-function crossed_guard_will(h_prev, h_now, h_next, t_prev, t_now, t_next; tol=1e-6)
-    # I'm not sure why you have this, so I'll keep it anyway
-    if isnothing(h_now)
-        return false, t_next-t_now, NaN
-    end
-
-    # Performing the linear version. Why is the 'or' part required? You have the absolute value of now, but not for the next?
+    # Linear Crossing check 
+    #if the sign changes between now and next a root must exist. 
     if (h_now * h_next < 0)
-        return true, t_now-h_now*(t_next-t_now)/(h_next-h_now), NaN
+        #Linear interp
+        t_root = t_now-h_now*(t_next-t_now)/(h_next-h_now)
+        return true, t_root, NaN
     end
 
     # Performing the quadratic version. If the discriminant is positive, there are roots.
     # Recall, that by the IVT, the linear test guarantees a crossing. The quadratic test does not guarantee one. This triggering should be treated as a warning.
-    a, b, c = [t_prev^2 t_prev 1;t_now^2 t_now 1;t_next^2 t_next 1] \ [h_prev, h_now, h_next]
-    if b^2-4*a*c > 0
-        # We will return the smallest root. This will correspond to the '=' solution
-        proposed_root = (-b-sqrt(b^2-4*a*c))/(2*a)
-        # Another good point to text would be the critical point. If there is a crossing, this point is predicted to have crossed the most.
-        # We will record this number. As a crossing should be the most extreme, between t_now and this critical point, the linear test should work.
-        critical_point = -b/(2*a)
-        if t_now < proposed_root < t_next
-            return true, proposed_root, critical_point
+
+    try 
+        #matrix of three points we use per WC
+        A = [t_prev^2 t_prev 1; t_now^2 t_now 1; t_next^2 t_next 1]
+        a, b, c = A \ [h_prev, h_now, h_next]
+
+        #ensure a is valid (a != 0)
+        if abs(a) > 1e-10
+            discriminant = b^2 - 4*a*c
+
+            #if disc is positive, there are roots
+            if discriminant > 0 
+                #calc roots
+                sqrt_d = sqrt(discriminant)
+                r1 = (-b - sqrt_d) / (2*a)
+                r2 = (-b + sqrt_d) / (2*a)
+
+                #we return the smallest root which is '=' solution
+                proposed_root = min(r1,r2)
+
+                #critical point: if there is a crossing, this point is the 'most extreme' 
+                critical_point = -b / (2*a)
+
+                #Check if crossing occurs within interval 
+                if t_now < proposed_root < t_next
+                    return true, proposed_root, critical_point
+                end
+            end
         end
+    catch 
+        #if matrix is singular or calc fails we ignore quad warning
+        return false, NaN, NaN
     end
     return false, NaN, NaN
 end

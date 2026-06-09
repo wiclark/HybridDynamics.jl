@@ -3,7 +3,7 @@ using Plots
 
 use_affine = true #CHANGE THIS FOR LINEAR VS AFFINE TEST
 
-A = [0.0 -1.0; 1.0 1.0]
+A = [0.0 -10.0; 10.0 -.1]
 λ = [1.0, 0.0]
 C = [1.5 1.0; 0.0 0.5]
 x0 = [1.0, 0.5]
@@ -25,8 +25,8 @@ function get_rid_of_jump_lines(sol)
 end
 
 if use_affine
-    b = [.2, -.1]
-    a = 10
+    b = [2., 0.0]
+    a = .2
     κ = [.1, -.2]
 
     sys = AffineSystem(A, b, λ, a, C, κ)
