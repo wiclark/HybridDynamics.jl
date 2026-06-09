@@ -34,30 +34,6 @@ function forward_euler_step(f::Function, z::Vector, h::AbstractFloat, t::Abstrac
     return z .+ h*f(z, t)
 end
 
-#NEW FORWARD EULER 
-function forward_euler(f::Function, u0, tspan::Tuple{Float64, Float64}; dt::Float64 = .01)
-    t_start, t_end = tspan
-
-    t = Float64[t_start]
-    u = typeof(u0)[u0]
-
-    current_t = t_start
-    current_u = u0
-
-    while current_t < t_end
-        #Ensure last step doesnt overshoot t_end
-        step_size = min(dt, t_end - current_t)
-
-        #Calling step function
-        current_u = forward_euler_step(f, current_u, step_size, current_t)
-        current_t += step_size
-
-        push!(t, current_t)
-        push!(u, current_u)
-    end
-    return t, u
-end
-
 # Modified (fully explicit) Trapezoid Rule
 function modified_trap_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
     z_guess = z .+ h*f(z,t)
