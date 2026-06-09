@@ -1,17 +1,10 @@
 
-
-# # Allow options for how the solver arrives at the equations of motion (EOM)
-# abstract type Backend end
-# struct AutoForwardDiff <: Backend end   # Automatic differentiation using ForwardDiff
-# struct AutoFiniteDiff  <: Backend end   # Finite differences
-# struct ManualEOM       <: Backend end   # Manually provide sumthin?
-
-
-# Default reset map: spectral reflection with coefficient of restitution
-""" 
-See "Is There Life After Zeno? paper
-"""
-function spectral_refl(x, M, dh, e)
+# INTERNAL
+# Default reset map: spectral reflection with coefficient of restitution. See "Is There Life After Zeno? paper
+######
+### WC: You should include a complete reference.
+######
+function specular_refl(x, M, dh; e=1.0)
 
     n = length(x) ÷ 2
 
@@ -32,6 +25,9 @@ function spectral_refl(x, M, dh, e)
 
     return vcat(q, vnew)
 end
+######
+### WC: This requires 'using' LinearAlgebra. Have you settled on 'using' rather than 'import'?
+######
 
 # General solution struct for Lagrangian and Hamiltonian systems
 struct LHSol{T, X, I, T_e1, T_z}
@@ -41,6 +37,10 @@ struct LHSol{T, X, I, T_e1, T_z}
     T_e1::T_e1  # Time of first event
     T_z::T_z    # Time of Zeno
 end
+######
+### WC: There can be multiple Zeno events. We'll discuss this more in the future.
+### As it is currently written, you halt when Zeno occurs, correct?
+######
 
 # Does this need to be a general constructor or can I go straight to initializing the solution state?
 function LHSol(prob)
@@ -51,17 +51,24 @@ end
 ################################
 ## Lagrangian dynamics
 
+######
+### WC: These Lagrangian systems are not of the form we discussed. 
+### LagSys(M,V,h,e) should suffice
+### The reset map does not need to be given, so I am confused about how to are constructing everything here.
+######
+
 # General Lagrangian system
 struct LagSys{M,V,G,N,R,E} <: AbstractHybridSystem
     M::M          # Mass matrix function M(q)
     V::V          # Potential energy function V(q)
     guard::G      # guard/event function
-    normal::N     # Normal to the guard, ΔG
+    normal::N     # Normal to the guard, ΔG ### <- ∇G
     reset::R      # reset map
     e::E          # coefficient of restitution
 end
 
-# Make the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
+# EXTERNAL
+# Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic specular reflection
 """
 Lagrangian System
  - M(q): mass matrix
@@ -120,10 +127,11 @@ function vec_field(sys::LagSys, x::AbstractVector, t)
 end
 
 
+################################
+################################
 
-################################
-################################
-## Hamiltonian dynamics
+# IGNORE FOR NOW
+# Hamiltonian dynamics
 
     # Define a general Hamiltonian problem
     struct HamSys{H,G,R,E}
@@ -133,10 +141,10 @@ end
         e::E          # coefficient of restitution 
     end
 
-    # Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
-    function HamSys(H; guard=nothing, reset = (x,e) -> spectral_refl(x,e), e = 1.0)
-        HamSys(H, guard, reset, e)
-    end
+# Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
+function HamSys(H; guard=nothing, reset = (x,e) -> specularl_refl(x,e), e = 1.0)
+    HamSys(H, guard, reset, e)
+end
 
     # Find the vector field from Hamilton's equations
     function vec_field(sys::HamSys, x::AbstractVector, t)
@@ -157,16 +165,10 @@ end
         return vcat(dqdt, dpdt)
     end
 
-    # Find the gradient of Hamiltonians that can be differentiated using ForwardDiff
-    function hamiltonian_gradient(HamSys, x)
-        ForwardDiff.gradient(HamSys.H, x)
-    end
-
-    # Some way to find the gradient without ForwardDiff (untested)
-    # function hamiltonian_gradient(Hsys, x)
-        
-    #     H = Hsys.H
-    #     h = Hsys.h
+# Find the gradient of Hamiltonians that can be differentiated using ForwardDiff
+function hamiltonian_gradient(HamSys, x)
+    ForwardDiff.gradient(HamSys.H, x)
+end
 
     #     # initialize place to store the output
     #     grad = similar(x)
@@ -195,15 +197,29 @@ end
 ################################
 ## Solver
 
-# Zero on guard. I guess this works
+# INTERNAL
+# Zero on guard. I guess this works?
+######
+### WC: This is just evaluation of the 'guard function'. The guard is the zero level set of this function.
+######
 function guard(sys::Union{LagSys, HamSys}, x)
     if isnothing(sys.guard)
         return nothing
+    else
+        return sys.guard(x)
     end
     return sys.guard(x)
 end
 
+# EXTERNAL
 # solver specifically for Lagrangian and Hamiltonian systems
+######
+### WC: Again with the tolerences....
+### Also, there is no 'M'?
+######
+######
+### WC: Why don't you transfrom this problem type into a general hybrid system and pass to that solver? What is gained by writing another dispatch?
+######
 function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12, kwargs...) where {S<:Union{LagSys, HamSys}, I, T}
     
     sys = prob.sys
@@ -251,7 +267,7 @@ function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=B
 
         #ATTEMPT CONTINUOUS STEP
         #Dispatch calls the specific math for the chosen solver. Returns pre state and boolean flag for if guard was crossed. 
-        x_predict, event_triggered, h_now = take_step(solver, sys, f, xₖ, tₖ, dt_step, tol, sol)
+        x_predict, event_triggered, h_now = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol)
         t_next = tₖ + dt_step
 
    if event_triggered
@@ -295,10 +311,6 @@ function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=B
             #Also old code, can be gotten rid of/ altered?
             push!(sol.T, t_star, t_star)
             push!(sol.X, x_star, x⁺)
-            
-            # #Record event data for analysis
-            # push!(sol.jump_times, t_star)
-            # push!(sol.jump_indices, length(sol.x)) 
 
             #Lock in post-impact state to continue the loop
             xₖ = x⁺ 
@@ -329,26 +341,3 @@ function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=B
 
     return sol
 end
-
-# function project_to_guard(x, G, J; tol=1e-12, max_iter=20)
-#     x_proj = copy(x)
-
-#     for i in 1:max_iter
-#         g = G(x_proj)
-
-#         if norm(g) < tol
-#             return x_proj
-#         end
-
-#         Jx = J(x_proj)
-
-#         # Least-squares Newton step:
-#         # δx = - J⁺ g
-#         δx = -(Jx' * (Jx * Jx') \ g)
-
-#         x_proj += δx
-#     end
-
-#     @warn "Vector guard projection did not converge"
-#     return x_proj
-# end

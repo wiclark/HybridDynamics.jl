@@ -3,9 +3,9 @@ using Plots
 
 use_affine = true #CHANGE THIS FOR LINEAR VS AFFINE TEST
 
-A = [0.0 -1.0; 1.0 1.0]
+A = [0.0 -10.0; 10.0 -.1]
 λ = [1.0, 0.0]
-C = [0.5 1.0; 0.0 0.5]
+C = [1.5 1.0; 0.0 0.5]
 x0 = [1.0, 0.5]
 tspan = (0.0, 10.0)
 
@@ -25,15 +25,21 @@ function get_rid_of_jump_lines(sol)
 end
 
 if use_affine
-    b = [.2, -.1]
-    a = 10
+    b = [2., 0.0]
+    a = .2
     κ = [.1, -.2]
 
     sys = AffineSystem(A, b, λ, a, C, κ)
-    prob = Problem(sys, x0, tspan)
+    problem = prob(sys, x0, tspan)
     plot_title = "Affine System Test"
 
-    sol_trap = solve(prob, ModifiedTrap(); event_method=LinearLocator())
+    my_solver = RK45()
+    #my_stepper = ForwardEuler()
+
+    sol_trap = solve(problem, my_solver)
+
+    #println("You just used $(typeof(my_solver)) and $(typeof(my_stepper)) for this run.")
+    println("You just used $(typeof(my_solver))")
 
     p = plot(title=plot_title, xlabel="x1", ylabel="x2", grid=true, aspect_ratio=:equal)
 
@@ -45,12 +51,12 @@ if use_affine
     display(p)
 else 
     sys = LinearSystem(A, λ, C)
-    prob = Problem(sys, x0, tspan)
+    problem = prob(sys, x0, tspan)
     plot_title = "Linear and Exact Solution Test"
     
     # Both solvers run to compare the purely linear system
-    sol_trap = solve(prob, ModifiedTrap(); event_method=LinearLocator())
-    sol_exp  = solve(prob, ExponentialSolver(); event_method=BisectionLocator())
+    sol_trap = solve(problem, AdamsBashforth3())
+    sol_exp  = solve(problem, ExponentialSolver())
 
     p = plot(title=plot_title, xlabel="x1", ylabel="x2", aspect_ratio=:equal)
     

@@ -9,6 +9,7 @@ struct LinearSystem <: AbstractHybridSystem
     C::Matrix{Float64} #Reset map matrix (x⁺ = Cx)
 end
 
+#External
 #Constructor to help user see data types 
 function LinearSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix)
     return LinearSystem(Float64.(A), Float64.(λ), Float64.(C))
@@ -26,6 +27,7 @@ struct AffineSystem <: AbstractHybridSystem
     κ::Vector{Float64}  #Discrete affine vector const x⁺ = Cx + κ
 end
 
+#External
 # Constructor to help user see data types
 function AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector)
     return AffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ))
@@ -46,12 +48,18 @@ struct AffineSolution <: AbstractHybridSolution
     jump_indices::Vector{Int}   #Indices in 'x' and 't' where jumps map to
 end
 
+######
+### WC: The solution objects for all the different systems are all different. Why? Is there a reason why LinearSolution and AffineSolution are different?
+######
+
+#Technically external, Can be used by user to make solution to see whats going on. 
 #Constructor
-function CreateSolution(prob::Problem{LinearSystem}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
+function CreateSolution(prob::prob{LinearSystem, I, T}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector) where {I, T}
     return LinearSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
 end
+#Technically external, Can be used by user to make solution to see whats going on.
 #Constructor
-function CreateSolution(prob::Problem{AffineSystem}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector)
+function CreateSolution(prob::prob{AffineSystem, I, T}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector) where {I, T}
     return AffineSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
 end
 
@@ -63,6 +71,7 @@ struct LinearFlow{TM<:AbstractMatrix, TV<:AbstractVector}
     V_inv::TM   #inverse of eigenvectors
 end
 
+#Internal
 #Constructor that performs heavy math ONCE
 function LinearFlow(A)
     eig = eigen(A) #Perform eigen decomp
@@ -71,7 +80,11 @@ function LinearFlow(A)
     return LinearFlow(eig.vectors, eig.values, inv(eig.vectors))
 end
 
+#Internal
 #Actual step function for the exact solver
+######
+### WC: What happens if V_inv doesn't exist? This would correspond to a matrix that is not diagonalizable (repeated eigenvalues with nontrivial Jordan block).
+######
 function flow(flowmap::LinearFlow, τ, x) 
 
     #projects the state into the eigendecomposition space
@@ -85,9 +98,11 @@ end
 #Beating/Zeno check
 #Goal is to prevent loops in Linear and Affine systems.
 #Through Multiple dispath, this overrides the default fallback in Definitions.jl only when the solver is Linear or Affine. 
-function check_beating_status(sys::Union{LinearSystem, AffineSystem}, instant_jumps, n, x_current, t_current, tol)
+
+#Internal (could be external if we want?)
+function check_beating_status(sys::Union{LinearSystem, AffineSystem}, instant_jumps, n, x_current, t_current, tol, trivial_tol_multiplier)
     if (instant_jumps) > (n-1) 
-        if norm(x_current) < tol * 10
+        if norm(x_current) < tol * trivial_tol_multiplier
             @info "Trivial Blocking: System settled at origin at t = $t_current"
             return :blocking_trivial 
         end
@@ -95,7 +110,7 @@ function check_beating_status(sys::Union{LinearSystem, AffineSystem}, instant_ju
 
         if norm(x_next) < norm(x_current) * (1-tol)
             @info "Contractive Beating: State shrinking toward origin at t = $t_current"
-            return :continue #Zeno logic here eventually I think
+            return :contractive_beating
         elseif norm(x_next) > norm(x_current) * (1+tol)
             @warn "Expansive Blocking: State trapped and expanding on guard at t = $t_current"
             return :blocking_expansive
@@ -110,15 +125,23 @@ end
 #Solution Initialization
 #Goal is to setup the empty memory containers before solver starts running. 
 #pre-allocating the vectors with the exact starting conditions ensures that the solver loop is stable 
-function init_solution(prob::Problem{LinearSystem}) 
-    return LinearSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
+
+#internal
+function init_solution(prob::prob{LinearSystem, I, T}) where {I, T}
+    return LinearSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
 end
-function init_solution(prob::Problem{AffineSystem})
-    return AffineSolution([prob.tspan[1]], [prob.x₀], Float64[], Int[])
+#internal
+function init_solution(prob::prob{AffineSystem, I, T}) where {I, T}
+    return AffineSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
 end
 
 #--------------------------------------------
 #BEATING AND BLOCKING SETS
+#External
+######
+### WC: What are the object types here? It looks like the outputs are collection of vectors?
+### As this is external, you should have a doc string explainint the inputs/outputs of this function.
+######
 function beating_and_blocking_sets(sys::AbstractHybridSystem)
     #Deconstructs the system structure to get the matrices and vectors we need.
     λ, C = sys.λ, sys.C
@@ -145,6 +168,9 @@ function beating_and_blocking_sets(sys::AbstractHybridSystem)
 
     row = sys.λ'
 
+    ######
+    ### WC: Sound more confident in your comments. Avoid *I think*
+    ######
     #We iterate n times. There is a theorem about this I think
     for k in 1:n 
         #Calc the kth constraint row. This maps the guard back through k jumps. 
@@ -185,6 +211,11 @@ function beating_and_blocking_sets(sys::AbstractHybridSystem)
         k_blocking = k_∞        #Smallest integer k such that we have the blocking set.
     )
 end
+
+#External
+######
+### WC: These two functions should be accompanied by a nice example.
+######
 function beating_and_blocking_sets(sys::AffineSystem)
     λ, a, C, κ = sys.λ, sys.a, sys.C, sys.κ
 
@@ -248,6 +279,7 @@ function beating_and_blocking_sets(sys::AffineSystem)
 end
 
 #TRIVIALLY BLOCKING
+#External
 function is_trivially_blocking(sys::LinearSystem)
 
     #The blocking set is the null space of the matrix O we formed in the analysis part. 
@@ -266,6 +298,12 @@ function is_trivially_blocking(sys::LinearSystem)
     return rank(analysis.blocking_set) == n
 
 end
+
+######
+### WC: What actually is the blocking_set then? Is this the Krylov matrix [Cλ, ...]? (So its kernel is the blocking set (for linear)?)
+######
+
+#External
 function is_trivially_blocking(sys::AffineSystem)
     #Perform beating and blocking sets analysis to find constraint matrix and offset
     analysis = beating_and_blocking_sets(sys)
@@ -275,7 +313,11 @@ function is_trivially_blocking(sys::AffineSystem)
      
     return rank(analysis.blocking_set) == n && isapprox(norm(analysis.blocking_offsets), 0, atol=1e-12)
 end
+######
+### WC: Does the blocking_offsets need to be zero for blocking to occur in affine systems?
+######
 
+#External
 function basis_beating_and_blocking_sets(sys::Union{LinearSystem, AffineSystem})
     #run function we already have to get constraint matrices
     analysis = beating_and_blocking_sets(sys)
@@ -299,27 +341,42 @@ function basis_beating_and_blocking_sets(sys::Union{LinearSystem, AffineSystem})
     )
 end
 
+#Internal
 function guard(sys::LinearSystem, x::AbstractVector)
     return sys.λ' * x
 end
+#Internal
 function guard(sys::AffineSystem, x::AbstractVector)
     return sys.λ' * x + sys.a 
 end
 
+#internal
 function apply_reset(sys::LinearSystem, x::AbstractVector)
     return sys.C * x
 end
+#internal
 function apply_reset(sys::AffineSystem, x::AbstractVector)
     return sys.C * x + sys.κ
 end
 
+#Internal
+######
+### WC: You should have a check (possibly here) to make sure that all of the dimensions are compatable.
+######
 function get_dimension(sys::Union{LinearSystem, AffineSystem})
     return size(sys.A, 1)
 end
 
 
 #SOLVER
-function solve(prob::Problem, solver::AbstractODESolver=ModifiedMidpoint(); event_method::AbstractEventLocator=BisectionLocator(), dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, tol = 1e-6)
+#Very External
+function solve(prob::prob{F, I, T}, 
+               solver::AbstractODESolver=ModifiedMidpoint(); 
+               event_method::AbstractEventLocator=QuadraticLocator(), 
+               dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, 
+               tol = 1e-6, trivial_tol_multiplier = 10.0, 
+               zeno_ratio = .90, max_zeno_jumps = 100,
+               stepper::AbstractODESolver=ModifiedTrap()) where {F<:Union{LinearSystem, AffineSystem}, I<:AbstractVector{Float64}, T<:Tuple{Float64, Float64}}
     sys = prob.sys
 
     f = hasproperty(sys, :b) ? ((x,t) -> sys.A * x + sys.b) : ((x,t) -> sys.A * x) 
@@ -337,7 +394,9 @@ function solve(prob::Problem, solver::AbstractODESolver=ModifiedMidpoint(); even
     #trackers for beating and blocking logic
     instant_jumps = 0
     last_jump_time = -Inf
-    n = length(prob.x₀)
+    last_jump_interval = Inf
+    zeno_count = 0
+    n = length(prob.init)
 
     #run until end time or max iter
     while sol.t[end] < t_end
@@ -361,27 +420,38 @@ function solve(prob::Problem, solver::AbstractODESolver=ModifiedMidpoint(); even
         tₖ = sol.t[end]
 
         #attempt continuous step
-        x_predict, eventtriggered, h_now, dt_next = take_step(solver, sys, f, xₖ, tₖ, dt_step, tol, sol)
+        x_predict, eventtriggered, h_now, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol)
 
         #discrete event logic
         if eventtriggered
             #Pinpoint exact time and state
-            t_star, x_star = locate_event(event_method, sys, solver, f, xₖ, tₖ, dt_step, h_now, tol, sol)
+            t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_step, h_now, tol, sol)
 
-            #Zeno / Beating / Blocking Logic (for now)
-            if abs(t_star - last_jump_time) < tol
+            #PATHOLOGY CHECKS
+            jump_interval = t_star - last_jump_interval
+
+            #beating and blocking
+            if jump_interval < tol
                 instant_jumps += 1
             else 
                 instant_jumps = 0
             end
-            last_jump_time = t_star
 
-            #Check if system is trapped
-            status = check_beating_status(sys, instant_jumps, n, x_star, t_star, tol)
-            if status != :continue
+            status = check_beating_status(sys, instant_jumps, n, x_star, t_star, tol, trivial_tol_multiplier)
+            #break on blocking but allow contractive beating or continue status
+            if status == :blocking_expansive || status == :blocking_non_trivial || status == :blocking_trivial
                 @warn "Simulation terminated at t = $t_star due to status :$status"
                 break
             end
+
+            #cont zeno check
+            zeno_count, zeno_status = check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
+            if zeno_status == :terminate
+                break
+            end
+
+            last_jump_interval = jump_interval
+            last_jump_time = t_star
 
             #Apply Reset
             x⁺ = apply_reset(sys, x_star)
