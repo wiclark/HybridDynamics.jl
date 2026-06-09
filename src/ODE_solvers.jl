@@ -5,38 +5,56 @@
 #  3) h::Float is the step size (if fixed)
 #  4) t::Float is the current time
 
-## Single step, fully explicit methods
+#Parent Abstract Type
+abstract type AbstractODESolver end
 
-######
-### WC: what all is being used here? 'forward_euler' does not call 'forward_euler_step'. Fat should be trimmed.
-######
+#Runge Kutta / Single Step Family Solvers
+abstract type RK <: AbstractODESolver end
+
+struct ForwardEuler <: RK end
+struct ModifiedTrap <: RK end
+struct ModifiedMidpoint <: RK end
+struct RichardsonExtrapolation <: RK end
+
+#Exponential Solver
+struct ExponentialSolver <: AbstractODESolver end
+
+#Linear Multistep Method Family Solvers
+abstract type LMM <: AbstractODESolver end
+
+struct AdamsBashforth2 <: LMM end
+struct AdamsBashforth3 <: LMM end
+
+
+## Single step, fully explicit methods
 
 # Forward Euler
 function forward_euler_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
     return z .+ h*f(z, t)
 end
 
-######
-### WC: Using t_start:dt:t_end will cause issues. Suppose, for example, that we have A = 0.0:0.1:2.12. What is A[end]?
-######
-
-# NOT SINGLE STEP: Forward Euler method. We solve an ODE defined by $f(u,t)$ starting at u0 and over tspan with step size dt. 
-function forward_euler(f::Function,u0,tspan::Tuple{Float64,Float64}; dt::Float64 = 0.01)
+#NEW FORWARD EULER 
+function forward_euler(f::Function, u0, tspan::Tuple{Float64, Float64}; dt::Float64 = .01)
     t_start, t_end = tspan
 
-    #Create a time vector:
-    t = collect(t_start:dt:t_end) #gets the range of values for time and puts thm into an array (vector). So we can index. 
-    num_steps = length(t)
+    t = Float64[t_start]
+    u = typeof(u0)[u0]
 
-    #intialize the solution array to match the type of initial condition 
-    u = Vector{typeof(u0)}(undef, num_steps) #typeof so we can keep things straight. undef is supposedly faster than zeros() but I didnt fact check that. Makes sense though as we skip some values
-    u[1] = u0
+    current_t = t_start
+    current_u = u0
 
-    for i in 1:(num_steps-1)
-        #Eulers update: u_next = u_now + dt * slope
-        u[i+1] = u[i] + dt* f(u[i], t[i])
+    while current_t < t_end
+        #Ensure last step doesnt overshoot t_end
+        step_size = min(dt, t_end - current_t)
+
+        #Calling step function
+        current_u = forward_euler_step(f, current_u, step_size, current_t)
+        current_t += step_size
+
+        push!(t, current_t)
+        push!(u, current_u)
     end
-    return t,u
+    return t, u
 end
 
 # Modified (fully explicit) Trapezoid Rule
@@ -131,7 +149,6 @@ function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
     end
 end
 
-#Extrapolation Step
 #Richardson Extrapolation based on modifed midpoint from Wiki
 function richardson_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
     #Take one full step size h
@@ -146,31 +163,131 @@ function richardson_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFl
     return (4 .* z2 .- z1) ./ 3.0
 end
 
-######
-### WC: These two methods have a fixed value of Δt. There is no need to require t_prev (or t_prev1 and t_prev2)
-######
+#====================================#
+#TAKE STEP SOLVERS CONSOLIDATION
 
-function adamsbashforth2_step(f::Function, xₖ::Vector, tₖ::AbstractFloat, Δt::AbstractFloat, x_prev::Vector, t_prev::AbstractFloat)
-    #calc previous time step size
+#Helper function to take the step using multiple dispatch.
+compute_step(::ForwardEuler, f, x, Δt, t) = forward_euler_step(f, x, Δt, t)
+compute_step(::ModifiedTrap, f, x, Δt, t) = modified_trap_step(f, x, Δt, t)
+compute_step(::ModifiedMidpoint, f, x, Δt, t) = modified_midpoint_step(f, x, Δt, t)
+compute_step(::RichardsonExtrapolation, f, x, Δt, t) = richardson_step(f, x, Δt, t)
+
+#Single take_step for RK methods
+#Note sol is not used, we do this to make using the function easier. We would need an if/else statement everytime we use this function without it
+function take_step(solver::Union{RK, ExponentialSolver}, sys, f, xₖ, tₖ, Δt, tol, sol) 
+    #Handle Exp vs RK math
+    if solver isa ExponentialSolver
+        flowmap   = LinearFlow(sys.A)
+        x_predict = flow(flowmap, Δt, xₖ)
+        x_mid     = flow(flowmap, Δt / 2.0, xₖ)
+    else 
+        x_predict = compute_step(solver, f, xₖ, Δt, tₖ)
+        x_mid     = compute_step(solver, f, xₖ, Δt / 2.0, tₖ)
+    end
+
+    #Evaluate Guards
+    h_now  = guard(sys, xₖ)
+    h_mid  = guard(sys, x_mid)
+    h_next = guard(sys, x_predict)
+
+    #Use cross guard check
+    eventtrigger, dt_next, _ = crossed_guard_will(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
+
+    return x_predict, eventtrigger, h_now, dt_next
+end
+
+
+#Helper function to tell engine how many history steps are needed for LMM
+lmm_order(::AdamsBashforth2) = 2
+lmm_order(::AdamsBashforth3) = 3
+
+function compute_lmm_step(::AdamsBashforth2, f, xₖ, tₖ, Δt, x_history, t_history)
+    #x_history[end] is x_{k-1}
+    x_prev = x_history[end]
+    t_prev = t_history[end]
+
+    #Calc previous step size
     dt_previous = tₖ - t_prev
 
-    #eval current and past derivatives
     fₖ = f(xₖ, tₖ)
-    f_prev = f(x_prev, t_prev)
+    f_prev_val = f(x_prev, t_prev)
 
-    #AB2 formula 
+    #Variable step AB2 Formula
     α = Δt / dt_previous
-    return xₖ .+ Δt .* ((1.0 + .5 * α) .* fₖ .- (0.5 * α) .* f_prev)
+    return xₖ .+ Δt .* ((1.0 + .5 * α) .* fₖ .- (.5 * α) .* f_prev_val)
 end
 
-function adamsbashforth3_step(f::Function, xₖ::Vector, tₖ::AbstractFloat, Δt::AbstractFloat, x_prev1::Vector, t_prev1::AbstractFloat, x_prev2::Vector, t_prev2::AbstractFloat)
-    fₖ = f(xₖ, tₖ)
-    f_prev1 = f(x_prev1, t_prev1)
-    f_prev2 = f(x_prev2, t_prev2)
-
-    return xₖ .+ Δt .* ( (23/12) .* fₖ .- (16/12) .* f_prev1 .+ (5/12) .* f_prev2 )
-end
+function compute_lmm_step(::AdamsBashforth3, f, xₖ, tₖ, Δt, x_history, t_history)
+    # x_history[end] is x_{k-1}, x_history[end-1] is x_{k-2}
+    x_prev1 = x_history[end]
+    t_prev1 = t_history[end]
     
+    x_prev2 = x_history[end-1]
+    t_prev2 = t_history[end-1]
+    
+    fₖ = f(xₖ, tₖ)
+    f_prev1_val = f(x_prev1, t_prev1)
+    f_prev2_val = f(x_prev2, t_prev2)
+    
+    # Currently using fixed-step coefficients. 
+    # To upgrade to full variable-step AB3 later, you would calculate the 
+    # ratios between (tₖ - t_prev1) and (t_prev1 - t_prev2) to dynamically adjust these weights.
+    #This will be done eventually but for now this is fine. 
+    return xₖ .+ Δt .* ( (23/12) .* fₖ .- (16/12) .* f_prev1_val .+ (5/12) .* f_prev2_val )
+end
+
+#One take_step for LMM
+function take_step(solver::LMM, sys, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
+    k = lmm_order(solver)
+
+    #Determine how many continuous steps we have since the last jump
+    history_len = isempty(sol.jump_indices) ? length(sol.x) : (length(sol.x) - sol.jump_indices[end] + 1)
+
+    h_now = guard(sys, xₖ)
+
+    if history_len < k
+        #Startup phase: Use single step predictor
+        #using midpoint here to feed the quadratic guard check
+        x_predict = compute_step(stepper, f, xₖ, Δt, tₖ)
+        x_mid     = compute_step(stepper, f, xₖ, Δt / 2.0, tₖ)
+
+        h_mid  = guard(sys, x_mid)
+        h_next = guard(sys, x_predict)
+
+        eventtrigger, dt_next, _ = crossed_guard_will(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
+        return x_predict, eventtrigger, h_now, dt_next
+    else
+        #Multistep phase: We do have rich enough history. Extract past states
+        #If sol.x[end] is xₖ, then sol.x[end-1] is x_{k-1}
+        x_history = sol.x[end - k + 1 : end - 1]
+        t_history = sol.t[end - k + 1 : end - 1]
+
+        #pass history arrays forward
+        x_predict = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
+        
+        h_next = guard(sys, x_predict)
+
+        #Clark Fix: No calc of midpoint. 
+        #Look back to the prev step evaluation to build quad guard
+        t_prev = sol.t[end-1]
+        x_prev = sol.x[end-1]
+        h_prev = guard(sys, x_prev)
+
+        eventtrigger, dt_next, _ = crossed_guard_will(h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol = tol)
+
+        return x_predict, eventtrigger, h_now, dt_next
+    end
+
+    #Guard Eval
+    h_now  = guard(sys, xₖ)
+    h_mid  = guard(sys, x_mid)
+    h_next = guard(sys, x_predict)
+
+    eventtrigger, dt_next, _ = crossed_guard_will(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
+
+    return x_predict, eventtrigger, h_now, dt_next
+end
+
 
 
 #Event detection utility. 
@@ -180,40 +297,6 @@ end
 ### WC: Your parabolic version is incorrect. You do not necessarily know that the points have a uniform Δt (e.g., RK45). 
 ###     See my version below:
 ######
-
-function crossed_guard(h_now, h_mid, h_next; tol=1e-6)\
-    if isnothing(h_now)
-        return false
-    end
-
-    #Standardendpoint check returns true if sign flipped or if we start on guard and push through
-    if (h_now * h_next < 0) || (abs(h_now) <= tol && h_next < -tol)
-        return true
-    end
-    
-    #Quad step. Fit P(τ) = aτ^2 + bτ + c for τ∈[0,1] using start mid and end points
-    c = h_now
-    b = 4 * h_mid - 3 * h_now - h_next
-    a = 2 * h_next + 2 * h_now - 4 * h_mid
-    
-    #if a is positive, parabola is concave up
-    #this should be only shape that dips below zero to come back with positive endpoints
-    if a > tol
-        τ_vertex = -b / (2 * a)
-
-        #check if vertex (lowest point) is in current step int
-        if 0.0 < τ_vertex < 1.0
-            h_min = a * τ_vertex^2 + b * τ_vertex + c
-
-            #if dips below guard, trigger event
-            if h_min <= tol
-                return true
-            end
-        end
-    end
-    return false
-end
-
 
 ### WC: My version: Returns true/false along with the predicted impact time
 ###     I am padding the returns by NaN if I don't care about that result.
@@ -230,7 +313,7 @@ function crossed_guard_will(h_prev, h_now, h_next, t_prev, t_now, t_next; tol=1e
 
     # Performing the quadratic version. If the discriminant is positive, there are roots.
     # Recall, that by the IVT, the linear test guarantees a crossing. The quadratic test does not guarantee one. This triggering should be treated as a warning.
-    a, b, c = [t_prev^2 t_pref 1;t_now^2 t_now 1;t_next^2 t_next 1] \ [h_prev, h_now, h_next]
+    a, b, c = [t_prev^2 t_prev 1;t_now^2 t_now 1;t_next^2 t_next 1] \ [h_prev, h_now, h_next]
     if b^2-4*a*c > 0
         # We will return the smallest root. This will correspond to the '=' solution
         proposed_root = (-b-sqrt(b^2-4*a*c))/(2*a)
@@ -243,209 +326,28 @@ function crossed_guard_will(h_prev, h_now, h_next, t_prev, t_now, t_next; tol=1e
     end
 end
 
-
-#solver steps we can have. Should be easy to implement more by just adding on. 
-#Look at FEuler to see the format of everything else. 
-
-function take_step(::ForwardEuler, sys, f, xₖ, tₖ, Δt, tol)
-    x_predict = forward_euler_step(f, xₖ, Δt, tₖ) #next state based on the linear/affine dynamics
-
-    ### WC: no, don't do this. the midpoint as the average is a garbage approximation
-    ###     If anything, take a half Euler step. (Better would be to take in the pervious state.)
-    ###     Upon reflection, you really should take the previous state as an additional input to this function (you don't know that Δt is constant)
-
-    #Calc midpoint for quad
-    #x_mid = (xₖ .+ x_predict) ./ 2.0
-    x_mid = forward_euler_step(f, xₖ, Δt/2, tₖ)
-
-    h_now = guard(sys, xₖ) #evaluates guard function at current position to see how far we are from it
-    h_mid = guard(sys, x_mid) #eval guard at midpoint between start and end point for quad check
-    h_next = guard(sys, x_predict) #Evalutes guard function at predicted next position to check if we moved through it
-    #eventtrigger = crossed_guard(h_now, h_mid, h_next; tol=tol) #compares the above to check if we crossed guard. 
-    eventtrigger, dt_next, _ = crossed_guard(h_now, h_mid, h_next; tol=tol)
-
-    #dt_next = Δt * 1.2 
-
-    return x_predict, eventtrigger, h_now, dt_next
-end
-
-######
-### WC: This seems too simliar to the previous version to warrant another dispatch
-######
-function take_step(::ModifiedTrap, sys, f, xₖ, tₖ, Δt, tol)
-    x_predict = modified_trap_step(f, xₖ, Δt, tₖ) #calc next state using modifed trap method
-
-    x_mid = modified_trap_step(f, xₖ, Δt / 2.0, tₖ)
-
-    #eval guard condition at the start and predicted positions
-    h_now = guard(sys, xₖ) 
-    h_mid = guard(sys, x_mid)
-    h_next = guard(sys, x_predict)
-
-    #check for sign change (I hope to make htis more dignified later)
-    eventtrigger = crossed_guard(h_now, h_mid, h_next; tol=tol)
-
-    dt_next = Δt * 1.2
-
-    return x_predict, eventtrigger, h_now, dt_next
-end
-
-######
-### WC: I feel like there should be a smarter way to implement this case. One that actually uses the matrix exponential.
-######
-function take_step(::ExponentialSolver, sys, f, xₖ, tₖ, Δt, tol)
-    flowmap = LinearFlow(sys.A)
-    x_predict = flow(flowmap, Δt, xₖ)
-    x_mid = flow(flowmap, Δt / 2.0, xₖ)
-    h_now = guard(sys, xₖ)
-    h_mid = guard(sys, x_mid)
-    h_next = guard(sys, x_predict)
-    eventtrigger = crossed_guard(h_now, h_mid, h_next; tol=tol)
-    dt_next = Δt * 1.2
-    return x_predict, eventtrigger, h_now, dt_next
-end
-
-
-######
-### WC: Same comment as above. Why another dispatch?
-######
-#Extrapolation 
-function take_step(::RichardsonExtrapolation, sys, f, xₖ, tₖ, Δt, tol)
-    #calc with richardson extrapolation
-    x_predict = richardson_step(f, xₖ, Δt, tₖ)
-
-    x_mid = richardson_step(f, xₖ, Δt / 2.0, tₖ)
-
-    #eval guard conditions 
-    h_now = guard(sys, xₖ)
-    h_mid = guard(sys, x_mid)
-    h_next = guard(sys, x_predict)
-
-    #check event 
-    eventtrigger = crossed_guard(h_now, h_mid, h_next; tol=tol)
-
-    dt_next = Δt * 1.2
-
-    return x_predict, eventtrigger, h_now, dt_next
-end
-
-#LINEAR MULTISTEP METHODS STUFF
-#This take_step is used to differentiate between the LMM and the other types. Passing sol is what does it. Then we use the LMM only when we have this type of arguments
-function take_step(solver::AbstractODESolver, sys, f, xₖ, tₖ, Δt, tol, sol)
-    return take_step(solver, sys, f, xₖ, tₖ, Δt, tol)
-end
-
-######
-### WC: This actually feels quite different from the pervious dispatches. Is it because these are LMMs and you are tracking the history?
-###     In that case, you should only have to have two dispatches for 'take_step'. One for Runge-Kutta methods and one for LMMs. Possibly a third/fourth for adaptive step versions
-######
-#AB2
-function take_step(::AdamsBashforth2, sys, f, xₖ, tₖ, Δt, tol, sol)
-    #check how many continuous steps have occurred since last jump
-    #sol.jump_indices[end] tells us where the current trajectory started
-    history_len = isempty(sol.jump_indices) ? length(sol.x) : (length(sol.x) - sol.jump_indices[end] + 1)
-
-    if history_len < 2
-        #post jump reset phase:
-        #we dont have enough points yet. we use Forward Euler to guess for now
-        ######
-        ### WC: Don't you mean modified trapezoid?
-        ######
-        x_predict = modified_trap_step(f, xₖ, Δt, tₖ)
-        x_mid = modified_trap_step(f, xₖ, Δt / 2.0, tₖ)
-    else
-        #Multistep phase: extract current and previous data points
-        x_prev = sol.x[end-1]
-        t_prev = sol.t[end-1]
-        x_predict = adamsbashforth2_step(f, xₖ, tₖ, Δt, x_prev, t_prev)
-        x_mid = modified_trap_step(f, xₖ, Δt / 2.0, tₖ)
-    end
-
-    #usual guard and event logic
-    h_now = guard(sys, xₖ)
-    h_mid = guard(sys, x_mid)
-    h_next = guard(sys, x_predict)
-    ######
-    ### WC: This should be updated as above.
-    ######
-    eventtrigger = crossed_guard(h_now, h_mid, h_next; tol=tol)
-    dt_next = Δt * 1.2
-    return x_predict, eventtrigger, h_now, dt_next
-end
-
-######
-### WC: This shouldn't really require an additional dispatch. You should be write one for an abstract LMM (of arbitrary step length)
-### Actually, do you actually need xₖ, tₖ as inputs. Aren't these already stored in 'sys'?
-### I suppose that you would have to supply a predicting algorithm
-######
-function take_step(::AdamsBashforth3, sys, f, xₖ, tₖ, Δt, tol, sol)
-    #Determine how many cont steps we have since last jump
-    history_len = isempty(sol.jump_indices) ? length(sol.x) : (length(sol.x) - sol.jump_indices[end] + 1)
-
-    if history_len < 3
-        #startup phase: less than 3 points of cont history we need. Use Richardson extra to build
-        x_predict = richardson_step(f, xₖ, Δt, tₖ)
-        x_mid = richardson_step(f, xₖ, Δt / 2.0, tₖ)
-    else 
-        #multistep phase: get history time
-        x_prev1 = sol.x[end-1]
-        t_prev1 = sol.t[end-1]
-
-        x_prev2 = sol.x[end-2]
-        t_prev2 = sol.t[end-2]
-
-        x_predict = adamsbashforth3_step(f, xₖ, tₖ, Δt, x_prev1, t_prev1, x_prev2, t_prev2)
-
-        x_mid = richardson_step(f, xₖ, Δt / 2.0, tₖ)
-    end
-    #guard stuff
-    h_now = guard(sys,xₖ)
-    h_mid = guard(sys, x_mid)
-    h_next = guard(sys, x_predict)
-    eventtrigger = crossed_guard(h_now, h_mid, h_next; tol=tol)
-    dt_next = Δt * 1.2
-
-    return x_predict, eventtrigger, h_now, dt_next
-end
-
-######
-### WC: Observe. Also do something with take_step(::RK,...)
-######
-function take_step(::LMM, sys, f, xₖ, tₖ, Δt, tol, sol, prediction_stepper, k)
-    # Determine how many cont steps we have since last jump
-    history_len = isempty(sol.jump_indices) ? length(sol.x) : (length(sol.x) - sol.jump_indices[end] + 1)
-
-    # Do we have a sufficiently rich history?
-    if history_len < k
-        x_predict = prediction_stepper(f, xₖ, Δt, tₖ)
-        x_mid = prediction_stepper(f, xₖ, Δt / 2.0, tₖ)
-    else
-        # This is the part where you need a little creativity
-        x_prev = sol.x[end-k:end]
-        t_prev = sol.t[end-k:end]
-        x_predict = LLM(f, xₖ, tₖ, x_prev, t_prev)
-        # I still don't like this. You should be comparing to the previous evaluation, not the next half one
-        x_mid = prediction_stepper(f, xₖ, Δt / 2.0, tₖ)
-    end
-    # Guard stuff
-    h_now = guard(sys,xₖ)
-    h_mid = guard(sys, x_mid)
-    h_next = guard(sys, x_predict)
-    eventtrigger, dt_next, _ = crossed_guard(h_now, h_mid, h_next; tol=tol)
-
-    return x_predict, event_trigger, h_now, dt_next
-end
-
-
 #Locator Dispatches
 #Isolates the root finding mathematics inside each one. This gets rid of global helpers so when we add new locators its really easy
+
+#IF a locator is called while using an LMM, we temporaily swap to a RK method . 
+#Since an event implies impending jump (which wipes the LMM history)
+# using an RK method to pinpoint the impact should be sound.
+#We will add the stepper to the arg list in each event locator even if not used to allow us to do this. (Should be better for the user)
+function locate_event(locator, sys, solver::LMM, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
+    # Route through to the RK version, passing the stepper forward
+    return locate_event(locator, sys, stepper, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper)
+end
 
 #Bisection Method (Iterative)
 ######
 ### WC: This requires that the LMMs can have variable step size as τ_m is going to vary and not be equal to Δt.
 ### Either fix the LMMs or only allow RK methods to work here.
 ######
-function locate_event(::BisectionLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)
+
+# By restricting these to ::RK, we ensure that LMMs can only reach 
+# these methods if they have been successfully intercepted and "converted" 
+# to an RK solver.
+function locate_event(::BisectionLocator, sys, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
     τ_l, τ_r = 0.0, Δt
     h_l = h_now
     
@@ -474,7 +376,7 @@ end
 ######
 ### WC: Why is there no for loop here? This should generate iterations on approximations to the crossing.
 ######
-function locate_event(::LinearLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)
+function locate_event(::LinearLocator, sys, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
     x_predict, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, Δt, tol, sol)
     h_next = guard(sys, x_predict) 
     θ = -h_now / (h_next - h_now)
@@ -487,7 +389,7 @@ end
 ### WC: I am not convinced that quadratic needs to be implemented here. It is much more important to be utilized in 'crossed_guard'
 ### Newton's method may actually be a fun mathod to implement, but I suspect that linear will suffice.
 ######
-function locate_event(::QuadraticLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)
+function locate_event(::QuadraticLocator, sys, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
     #Get three points 
     h₀ = h_now
 

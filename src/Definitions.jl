@@ -5,9 +5,6 @@
 #ABSTRACT TYPES
 #These are the empty categories that hold nothing themselves. By restricting our solver function args to these types, we can make sure the solver can accept ANY system or solver that is in these families.
 
-#Parent category for any continuous ODE integration method
-abstract type AbstractODESolver end
-
 #Parent Category for any root-finding algorithm used to pinpoint the exact time of a guard crossing.
 abstract type AbstractEventLocator end
 
@@ -19,50 +16,6 @@ abstract type AbstractHybridProblem end
 #Parent Category for Solution types.
 abstract type AbstractHybridSolution end
 
-#-----------------
-#SOLVE TAGS
-#These are empty structs. Their purpose is to act as a tag for the Julia compiler. When a user passes 'ModifiedMidpoint()' to the solver, the compiler uses multiple dispatch to route to the 'take_step' function written for that tag. 
-
-######
-### WC: I would break down these structures more.
-######
-#=
-#Tag for standard Forward Euler integration 
-struct ForwardEuler <: AbstractODESolver end
-
-#Tag for the Modifed Trapezoidal method 
-struct ModifiedTrap <: AbstractODESolver end
-
-#Tag for the Modifed Midpoint method 
-struct ModifiedMidpoint <: AbstractODESolver end
-
-#Tag for exact integration of Linear systems via the matrix Exponential 
-struct ExponentialSolver <: AbstractODESolver end
-
-#Extrapolation struct tags
-
-#Richardson Extrapolation tag
-struct RichardsonExtrapolation <: AbstractODESolver end
-
-struct AdamsBashforth2 <: AbstractODESolver end
-
-struct AdamsBashforth3 <: AbstractODESolver end
-=#
-struct RK <: AbstractODESolver end
-struct ForwardEuler <: RK end
-struct ModifiedTrap <: RK end
-struct ModifiedMidpoint <: RK end
-struct RichardsonExtrapolation <: RK end # I think so, at least
-
-struct ExponentialSolver <: AbstractODESolver end
-
-struct LMM <: AbstractODESolver end
-struct AdamsBashforth2 <: LMM end
-struct AdamsBashforth3 <: LMM end
-
-######
-### WC: Would it make more sense to define these structures in the ODE_solvers? This way you don't have to edit multiple files to add a new solver.
-######
 
 #-----------------------
 #LOCATOR TAGS

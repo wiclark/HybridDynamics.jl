@@ -33,7 +33,7 @@ if use_affine
     problem = prob(sys, x0, tspan)
     plot_title = "Affine System Test"
 
-    sol_trap = solve(problem, ModifiedMidpoint())
+    sol_trap = solve(problem, ForwardEuler())
 
     p = plot(title=plot_title, xlabel="x1", ylabel="x2", grid=true, aspect_ratio=:equal)
 
