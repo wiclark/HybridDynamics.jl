@@ -4,6 +4,7 @@ struct GeneralSystem <: AbstractHybridSystem
     h::Function     #Guard Surface: x-> real
     Δ::Function     #Reset map: x-> x⁺
 end
+
 struct GeneralSolution <: AbstractHybridSolution
     t::Vector{Float64}
     x::Vector{Vector{Float64}}
@@ -25,6 +26,9 @@ function apply_reset(sys::GeneralSystem, x::AbstractVector)
 end
 
 #Internal
+######
+### WC: Should there be somesort of for loop in this to count up?
+######
 function check_beating_blocking(jump_interval, instant_jump_count, t_star, tol, beating_warn_threshold, max_instant_jumps)
     status = :continue
     if jump_interval <= tol
@@ -42,6 +46,9 @@ function check_beating_blocking(jump_interval, instant_jump_count, t_star, tol, 
 end
 
 #External
+######
+### WC: I would have the default solver be RK45, the locator as LinearLocator
+######
 function solve(prob::prob{F, I, T}, solver::AbstractODESolver=ModifiedMidpoint(); 
                event_method::AbstractEventLocator=QuadraticLocator(), dt_initial=.01, dt_min = 1e-6, 
                max_iter = 10^6, tol = 1e-6, beating_warn_threshold = 3, max_instant_jumps = 100, 

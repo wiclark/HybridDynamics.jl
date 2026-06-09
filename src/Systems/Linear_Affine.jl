@@ -48,6 +48,10 @@ struct AffineSolution <: AbstractHybridSolution
     jump_indices::Vector{Int}   #Indices in 'x' and 't' where jumps map to
 end
 
+######
+### WC: The solution objects for all the different systems are all different. Why? Is there a reason why LinearSolution and AffineSolution are different?
+######
+
 #Technically external, Can be used by user to make solution to see whats going on. 
 #Constructor
 function CreateSolution(prob::prob{LinearSystem, I, T}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector) where {I, T}
@@ -78,6 +82,9 @@ end
 
 #Internal
 #Actual step function for the exact solver
+######
+### WC: What happens if V_inv doesn't exist? This would correspond to a matrix that is not diagonalizable (repeated eigenvalues with nontrivial Jordan block).
+######
 function flow(flowmap::LinearFlow, τ, x) 
 
     #projects the state into the eigendecomposition space
@@ -131,6 +138,10 @@ end
 #--------------------------------------------
 #BEATING AND BLOCKING SETS
 #External
+######
+### WC: What are the object types here? It looks like the outputs are collection of vectors?
+### As this is external, you should have a doc string explainint the inputs/outputs of this function.
+######
 function beating_and_blocking_sets(sys::AbstractHybridSystem)
     #Deconstructs the system structure to get the matrices and vectors we need.
     λ, C = sys.λ, sys.C
@@ -157,6 +168,9 @@ function beating_and_blocking_sets(sys::AbstractHybridSystem)
 
     row = sys.λ'
 
+    ######
+    ### WC: Sound more confident in your comments. Avoid *I think*
+    ######
     #We iterate n times. There is a theorem about this I think
     for k in 1:n 
         #Calc the kth constraint row. This maps the guard back through k jumps. 
@@ -197,7 +211,11 @@ function beating_and_blocking_sets(sys::AbstractHybridSystem)
         k_blocking = k_∞        #Smallest integer k such that we have the blocking set.
     )
 end
+
 #External
+######
+### WC: These two functions should be accompanied by a nice example.
+######
 function beating_and_blocking_sets(sys::AffineSystem)
     λ, a, C, κ = sys.λ, sys.a, sys.C, sys.κ
 
@@ -280,6 +298,11 @@ function is_trivially_blocking(sys::LinearSystem)
     return rank(analysis.blocking_set) == n
 
 end
+
+######
+### WC: What actually is the blocking_set then? Is this the Krylov matrix [Cλ, ...]? (So its kernel is the blocking set (for linear)?)
+######
+
 #External
 function is_trivially_blocking(sys::AffineSystem)
     #Perform beating and blocking sets analysis to find constraint matrix and offset
@@ -290,6 +313,9 @@ function is_trivially_blocking(sys::AffineSystem)
      
     return rank(analysis.blocking_set) == n && isapprox(norm(analysis.blocking_offsets), 0, atol=1e-12)
 end
+######
+### WC: Does the blocking_offsets need to be zero for blocking to occur in affine systems?
+######
 
 #External
 function basis_beating_and_blocking_sets(sys::Union{LinearSystem, AffineSystem})
@@ -334,6 +360,9 @@ function apply_reset(sys::AffineSystem, x::AbstractVector)
 end
 
 #Internal
+######
+### WC: You should have a check (possibly here) to make sure that all of the dimensions are compatable.
+######
 function get_dimension(sys::Union{LinearSystem, AffineSystem})
     return size(sys.A, 1)
 end

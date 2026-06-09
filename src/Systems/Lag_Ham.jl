@@ -1,6 +1,12 @@
 
 # INTERNAL
 # Default reset map: spectral reflection with coefficient of restitution. See "Is There Life After Zeno? paper
+######
+### WC: You should include a complete reference.
+######
+######
+### WC: The word is **SPECULAR REFLECTION**
+######
 function spectral_refl(x, M, dh; e=1.0)
 
     n = length(x) ÷ 2
@@ -22,6 +28,9 @@ function spectral_refl(x, M, dh; e=1.0)
 
     return vcat(q, vnew)
 end
+######
+### WC: This requires 'using' LinearAlgebra. Have you settled on 'using' rather than 'import'?
+######
 
 # General solution struct for Lagrangian and Hamiltonian systems
 struct LHSol{T, X, T_e1, T_z}
@@ -30,6 +39,10 @@ struct LHSol{T, X, T_e1, T_z}
     T_e1::T_e1  # Time of first event
     T_z::T_z    # Time of Zeno
 end
+######
+### WC: There can be multiple Zeno events. We'll discuss this more in the future.
+### As it is currently written, you halt when Zeno occurs, correct?
+######
 
 # Does this need to be a general constructor or can I go straight to initializing the solution state?
 function LHSol(prob)
@@ -40,11 +53,17 @@ end
 ################################
 ## Lagrangian dynamics
 
+######
+### WC: These Lagrangian systems are not of the form we discussed. 
+### LagSys(M,V,h,e) should suffice
+### The reset map does not need to be given, so I am confused about how to are constructing everything here.
+######
+
 # General Lagrangian system
 struct LagSys{L,G,N,R,E}
     L::L          # Lagrangian
     guard::G      # guard/event function
-    normal::N     # Normal to the guard, ΔG
+    normal::N     # Normal to the guard, ΔG ### <- ∇G
     reset::R      # reset map
     e::E          # coefficient of restitution
 end
@@ -207,6 +226,9 @@ end
 
 # INTERNAL
 # Zero on guard. I guess this works?
+######
+### WC: This is just evaluation of the 'guard function'. The guard is the zero level set of this function.
+######
 function guard(sys::Union{LagSys, HamSys}, x)
     if isnothing(sys.guard)
         return nothing
@@ -217,6 +239,13 @@ end
 
 # EXTERNAL
 # solver specifically for Lagrangian and Hamiltonian systems
+######
+### WC: Again with the tolerences....
+### Also, there is no 'M'?
+######
+######
+### WC: Why don't you transfrom this problem type into a general hybrid system and pass to that solver? What is gained by writing another dispatch?
+######
 function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12, kwargs...) where {S<:Union{LagSys, HamSys}, I, T}
     
     sys = prob.sys
