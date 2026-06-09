@@ -1,11 +1,11 @@
 using HybridDynamics
 using Plots
 
-use_affine = false #CHANGE THIS FOR LINEAR VS AFFINE TEST
+use_affine = true #CHANGE THIS FOR LINEAR VS AFFINE TEST
 
 A = [0.0 -1.0; 1.0 1.0]
 λ = [1.0, 0.0]
-C = [0.5 1.0; 0.0 0.5]
+C = [1.5 1.0; 0.0 0.5]
 x0 = [1.0, 0.5]
 tspan = (0.0, 10.0)
 
@@ -33,7 +33,13 @@ if use_affine
     problem = prob(sys, x0, tspan)
     plot_title = "Affine System Test"
 
-    sol_trap = solve(problem, ForwardEuler())
+    my_solver = RK45()
+    #my_stepper = ForwardEuler()
+
+    sol_trap = solve(problem, my_solver)
+
+    #println("You just used $(typeof(my_solver)) and $(typeof(my_stepper)) for this run.")
+    println("You just used $(typeof(my_solver))")
 
     p = plot(title=plot_title, xlabel="x1", ylabel="x2", grid=true, aspect_ratio=:equal)
 

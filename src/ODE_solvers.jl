@@ -5,9 +5,6 @@
 #  3) h::Float is the step size (if fixed)
 #  4) t::Float is the current time
 
-#Parent Abstract Type
-abstract type AbstractODESolver end
-
 #Runge Kutta / Single Step Family Solvers
 abstract type RK <: AbstractODESolver end
 
@@ -16,6 +13,10 @@ struct ModifiedTrap <: RK end
 struct ModifiedMidpoint <: RK end
 struct RichardsonExtrapolation <: RK end
 
+#Adaptive Solvers
+struct RK45 <: RK end
+struct RK23 <: RK end
+ 
 #Exponential Solver
 struct ExponentialSolver <: AbstractODESolver end
 
@@ -166,24 +167,26 @@ end
 #====================================#
 #TAKE STEP SOLVERS CONSOLIDATION
 
+#Single take_step for RK methods
+#Fixed step methods 
+const FixedRK = Union{ForwardEuler, ModifiedTrap, ModifiedMidpoint, RichardsonExtrapolation}
 #Helper function to take the step using multiple dispatch.
 compute_step(::ForwardEuler, f, x, Δt, t) = forward_euler_step(f, x, Δt, t)
 compute_step(::ModifiedTrap, f, x, Δt, t) = modified_trap_step(f, x, Δt, t)
 compute_step(::ModifiedMidpoint, f, x, Δt, t) = modified_midpoint_step(f, x, Δt, t)
 compute_step(::RichardsonExtrapolation, f, x, Δt, t) = richardson_step(f, x, Δt, t)
 
-#Single take_step for RK methods
+#Adaptive step methods
+const AdaptiveRK = Union{RK23, RK45}
+#Helper function to take the step via multiple dispatch
+compute_step(::RK23, f, x, Δt, t, tf) = rk_23_step(f, x, Δt, t, tf)
+compute_step(::RK45, f, x, Δt, t, tf) = rk_45_step(f, x, Δt, t, tf)
+
 #Note sol is not used, we do this to make using the function easier. We would need an if/else statement everytime we use this function without it
-function take_step(solver::Union{RK, ExponentialSolver}, sys, f, xₖ, tₖ, Δt, tol, sol) 
-    #Handle Exp vs RK math
-    if solver isa ExponentialSolver
-        flowmap   = LinearFlow(sys.A)
-        x_predict = flow(flowmap, Δt, xₖ)
-        x_mid     = flow(flowmap, Δt / 2.0, xₖ)
-    else 
-        x_predict = compute_step(solver, f, xₖ, Δt, tₖ)
-        x_mid     = compute_step(solver, f, xₖ, Δt / 2.0, tₖ)
-    end
+function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint()) 
+    sys = prob.sys
+    x_predict = compute_step(solver, f, xₖ, Δt, tₖ)
+    x_mid     = compute_step(solver, f, xₖ, Δt / 2.0, tₖ)
 
     #Evaluate Guards
     h_now  = guard(sys, xₖ)
@@ -193,7 +196,28 @@ function take_step(solver::Union{RK, ExponentialSolver}, sys, f, xₖ, tₖ, Δt
     #Use cross guard check
     eventtrigger, dt_next, _ = crossed_guard_will(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
 
-    return x_predict, eventtrigger, h_now, dt_next
+    return x_predict, eventtrigger, h_now, Δt, dt_next
+end
+
+function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol,stepper::AbstractODESolver=ModifiedMidpoint())
+    sys = prob.sys
+    tf = prob.tspan[2] #terminal time
+
+    #Take adaptive step (passes tf to prevent overshooting)
+    x_predict, dt_used, dt_next = compute_step(solver, f, xₖ, Δt, tₖ, tf)
+
+    #Get midpoint for quad guard check
+    #For a half-step the local ceiling is just midpoint of time 
+    x_mid, _, _ = compute_step(solver, f, xₖ, dt_used / 2.0, tₖ, tₖ + (dt_used / 2.0))
+
+    #eval guards
+    h_now  = guard(sys, xₖ)
+    h_mid  = guard(sys, x_mid)
+    h_next = guard(sys, x_predict)
+
+    eventtrigger, _, _ = crossed_guard_will(h_now, h_mid, h_next, tₖ, tₖ + dt_used / 2.0, tₖ + dt_used; tol=tol)
+
+    return x_predict, eventtrigger, h_now, dt_used, dt_next
 end
 
 
@@ -237,7 +261,8 @@ function compute_lmm_step(::AdamsBashforth3, f, xₖ, tₖ, Δt, x_history, t_hi
 end
 
 #One take_step for LMM
-function take_step(solver::LMM, sys, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
+function take_step(solver::LMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
+    sys = prob.sys
     k = lmm_order(solver)
 
     #Determine how many continuous steps we have since the last jump
@@ -285,7 +310,7 @@ function take_step(solver::LMM, sys, f, xₖ, tₖ, Δt, tol, sol, stepper::Abst
 
     eventtrigger, dt_next, _ = crossed_guard_will(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
 
-    return x_predict, eventtrigger, h_now, dt_next
+    return x_predict, eventtrigger, h_now, Δt, dt_next
 end
 
 
@@ -324,6 +349,7 @@ function crossed_guard_will(h_prev, h_now, h_next, t_prev, t_now, t_next; tol=1e
             return true, proposed_root, critical_point
         end
     end
+    return false, NaN, NaN
 end
 
 #Locator Dispatches
@@ -347,7 +373,8 @@ end
 # By restricting these to ::RK, we ensure that LMMs can only reach 
 # these methods if they have been successfully intercepted and "converted" 
 # to an RK solver.
-function locate_event(::BisectionLocator, sys, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
+function locate_event(::BisectionLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
+    sys = prob.sys
     τ_l, τ_r = 0.0, Δt
     h_l = h_now
     
@@ -357,7 +384,7 @@ function locate_event(::BisectionLocator, sys, solver::RK, f, xₖ, tₖ, Δt, h
         #test midpoint
         τ_m = (τ_l + τ_r) / 2.0
 
-        x_m, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, τ_m, tol, sol)
+        x_m, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_m, tol, sol, stepper)
         h_m = guard(sys, x_m)
     
         if signbit(h_l) != signbit(h_m)
@@ -369,19 +396,20 @@ function locate_event(::BisectionLocator, sys, solver::RK, f, xₖ, tₖ, Δt, h
     end
     
     t_star = tₖ + τ_l
-    x_star, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, τ_l, tol, sol)
+    x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_l, tol, sol, stepper)
     return t_star, x_star
 end
 #Linear Interpolation
 ######
 ### WC: Why is there no for loop here? This should generate iterations on approximations to the crossing.
 ######
-function locate_event(::LinearLocator, sys, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
-    x_predict, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, Δt, tol, sol)
+function locate_event(::LinearLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
+    sys = prob.sys
+    x_predict, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol, stepper)
     h_next = guard(sys, x_predict) 
     θ = -h_now / (h_next - h_now)
     t_star = tₖ + θ * Δt
-    x_star, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, θ * Δt, tol, sol)
+    x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, θ * Δt, tol, sol, stepper)
     return t_star, x_star
 end
 
@@ -389,16 +417,18 @@ end
 ### WC: I am not convinced that quadratic needs to be implemented here. It is much more important to be utilized in 'crossed_guard'
 ### Newton's method may actually be a fun mathod to implement, but I suspect that linear will suffice.
 ######
-function locate_event(::QuadraticLocator, sys, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
+function locate_event(::QuadraticLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
+    sys = prob.sys
+
     #Get three points 
     h₀ = h_now
 
     #middle point. We just take a half step instead of going one before the start point. I think itll be more stable. 
-    x₁, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, Δt / 2.0, tol, sol)
+    x₁, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt / 2.0, tol, sol, stepper)
     h₁ = guard(sys, x₁)
 
     #endpoint
-    x₂, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, Δt, tol, sol)
+    x₂, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol, stepper)
     h₂ = guard(sys, x₂)
 
     #compute parabola coeffs
@@ -443,7 +473,7 @@ function locate_event(::QuadraticLocator, sys, solver::RK, f, xₖ, tₖ, Δt, h
         end
     end
     t_star = tₖ + τ_star
-    x_star, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, τ_star, tol, sol)
+    x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper)
 
     return t_star, x_star
 end

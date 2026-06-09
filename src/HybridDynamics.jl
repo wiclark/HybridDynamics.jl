@@ -22,11 +22,13 @@ export prob
 #General System/Problem structs
 export GeneralSystem, GeneralProblem
 
-#ODE Step solvers - Interpolation
-export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver
+#ODE Step solvers - Interpolation with Fixed Step size
+export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver, RichardsonExtrapolation
+#With Adaptive step size
+export RK23, RK45
 
 #ODE Step solvers - Extrapolation 
-export AdamsBashforth2, AdamsBashforth3, RichardsonExtrapolation
+export AdamsBashforth2, AdamsBashforth3
 
 #EventDetection locators
 export LinearLocator, BisectionLocator, QuadraticLocator

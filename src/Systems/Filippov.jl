@@ -150,7 +150,7 @@ function solve(prob::prob{<:FilippovSys}, solver; dt_initial = 0.01, max_iter = 
 
         # Choose vector field for current step based on current position relative to the guard
         vf = Filippov_vec_field(sys, x)
-        x_predict, event_triggered, h_now = take_step(solver, sys, vf, xₖ, tₖ, dt_step, tol, sol)
+        x_predict, event_triggered, h_now = take_step(solver, prob, vf, xₖ, tₖ, dt_step, tol, sol)
 
         t_next = tₖ + dt_step
         tₖ += dt_step

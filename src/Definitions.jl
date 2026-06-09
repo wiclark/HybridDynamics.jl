@@ -5,6 +5,9 @@
 #ABSTRACT TYPES
 #These are the empty categories that hold nothing themselves. By restricting our solver function args to these types, we can make sure the solver can accept ANY system or solver that is in these families.
 
+#Parent Abstract Type
+abstract type AbstractODESolver end
+
 #Parent Category for any root-finding algorithm used to pinpoint the exact time of a guard crossing.
 abstract type AbstractEventLocator end
 

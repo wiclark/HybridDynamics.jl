@@ -88,12 +88,12 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=ModifiedMidpoint()
         tₖ = sol.t[end]
 
         # Attempt continuous step
-        x_predict, eventtriggered, h_now, dt_next = take_step(solver, sys, f, xₖ, tₖ, dt_step, tol, sol)
+        x_predict, eventtriggered, h_now, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol)
 
         # Discrete event logic
         if eventtriggered
             # Pinpoint exact time and state event happened
-            t_star, x_star = locate_event(event_method, sys, solver, f, xₖ, tₖ, dt_step, h_now, tol, sol)
+            t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_step, h_now, tol, sol)
 
             # Apply reset early to calculate the spatial step size
             x⁺ = sys.Δ(x_star)

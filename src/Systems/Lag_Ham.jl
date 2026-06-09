@@ -292,7 +292,7 @@ function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=B
 
         #ATTEMPT CONTINUOUS STEP
         #Dispatch calls the specific math for the chosen solver. Returns pre state and boolean flag for if guard was crossed. 
-        x_predict, event_triggered, h_now = take_step(solver, sys, f, xₖ, tₖ, dt_step, tol, sol)
+        x_predict, event_triggered, h_now = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol)
         t_next = tₖ + dt_step
 
    if event_triggered

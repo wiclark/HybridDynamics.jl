@@ -375,7 +375,8 @@ function solve(prob::prob{F, I, T},
                event_method::AbstractEventLocator=QuadraticLocator(), 
                dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, 
                tol = 1e-6, trivial_tol_multiplier = 10.0, 
-               zeno_ratio = .90, max_zeno_jumps = 100) where {F<:Union{LinearSystem, AffineSystem}, I<:AbstractVector{Float64}, T<:Tuple{Float64, Float64}}
+               zeno_ratio = .90, max_zeno_jumps = 100,
+               stepper::AbstractODESolver=ModifiedTrap()) where {F<:Union{LinearSystem, AffineSystem}, I<:AbstractVector{Float64}, T<:Tuple{Float64, Float64}}
     sys = prob.sys
 
     f = hasproperty(sys, :b) ? ((x,t) -> sys.A * x + sys.b) : ((x,t) -> sys.A * x) 
@@ -419,12 +420,12 @@ function solve(prob::prob{F, I, T},
         tₖ = sol.t[end]
 
         #attempt continuous step
-        x_predict, eventtriggered, h_now, dt_next = take_step(solver, sys, f, xₖ, tₖ, dt_step, tol, sol)
+        x_predict, eventtriggered, h_now, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol)
 
         #discrete event logic
         if eventtriggered
             #Pinpoint exact time and state
-            t_star, x_star = locate_event(event_method, sys, solver, f, xₖ, tₖ, dt_step, h_now, tol, sol)
+            t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_step, h_now, tol, sol)
 
             #PATHOLOGY CHECKS
             jump_interval = t_star - last_jump_interval
