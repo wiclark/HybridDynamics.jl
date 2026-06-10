@@ -372,7 +372,7 @@ end
 #Very External
 function solve(prob::prob{F, I, T}, 
                solver::AbstractODESolver=ModifiedMidpoint(); 
-               event_method::AbstractEventLocator=QuadraticLocator(), 
+               event_method::AbstractEventLocator=LinearLocator(), 
                dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, 
                tol = 1e-6, trivial_tol_multiplier = 10.0, 
                zeno_ratio = .90, max_zeno_jumps = 100,

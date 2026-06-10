@@ -34,9 +34,10 @@ if use_affine
     plot_title = "Affine System Test"
 
     my_solver = RK23()
+    event_method = LinearLocator()
     #my_stepper = ForwardEuler()
 
-    sol_trap = solve(problem, my_solver)
+    sol_trap = solve(problem, my_solver; event_method)
 
     #println("You just used $(typeof(my_solver)) and $(typeof(my_stepper)) for this run.")
     println("You just used $(typeof(my_solver))")

@@ -19,20 +19,6 @@ abstract type AbstractHybridProblem end
 #Parent Category for Solution types.
 abstract type AbstractHybridSolution end
 
-
-#-----------------------
-#LOCATOR TAGS
-#These are similar to the solver tags. But these define how the solver finds the exact crossing time once an event is detected. 
-
-#Tag to use Linear Interpolation. Very fast but can be innacurate for higher order methods. 
-struct LinearLocator <: AbstractEventLocator end
-
-#Tag to use a bisection method serach. Can be very accurate but also very slow with complex systems
-struct BisectionLocator <: AbstractEventLocator end
-
-#Tag for quadratic event locator
-struct QuadraticLocator <: AbstractEventLocator end
-
 # General problem
 struct prob{F <: AbstractHybridSystem, I  <: AbstractVector{Float64}, T <: Tuple{Float64, Float64}} <: AbstractHybridProblem
     sys::F
