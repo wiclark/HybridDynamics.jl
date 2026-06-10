@@ -9,7 +9,7 @@ init = [1.,0.];
 tspan = (0., 5.);
 
 function M(q)
-    [1.0]
+    [1.0;;]
 end
 
 function V(q)
@@ -19,16 +19,20 @@ end
 # Table/guard
 g(q) = q[1]
 
-Lsys = HybridDynamics.LagSys(M, V; guard = g)
+Lsys = HD.LagSys(M, V; guard = g)
 
-probl = HybridDynamics.prob(Lsys, init, tspan)
-sl = HybridDynamics.solve(probl, HybridDynamics.ForwardEuler(); dt_initial=0.01)
+probl = HD.prob(Lsys, init, tspan)
+sl = HD.solve(probl)
 
-ql = [x[1] for x in sl.X]
-vl = [x[2] for x in sl.X]
-pl1 = plt.plot(ql, vl, title = "Harmonic osc. phase portrait via Euler-Lagrange", label = "", xlabel = L"q", ylabel = L"\dot{q}")
-display(pl1)
-pl2 = plt.plot(sl.T, ql, title = "1-D SHM", xlabel = L"t", ylabel = L"q", label = "")
+q_vals = getindex.(sl.x, 1)
+
+pl2 = plt.plot(sl.t, q_vals,
+    title = "1-D SHM",
+    xlabel = L"t",
+    ylabel = L"q",
+    label = ""
+)
+
 display(pl2)
 
 
