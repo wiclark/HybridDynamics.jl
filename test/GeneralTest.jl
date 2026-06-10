@@ -13,14 +13,20 @@ end
 
 # Event Surface: The Floor
 function h_floor(x)
-    return x[1] # Triggers exactly when position hits 0
+    return x[1] # Triggers when position hits 0
 end
 
 # Reset Map: The bounce
 function Δ_bounce(x)
     restitution = 0.8
-    # Keep position, reverse velocity and lose 20% 
-    return [x[1], -restitution * x[2]]
+    
+    # 1. Take absolute value of position to pop it strictly above ground.
+    new_position = abs(x[1]) 
+    
+    # 2. Take absolute value of velocity to ensure it always bounces UP.
+    new_velocity = restitution * abs(x[2])
+    
+    return [new_position, new_velocity]
 end
 
 sys = GeneralSystem(f_ball, h_floor, Δ_bounce)
@@ -30,7 +36,7 @@ tspan = (0.0, 5.0)
 
 problem = prob(sys, x0, tspan)
 
-sol = solve(problem, ModifiedTrap())
+sol = solve(problem)
 
 function get_rid_of_jump_lines(sol)
     t = Float64[]

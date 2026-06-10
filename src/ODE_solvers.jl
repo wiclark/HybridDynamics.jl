@@ -420,8 +420,9 @@ function crossed_guard(h_prev, h_now, h_next, t_prev, t_now, t_next; tol=1e-6)
 
                 #Fixed logic error where r1 not in tspan but r2 is
                 valid_roots = Float64[]
-                if t_prev <= r1 <= t_next push!(valid_roots, r1) end
-                if t_prev <= r2 <= t_next push!(valid_roots, r2) end
+                eps_t = 1e-9 #epsilon buffer only on time interval so state will be good
+                if (t_prev + eps_t) <= r1 <= t_next push!(valid_roots, r1) end
+                if (t_prev + eps_t) <= r2 <= t_next push!(valid_roots, r2) end
 
                 if !isempty(valid_roots)
                     proposed_root = minimum(valid_roots) #smallest valid root
