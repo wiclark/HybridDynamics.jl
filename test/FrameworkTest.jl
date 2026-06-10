@@ -33,7 +33,7 @@ if use_affine
     problem = prob(sys, x0, tspan)
     plot_title = "Affine System Test"
 
-    my_solver = RK45()
+    my_solver = RK23()
     #my_stepper = ForwardEuler()
 
     sol_trap = solve(problem, my_solver)

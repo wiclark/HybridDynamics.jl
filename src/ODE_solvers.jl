@@ -60,16 +60,11 @@ function updated_step(LTE::AbstractFloat, tol::AbstractFloat, h::AbstractFloat, 
     return h * minimum( [ facmax, maximum( [ facmin, fac*ε ] ) ] )
 end
 
-######
-### WC: tol is hardcoded rather than an input
-######
 # Runge-Kutta 23
-function rk_23_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, tf::AbstractFloat, sys)
+function rk_23_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, tf::AbstractFloat, sys, tol; adaptive=true)
     # As this is an adaptive step solver, h is the step size from the previous step
     # As the step size is not of fixed size, we specify the terminal time, tf, of the problem
     h = minimum([h, tf-t])
-    # Set the tolerence
-    tol = 1e-4
 
     #Intialization to make sure they exist
     z2 = z; z3 = z
@@ -90,6 +85,12 @@ function rk_23_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
 
         z1_3 = z + h*(1/6*k1+1/6*k2+2/3*k3)
         z1_2 = z + h*(1/2*k1+1/2*k2)
+
+        #used to find true midpoint for quad guard check. 
+        #This prevents solver from spinning up a whole new adaptive loop so x_mid is truly in the mid which is what we want for quad matrix. 
+        if !adaptive
+            return z1_2, h, h 
+        end
 
         LTE = norm(z1_2 - z1_3)
         # Reject or accept?
@@ -121,16 +122,11 @@ function rk_23_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
     end
 end
 
-######
-### WC: Again, the tolerence is hard coded
-######
 # Runge-Kutta 45
-function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, tf::AbstractFloat, sys)
+function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, tf::AbstractFloat, sys, tol; adaptive=true)
     # As this is an adaptive step solver, h is the step size from the pervious step
     # As the step size is not of fixed size, we specify the terminal time, tf, of the problem
     h = minimum([h, tf-t])
-    # Set the tolerence
-    tol = 1e-4
 
     #Initialization to make them exist
     z2 = z; z3 = z; z4 = z; z5 = z; z6 = z
@@ -165,6 +161,13 @@ function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
         # The two updates
         z1_4 = z + h*k7
         z1_5 = z + h*(5179/57600*k1 + 0*k2 + 7571/16695*k3 + 393/640*k4 - 92097/339200*k5 + 187/2100*k6 + 1/40*k7)
+
+        #used to find true midpoint for quad guard check. 
+        #This prevents solver from spinning up a whole new adaptive loop so x_mid is truly in the mid which is what we want for quad matrix. 
+        if !adaptive
+            return z1_4, h, h
+        end
+
         LTE = norm(z1_4 - z1_5)
         # Reject or accept?
         h_new = updated_step(LTE, tol, h, 5)
@@ -228,8 +231,8 @@ compute_step(::RichardsonExtrapolation, f, x, Δt, t) = richardson_step(f, x, Δ
 #Adaptive step methods
 const AdaptiveRK = Union{RK23, RK45}
 #Helper function to take the step via multiple dispatch
-compute_step(::RK23, f, x, Δt, t, tf, sys) = rk_23_step(f, x, Δt, t, tf, sys)
-compute_step(::RK45, f, x, Δt, t, tf, sys) = rk_45_step(f, x, Δt, t, tf, sys)
+compute_step(::RK23, f, x, Δt, t, tf, sys, tol; adaptive=true) = rk_23_step(f, x, Δt, t, tf, sys, tol; adaptive=adaptive)
+compute_step(::RK45, f, x, Δt, t, tf, sys, tol; adaptive=true) = rk_45_step(f, x, Δt, t, tf, sys, tol; adaptive=adaptive)
 
 #Note sol is not used, we do this to make using the function easier. We would need an if/else statement everytime we use this function without it
 function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint()) 
@@ -253,11 +256,12 @@ function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, t�
     tf = prob.tspan[2] #terminal time
 
     #Take adaptive step (passes tf to prevent overshooting)
-    x_predict, dt_used, dt_next = compute_step(solver, f, xₖ, Δt, tₖ, tf, sys)
+    #Disable adaptive loop to get the true midpoint. Without it it would reset the loop and ruin or previous adaptivity
+    x_predict, dt_used, dt_next = compute_step(solver, f, xₖ, Δt, tₖ, tf, sys, tol; adaptive=false)
 
     #Get midpoint for quad guard check
     #For a half-step the local ceiling is just midpoint of time 
-    x_mid, _, _ = compute_step(solver, f, xₖ, dt_used / 2.0, tₖ, tf, sys)
+    x_mid, _, _ = compute_step(solver, f, xₖ, dt_used / 2.0, tₖ, tf, sys, tol)
 
     #eval guards
     h_now  = guard(sys, xₖ)
@@ -369,19 +373,20 @@ end
 #====================================#
 #Event detection utility. 
 #If a guard surface was crossed and during the ODE step. We check for a sign change between start and end of the step.
-######
-### WC: There is a slight logical error here. Say r1 < r2 so we take the root r1. It could happen that r1 ̸∈ [t_now, t_next] but r2 ∈ [t_now, t_next].
-### In this case, the actual solution should be r2, but your would return a false.
-######
 function crossed_guard(h_prev, h_now, h_next, t_prev, t_now, t_next; tol=1e-6)
 
     # Linear Crossing check 
     #if the sign changes between now and next a root must exist. 
-    if (h_now * h_next < 0)
+    #updated to account for Logical error
+    if (h_prev * h_now < 0)
         #Linear interp
-        t_root = t_now-h_now*(t_next-t_now)/(h_next-h_now)
+        t_root = t_prev - h_prev * (t_now - t_prev) / (h_now - h_prev)
         return true, t_root, NaN
+    elseif (h_now * h_next < 0)
+        t_root = t_now - h_now * (t_next - t_now) / (h_next - h_now)
+        return true, t_root, NaN 
     end
+
 
     # Performing the quadratic version. If the discriminant is positive, there are roots.
     # Recall, that by the IVT, the linear test guarantees a crossing. The quadratic test does not guarantee one. This triggering should be treated as a warning.
@@ -402,14 +407,14 @@ function crossed_guard(h_prev, h_now, h_next, t_prev, t_now, t_next; tol=1e-6)
                 r1 = (-b - sqrt_d) / (2*a)
                 r2 = (-b + sqrt_d) / (2*a)
 
-                #we return the smallest root which is '=' solution
-                proposed_root = min(r1,r2)
+                #Fixed logic error where r1 not in tspan but r2 is
+                valid_roots = Float64[]
+                if t_prev <= r1 <= t_next push!(valid_roots, r1) end
+                if t_prev <= r2 <= t_next push!(valid_roots, r2) end
 
-                #critical point: if there is a crossing, this point is the 'most extreme' 
-                critical_point = -b / (2*a)
-
-                #Check if crossing occurs within interval 
-                if t_now < proposed_root < t_next
+                if !isempty(valid_roots)
+                    proposed_root = minimum(valid_roots) #smallest valid root
+                    critical_point = -b / (2*a)
                     return true, proposed_root, critical_point
                 end
             end
@@ -573,6 +578,7 @@ function hermite_interpolation(t_data::Vector, x_data::Vector, f::Function, t::A
         @warn "Time is out of bounds"
         return NaN
     end
+    
     # Next, determine the interval t lives in
     idx_first = searchsortedfirst(t_data, t) - 1
     idx_second = idx_first + 1
