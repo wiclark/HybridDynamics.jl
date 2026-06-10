@@ -421,8 +421,9 @@ function crossed_guard(h_prev, h_now, h_next, t_prev, t_now, t_next; tol=1e-6)
 
                 #Fixed logic error where r1 not in tspan but r2 is
                 valid_roots = Float64[]
-                if t_prev <= r1 <= t_next push!(valid_roots, r1) end
-                if t_prev <= r2 <= t_next push!(valid_roots, r2) end
+                eps_t = 1e-9 #epsilon buffer only on time interval so state will be good
+                if (t_prev + eps_t) <= r1 <= t_next push!(valid_roots, r1) end
+                if (t_prev + eps_t) <= r2 <= t_next push!(valid_roots, r2) end
 
                 if !isempty(valid_roots)
                     proposed_root = minimum(valid_roots) #smallest valid root
@@ -441,28 +442,44 @@ end
 #Locator Dispatches
 #Isolates the root finding mathematics inside each one. This gets rid of global helpers so when we add new locators its really easy
 
+#-----------------------
+#LOCATOR TAGS
+#These are similar to the solver tags. But these define how the solver finds the exact crossing time once an event is detected. 
+
+#Tag to use Linear Interpolation. Very fast but can be innacurate for higher order methods. 
+struct LinearLocator <: AbstractEventLocator end
+
+#Tag to use a bisection method serach. Can be very accurate but also very slow with complex systems
+struct BisectionLocator <: AbstractEventLocator end
+
+#Tag for quadratic event locator
+struct QuadraticLocator <: AbstractEventLocator end
+
+#Tag to use Newtons method for event locators
+struct NewtonLocator <: AbstractEventLocator end
+
+
 #IF a locator is called while using an LMM, we temporaily swap to a RK method . 
 #Since an event implies impending jump (which wipes the LMM history)
 # using an RK method to pinpoint the impact should be sound.
 #We will add the stepper to the arg list in each event locator even if not used to allow us to do this. (Should be better for the user)
-function locate_event(locator, sys, solver::LMM, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
+function locate_event(locator, prob, solver::LMM, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = ModifiedTrap())
     # Route through to the RK version, passing the stepper forward
-    return locate_event(locator, sys, stepper, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper)
+    return locate_event(locator, prob, stepper, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper)
 end
 
 #Bisection Method (Iterative)
 ######
 ### WC: This requires that the LMMs can have variable step size as τ_m is going to vary and not be equal to Δt.
 ### Either fix the LMMs or only allow RK methods to work here.
+###
+### Fixed to RK for now. May work on fixing LMMs later - DS
 ######
 
 # By restricting these to ::RK, we ensure that LMMs can only reach 
 # these methods if they have been successfully intercepted and "converted" 
 # to an RK solver.
-######
-### WC: Should it be 'stepper::RK'?
-######
-function locate_event(::BisectionLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
+function locate_event(::BisectionLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = ModifiedTrap())
     sys = prob.sys
     τ_l, τ_r = 0.0, Δt
     h_l = h_now
@@ -489,24 +506,46 @@ function locate_event(::BisectionLocator, prob, solver::RK, f, xₖ, tₖ, Δt, 
     return t_star, x_star
 end
 #Linear Interpolation
-######
-### WC: Why is there no for loop here? This should generate iterations on approximations to the crossing.
-######
-function locate_event(::LinearLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
+
+function locate_event(::LinearLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = ModifiedTrap())
     sys = prob.sys
-    x_predict, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol, stepper)
-    h_next = guard(sys, x_predict) 
-    θ = -h_now / (h_next - h_now)
-    t_star = tₖ + θ * Δt
-    x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, θ * Δt, tol, sol, stepper)
+    τ_l, τ_r = 0.0, Δt
+    h_l = h_now
+
+    #Get right side of boundary
+    x_r, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_r, tol, sol, stepper)
+    h_r = guard(sys, x_r)
+
+    τ_star = Δt
+    x_star = x_r
+
+    for _ in 1:100
+        if abs(τ_r - τ_l) < tol || abs(h_r) < tol
+            τ_star = τ_r
+            x_star = x_r
+            break
+        end
+
+        #Linear Interp
+        τ_m = τ_r - h_r * (τ_r - τ_l) / (h_r - h_l)
+
+        x_m, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_m, tol, sol, stepper)
+        h_m = guard(sys, x_m)
+
+        #keep root bracketed
+        if signbit(h_l) != signbit(h_m)
+            τ_r = τ_m
+            h_r = h_m
+        else 
+            τ_l = τ_m
+            h_l = h_m
+        end
+    end
+    t_star = tₖ + τ_star
     return t_star, x_star
 end
 
-######
-### WC: I am not convinced that quadratic needs to be implemented here. It is much more important to be utilized in 'crossed_guard'
-### Newton's method may actually be a fun mathod to implement, but I suspect that linear will suffice.
-######
-function locate_event(::QuadraticLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
+function locate_event(::QuadraticLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = ModifiedTrap())
     sys = prob.sys
 
     #Get three points 
@@ -565,6 +604,47 @@ function locate_event(::QuadraticLocator, prob, solver::RK, f, xₖ, tₖ, Δt, 
     x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper)
 
     return t_star, x_star
+end
+
+function locate_event(::NewtonLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK=RK4())
+    sys = prob.sys
+
+    τ_prev = 0.0
+    h_prev = h_now
+
+    τ_curr = Δt
+    x_curr, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_curr, tol, sol, stepper)
+    h_curr = guard(sys, x_curr)
+
+    for _ in 1:100
+        if abs(h_curr) < tol || abs(τ_curr - τ_prev) < tol
+            break
+        end
+
+        #Estimate derivative 
+        dh_dτ = (h_curr - h_prev) / (τ_curr - τ_prev)
+
+        if abs(dh_dτ) < tol
+            @warn "Derivative less than tolerance: Newton method unstable. Terminating."
+            break
+        end
+
+        #Newton step
+        τ_next = τ_curr - h_curr / dh_dτ
+
+        #Bound next step to prevent over shooting 
+        τ_next = clamp(τ_next, 0.0, Δt)
+
+        #update for next iteration
+        τ_prev = τ_curr
+        h_prev = h_curr
+
+        τ_curr = τ_next
+        x_curr, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_curr, tol, sol, stepper)
+        h_curr = guard(sys, x_curr)
+    end
+    t_star = tₖ + τ_curr
+    return t_star, x_curr
 end
 
 
