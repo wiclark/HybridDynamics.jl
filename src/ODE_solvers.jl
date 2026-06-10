@@ -539,18 +539,31 @@ struct HermiteInterp
     f0::Vector{Float64}     # derivatives
     f1::Vector{Float64}
 end
+# CK: This still needs to be combined and integrated into solve dispatches
 
-function (h::HermiteInterp)(t)
-    θ = (t - h.t0) / (h.t1 - h.t0)
-    h00 = 2θ^3 - 3θ^2 + 1
-    h10 = θ^3 - 2θ^2 + θ
-    h01 = -2θ^3 + 3θ^2
-    h11 = θ^3 - θ^2
-
-    dt = h.t1 - h.t0
-
-    return h00 .* h.x0 .+
-           h10 .* (dt .* h.f0) .+
-           h01 .* h.x1 .+
-           h11 .* (dt .* h.f1)
+# A function that computes the third-order Hermite interpolation
+# This only works for scalar x_data
+function hermite_interpolation(t_data::Vector, x_data::Vector, f::Function, t::AbstractFloat)
+    # The first step is to make sure that t∈t_data
+    if t < t_data[1] || t > t_data[end]
+        @warn "Time is out of bounds"
+        return NaN
+    end
+    # Next, determine the interval t lives in
+    idx_first = searchsortedfirst(t_data, t) - 1
+    idx_second = idx_first + 1
+    # Gather all of the useful information
+    t₁, t₂ = t_data[idx_first], t_data[idx_second]
+    x₁, x₂ = x_data[idx_first], x_data[idx_second]
+    f₁, f₂ = f(x₁), f(x₂)
+    Δt = t₂ - t₁
+    # Determine the coefficients
+    Aⁱ = [2/Δt^3 -2/Δt^3  1/Δt^2 1/Δt^2;
+         -3/Δt^2  3/Δt^2 -2/Δt  -1/Δt;
+          0       0       1      0;
+          1       0       0      0]
+    bⁱ = [x₁, x₂, f₁, f₂]
+    α, β, γ, δ = Aⁱ * bⁱ
+    ts = t - t₁
+    return α*ts^3 + β*ts^2 + γ*ts + δ
 end

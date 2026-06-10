@@ -3,14 +3,10 @@ struct FilippovSys{F, G, H, N}
     F::F    # Function one, H(x) > 0
     G::G    # Function two, H(x) < 0
     H::H    # Guard
-    N::N    # Normal to the guard, ΔH
+    N::N    # Normal to the guard, ∇H
 end
 
-######
-### WC: The normal is ∇H, not ΔH. 
-######
-
-# Default to auto diff to find ΔH
+# Default to auto diff to find ∇H
 function FilippovSys(F, G, H; N=ForwardDiff.gradient(H,x))
     return FilippovSys(F, G, H, N)
 end
@@ -22,6 +18,7 @@ end
 
 ######
 ### WC: What kind of data is S? Intervals? Start-end points? A collection of ordered pairs?
+# CK: Idk yet, I haven't actually put anything there
 ######
 
 # Constructor for solution struct
@@ -37,14 +34,11 @@ end
 # INTERNAL
 # Returns a vector field at state `x` for a Filippov system
 ######
-### WC: These tolerences are very small... You would want these tolerences to be commensurate with the tolerences from the ode solvers.
-######
-######
 ### WC: This function confused me for a bit. It is taking in a location x and returning the vector field *function* where x is located. This should be made clearer (via comments).
 ######
 function filippov_vector_field(sys, x;
-        Ftol=1e-10,
-        atol=1e-10)
+        Ftol=1e-7,
+        atol=1e-7)
 
     F, G, H, N = sys
 
@@ -58,33 +52,22 @@ function filippov_vector_field(sys, x;
     end
 
 # Near the guard
-    Fx = F(x)
-    Gx = G(x)
 
-    a = dot(N, Fx)
-    b = dot(N, Gx)
+    a(x) = dot(N, F(x))
+    b(x) = dot(N, G(x))
 
     # Attracting sliding
-    ######
-    ### WC: Will this warning appear for every time step that sliding occurs?
-    ### This could get very obnoxious. I would only have this trigger when sliding begins.
-    ######
     if a < -atol && b > atol
 
-        λ = a / (a - b)
-        @warn "Attracting sliding mode" a b λ
-        return x -> (1 - λ) * F(x) + λ * G(x)
+        λ(x) = a(x) / (a(x) - b(x))
+        return x -> (1 - λ(x)) * F(x) + λ(x) * G(x)
     end
-    ######
-    ### WC: You're returning a function of x, not just its evaluation? As a function, this is incorrect as λ is also a function of x.
-    ######
 
     # Repelling sliding (non-unique, but still gotta go somewhere)
     if a > atol && b < -atol
 
-        λ = a / (a - b)
-        @warn "Repelling sliding mode" a b λ
-        return x -> (1 - λ) * F(x) + λ * G(x)
+        λ(x) = a(x) / (a(x) - b(x))
+        return x -> (1 - λ(x)) * F(x) + λ(x) * G(x)
     end
 
     # Direct crossings
@@ -96,8 +79,6 @@ function filippov_vector_field(sys, x;
     end
 
 # Otherwise
-    @warn "Degenerate something something tangency" a b h
-
     # fallback: choose least transverse field
     if abs(a) < abs(b)
         return G
@@ -108,10 +89,7 @@ end
 
 # EXTERNAL
 # Filippov-specific solve
-######
-### WC: We've gone over tolerences being this small....
-######
-function solve(prob::prob{<:FilippovSys}, solver; dt_initial = 0.01, max_iter = 10^6, tol = 1e-12, kwargs...)
+function solve(prob::prob{<:FilippovSys}, solver; dt_initial = 0.01, max_iter = 10^6, tol = 1e-6, kwargs...)
     
     sys = prob.sys
     F = sys.F

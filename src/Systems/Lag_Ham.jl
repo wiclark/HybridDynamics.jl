@@ -1,11 +1,11 @@
 
 # INTERNAL
-# Default reset map: spectral reflection with coefficient of restitution. See "Is There Life After Zeno? paper
-######
-### WC: You should include a complete reference.
-######
-function specular_refl(x, M, dh; e=1.0)
+# Default reset map: specular reflection with coefficient of restitution. 
+# Ames, Aaron & Zheng, Haiyang & Gregg, Robert & Sastry, Shankar. (2006). Is there life after Zeno? Taking executions past the breaking (Zeno) point. 2006. 6 pp.. 10.1109/ACC.2006.1656623
 
+function specular_refl(x, M, dh, sys)
+
+    e = sys.e
     n = length(x) ÷ 2
 
     q = x[1:n]          # positions
@@ -25,9 +25,6 @@ function specular_refl(x, M, dh; e=1.0)
 
     return vcat(q, vnew)
 end
-######
-### WC: This requires 'using' LinearAlgebra. Have you settled on 'using' rather than 'import'?
-######
 
 # General solution struct for Lagrangian and Hamiltonian systems
 struct LHSol{T, X, I, T_e1, T_z}
@@ -35,7 +32,7 @@ struct LHSol{T, X, I, T_e1, T_z}
     X::X        # Position data
     interp::I   # Store interpolated polynomial
     T_e1::T_e1  # Time of first event
-    T_z::T_z    # Time of Zeno
+    T_z::T_z    # Time of Zeno pts
 end
 ######
 ### WC: There can be multiple Zeno events. We'll discuss this more in the future.
@@ -50,12 +47,6 @@ end
 ################################
 ################################
 ## Lagrangian dynamics
-
-######
-### WC: These Lagrangian systems are not of the form we discussed. 
-### LagSys(M,V,h,e) should suffice
-### The reset map does not need to be given, so I am confused about how to are constructing everything here.
-######
 
 # General Lagrangian system
 struct LagSys{M,V,G,N,R,E} <: AbstractHybridSystem
@@ -77,7 +68,7 @@ Lagrangian System
 function LagSys(M, V;
                 guard = nothing,
                 normal = nothing,
-                reset = (x, Mfun, dh, sys::LagSys) -> spectral_refl(x, Mfun, dh, sys.e),
+                reset = (x, Mfun, dh, sys::LagSys) -> specular_refl(x, Mfun, dh, sys),
                 e = 1.0)
 
     if isnothing(guard) && !isnothing(normal)
@@ -170,57 +161,27 @@ function hamiltonian_gradient(HamSys, x)
     ForwardDiff.gradient(HamSys.H, x)
 end
 
-    #     # initialize place to store the output
-    #     grad = similar(x)
-
-    #     # This feels like a bad way of doing this but I think it's correct
-    #     for i in eachindex(x)
-
-    #         xp = copy(x)
-    #         xm = copy(x)
-
-    #         # perturb the point forward and backward
-    #         xp[i] += h
-    #         xm[i] -= h
-
-    #         # Central finite diff approximation
-    #         grad[i] = (H(xp) - H(xm)) / (2h)
-    #     end
-
-    #     return grad
-    # end
-
-    # Could add another dispatch method to better deal with interpolating data style hams
-
 
 ################################
 ################################
 ## Solver
 
 # INTERNAL
-# Zero on guard. I guess this works?
-######
-### WC: This is just evaluation of the 'guard function'. The guard is the zero level set of this function.
-######
+# Evaluates guard function if present. Required for event locating.
 function guard(sys::Union{LagSys, HamSys}, x)
     if isnothing(sys.guard)
         return nothing
     else
         return sys.guard(x)
     end
-    return sys.guard(x)
 end
 
 # EXTERNAL
 # solver specifically for Lagrangian and Hamiltonian systems
 ######
-### WC: Again with the tolerences....
-### Also, there is no 'M'?
-######
-######
 ### WC: Why don't you transfrom this problem type into a general hybrid system and pass to that solver? What is gained by writing another dispatch?
 ######
-function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-12, kwargs...) where {S<:Union{LagSys, HamSys}, I, T}
+function solve(prob::prob{S, I, T}, solver; event_method::AbstractEventLocator=BisectionLocator(), dt_initial = 0.01, max_iter = 10^6, tol = 1e-6, kwargs...) where {S<:Union{LagSys, HamSys}, I, T}
     
     sys = prob.sys
     G = sys.guard
