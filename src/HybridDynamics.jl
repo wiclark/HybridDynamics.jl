@@ -4,24 +4,34 @@ using LinearAlgebra
 using ForwardDiff
 
 include("Definitions.jl")
+
 include("Systems/Linear_Affine.jl")
 include("Systems/Lag_Ham.jl")
 include("Systems/General.jl")
+include("Systems/Filippov.jl")
+
 include("ODE_solvers.jl")
 
 #Basic Def Structs
 export AbstractHybridSystem, AbstractHybridProblem
 
+#Problem struct
+export prob
+
+########
+# System types
+####
+
+# Filippov
+export FilippovSys
 # Lagrangian system struct
 export LagSys
 #Linear/Affine System/Problem structs
 export LinearSystem, AffineSystem
-#Problem struct
-export prob
-
 #General System/Problem structs
 export GeneralSystem, GeneralProblem
 
+########
 #ODE Step solvers - Interpolation with Fixed Step size
 export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver, RichardsonExtrapolation
 #With Adaptive step size

@@ -27,7 +27,7 @@ function FilippovSol(T, X; S = NaN)
 end
 
 # Initialize solution struct
-function initsol(prob::prob{FilippovSys})
+function initsol(prob::prob{FilippovSys, I, T}) where {I, T}
     return FilippovSol([prob.tspan[1]], [prob.init])
 end
 
