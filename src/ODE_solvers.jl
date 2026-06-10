@@ -144,6 +144,7 @@ function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
 
     #Initialization to make them exist
     z2 = z; z3 = z; z4 = z; z5 = z; z6 = z
+
     # Loop through to find an acceptable step
     while true
         h_now = guard(sys, z)
@@ -568,36 +569,32 @@ end
 
 
 ######
-# I don't know where to put this
-# Cubic Hermite interpolant for dense output stuff
+# Cubic Hermite interpolant for dense output 
+# CK: I don't know where to put this. This also still needs to be integrated into solve dispatches
+function (sol::AbstractHybridSolution)(t::AbstractFloat)
+    t_data = sol.t
+    x_data = sol.x
+    f_data = sol.dx
 
-struct HermiteInterp
-    t0::Float64             # times
-    t1::Float64
-    x0::Vector{Float64}     # states
-    x1::Vector{Float64}
-    f0::Vector{Float64}     # derivatives
-    f1::Vector{Float64}
-end
-# CK: This still needs to be combined and integrated into solve dispatches
+    if isempty(sol.dx)
+        error("Solution struct did not return dense output")
+    end
 
-# A function that computes the third-order Hermite interpolation
-# This only works for scalar x_data
-function hermite_interpolation(t_data::Vector, x_data::Vector, f::Function, t::AbstractFloat)
     # The first step is to make sure that t∈t_data
     if t < t_data[1] || t > t_data[end]
         @warn "Time is out of bounds"
         return NaN
     end
-    
+
     # Next, determine the interval t lives in
     idx_first = searchsortedfirst(t_data, t) - 1
     idx_second = idx_first + 1
     # Gather all of the useful information
     t₁, t₂ = t_data[idx_first], t_data[idx_second]
     x₁, x₂ = x_data[idx_first], x_data[idx_second]
-    f₁, f₂ = f(x₁), f(x₂)
+    f₁, f₂ = f_data[idx_first], f_data[idx_second]
     Δt = t₂ - t₁
+
     # Determine the coefficients
     Aⁱ = [2/Δt^3 -2/Δt^3  1/Δt^2 1/Δt^2;
          -3/Δt^2  3/Δt^2 -2/Δt  -1/Δt;
@@ -606,5 +603,6 @@ function hermite_interpolation(t_data::Vector, x_data::Vector, f::Function, t::A
     bⁱ = [x₁, x₂, f₁, f₂]
     α, β, γ, δ = Aⁱ * bⁱ
     ts = t - t₁
+
     return α*ts^3 + β*ts^2 + γ*ts + δ
 end
