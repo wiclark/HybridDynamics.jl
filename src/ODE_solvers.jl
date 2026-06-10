@@ -8,10 +8,12 @@
 #Runge Kutta / Single Step Family Solvers
 abstract type RK <: AbstractODESolver end
 
+#Non-adaptive solvers
 struct ForwardEuler <: RK end
 struct ModifiedTrap <: RK end
 struct ModifiedMidpoint <: RK end
 struct RichardsonExtrapolation <: RK end
+struct RK4 <: RK end
 
 #Adaptive Solvers
 struct RK45 <: RK end
@@ -44,6 +46,18 @@ end
 function modified_midpoint_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
     z_guess = z .+ h/2*f(z, t)
     return z .+ h*f(z_guess, t+h/2)
+end
+
+#Classic Runge-Kutta 4
+function rk_4_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
+    k1 = f(z,t)
+    k2 = f(z + h/2 * k1, t + h/2)
+    k3 = f(z + h/2 * k2, t + h/2)
+    k4 = f(z + h * k3, t + h)
+
+    #Shouldnt need to check guard in these inner stages here as no adpative step size.
+
+    return z + h/6 * (k1 + 2*k2 + 2*k3 + k4)
 end
 
 ## Adaptive Runge-Kutta methods
@@ -217,16 +231,13 @@ end
 
 #Single take_step for RK methods
 #Fixed step methods 
-const FixedRK = Union{ForwardEuler, ModifiedTrap, ModifiedMidpoint, RichardsonExtrapolation}
+const FixedRK = Union{ForwardEuler, ModifiedTrap, ModifiedMidpoint, RichardsonExtrapolation, RK4}
 #Helper function to take the step using multiple dispatch.
 compute_step(::ForwardEuler, f, x, Δt, t) = forward_euler_step(f, x, Δt, t)
 compute_step(::ModifiedTrap, f, x, Δt, t) = modified_trap_step(f, x, Δt, t)
 compute_step(::ModifiedMidpoint, f, x, Δt, t) = modified_midpoint_step(f, x, Δt, t)
 compute_step(::RichardsonExtrapolation, f, x, Δt, t) = richardson_step(f, x, Δt, t)
-
-######
-### WC: Add an RK4 method (not adaptive) and set this as a default for the LMM initializations.
-######
+compute_step(::RK4, f, x, Δt, t) = rk_4_step(f, x, Δt, t)
 
 #Adaptive step methods
 const AdaptiveRK = Union{RK23, RK45}
@@ -317,7 +328,7 @@ function compute_lmm_step(::AdamsBashforth3, f, xₖ, tₖ, Δt, x_history, t_hi
 end
 
 #One take_step for LMM
-function take_step(solver::LMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
+function take_step(solver::LMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = RK4)
     sys = prob.sys
     k = lmm_order(solver)
 
