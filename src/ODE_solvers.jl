@@ -60,6 +60,9 @@ function updated_step(LTE::AbstractFloat, tol::AbstractFloat, h::AbstractFloat, 
     return h * minimum( [ facmax, maximum( [ facmin, fac*ε ] ) ] )
 end
 
+######
+### WC: tol is hardcoded rather than an input
+######
 # Runge-Kutta 23
 function rk_23_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, tf::AbstractFloat, sys)
     # As this is an adaptive step solver, h is the step size from the previous step
@@ -118,6 +121,9 @@ function rk_23_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
     end
 end
 
+######
+### WC: Again, the tolerence is hard coded
+######
 # Runge-Kutta 45
 function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, tf::AbstractFloat, sys)
     # As this is an adaptive step solver, h is the step size from the pervious step
@@ -202,6 +208,10 @@ end
 #====================================#
 #TAKE STEP SOLVERS CONSOLIDATION
 
+######
+### WC: At some point, it would be good to add a stiff solver to the roster.
+######
+
 #Single take_step for RK methods
 #Fixed step methods 
 const FixedRK = Union{ForwardEuler, ModifiedTrap, ModifiedMidpoint, RichardsonExtrapolation}
@@ -210,6 +220,10 @@ compute_step(::ForwardEuler, f, x, Δt, t) = forward_euler_step(f, x, Δt, t)
 compute_step(::ModifiedTrap, f, x, Δt, t) = modified_trap_step(f, x, Δt, t)
 compute_step(::ModifiedMidpoint, f, x, Δt, t) = modified_midpoint_step(f, x, Δt, t)
 compute_step(::RichardsonExtrapolation, f, x, Δt, t) = richardson_step(f, x, Δt, t)
+
+######
+### WC: Add an RK4 method (not adaptive) and set this as a default for the LMM initializations.
+######
 
 #Adaptive step methods
 const AdaptiveRK = Union{RK23, RK45}
@@ -256,6 +270,9 @@ function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, t�
 end
 
 #===========================#
+######
+### WC: Have you had any success in learning about adaptive step size LMMs?
+######
 #Helper function to tell engine how many history steps are needed for LMM
 lmm_order(::AdamsBashforth2) = 2
 lmm_order(::AdamsBashforth3) = 3
@@ -352,6 +369,10 @@ end
 #====================================#
 #Event detection utility. 
 #If a guard surface was crossed and during the ODE step. We check for a sign change between start and end of the step.
+######
+### WC: There is a slight logical error here. Say r1 < r2 so we take the root r1. It could happen that r1 ̸∈ [t_now, t_next] but r2 ∈ [t_now, t_next].
+### In this case, the actual solution should be r2, but your would return a false.
+######
 function crossed_guard(h_prev, h_now, h_next, t_prev, t_now, t_next; tol=1e-6)
 
     # Linear Crossing check 
@@ -421,6 +442,9 @@ end
 # By restricting these to ::RK, we ensure that LMMs can only reach 
 # these methods if they have been successfully intercepted and "converted" 
 # to an RK solver.
+######
+### WC: Should it be 'stepper::RK'?
+######
 function locate_event(::BisectionLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::AbstractODESolver = ModifiedTrap())
     sys = prob.sys
     τ_l, τ_r = 0.0, Δt
