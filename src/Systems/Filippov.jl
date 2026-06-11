@@ -1,5 +1,5 @@
 
-struct FilippovSys{F, G, H, N}
+struct FilippovSys{F, G, H, N} <: AbstractHybridSystem
     F::F    # Function one, H(x) > 0
     G::G    # Function two, H(x) < 0
     H::H    # Guard
@@ -27,7 +27,7 @@ function FilippovSol(T, X; S = NaN)
 end
 
 # Initialize solution struct
-function initsol(prob::prob{FilippovSys, I, T}) where {I, T}
+function initsol(prob::prob{<:FilippovSys, I, T}) where {I, T}
     return FilippovSol([prob.tspan[1]], [prob.init])
 end
 
@@ -127,7 +127,7 @@ function solve(prob::prob{<:FilippovSys}, solver; dt_initial = 0.01, max_iter = 
         tₖ = sol.T[end] #Retrieve current time at start of step
 
         # Choose vector field for current step based on current position relative to the guard
-        vf = Filippov_vec_field(sys, x)
+        vf(x) = filippov_vector_field(sys, x)
         x_predict, event_triggered, h_now = take_step(solver, prob, vf, xₖ, tₖ, dt_step, tol, sol)
 
         t_next = tₖ + dt_step
