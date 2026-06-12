@@ -7,7 +7,7 @@ struct FilippovSys{F, G, H, N} <: AbstractHybridSystem
 end
 
 # Default to auto diff to find ∇H
-function FilippovSys(F, G, H; N=ForwardDiff.gradient(H,x))
+function FilippovSys(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
     return FilippovSys(F, G, H, N)
 end
 struct FilippovSol{T, X, S}

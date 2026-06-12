@@ -371,12 +371,15 @@ end
 #SOLVER
 #Very External
 function solve(prob::prob{F, I, T}, 
-               solver::AbstractODESolver=ModifiedMidpoint(); 
+               solver::AbstractODESolver=RK45(); 
                event_method::AbstractEventLocator=LinearLocator(), 
                dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, 
-               tol = 1e-6, trivial_tol_multiplier = 10.0, 
-               zeno_ratio = .90, max_zeno_jumps = 100,
-               stepper::AbstractODESolver=ModifiedTrap()) where {F<:Union{LinearSystem, AffineSystem}, I<:AbstractVector{Float64}, T<:Tuple{Float64, Float64}}
+               tol = 1e-6, 
+               zeno_ratio = 0.90, max_zeno_jumps = 5,
+               stepper::AbstractODESolver=ModifiedTrap(),
+               max_buffer_size=5,
+               beating_warn_threshold=3,
+               max_instant_jumps = 5) where {F<:Union{LinearSystem, AffineSystem}, I<:AbstractVector{Float64}, T<:Tuple{Float64, Float64}}
     sys = prob.sys
 
     f = hasproperty(sys, :b) ? ((x,t) -> sys.A * x + sys.b) : ((x,t) -> sys.A * x) 
@@ -391,11 +394,11 @@ function solve(prob::prob{F, I, T},
     Δt = dt_initial
     iter = 0
 
-    #trackers for beating and blocking logic
-    instant_jumps = 0
-    last_jump_time = -Inf
-    last_jump_interval = Inf
+    #trackers for beating blocking and Zeno logic
+    instant_jump_count = 0
     zeno_count = 0
+    last_jump_time = t_start      #calc the current interval
+    last_intervals = Float64[]  #History of intervals     
     n = length(prob.init)
 
     #run until end time or max iter
@@ -419,42 +422,41 @@ function solve(prob::prob{F, I, T},
         xₖ = sol.x[end]
         tₖ = sol.t[end]
 
+        h_now = guard(sys, xₖ)
+
         #attempt continuous step
-        x_predict, eventtriggered, h_now, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol)
+        x_predict, eventtriggered, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol)
+
+        is_exactly_on_guard = abs(h_now) <= tol
 
         #discrete event logic
-        if eventtriggered
-            #Pinpoint exact time and state
-            t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_step, h_now, tol, sol)
+        if eventtriggered || is_exactly_on_guard
 
-            #PATHOLOGY CHECKS
-            jump_interval = t_star - last_jump_interval
-
-            #beating and blocking
-            if jump_interval < tol
-                instant_jumps += 1
-            else 
-                instant_jumps = 0
+            if is_exactly_on_guard
+                t_star, x_star = tₖ, xₖ
+            else
+                t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, h_now, tol, sol, stepper)
             end
+            
+            #PATHOLOGY CHECK
+            jump_interval = t_star - last_jump_time
+            zeno_count, instant_jump_count, status = check_system_pathology(
+                jump_interval, last_intervals, 
+                zeno_count, instant_jump_count,
+                t_star, tol, zeno_ratio, max_zeno_jumps, max_instant_jumps,
+                max_buffer_size
+            )
 
-            status = check_beating_status(sys, instant_jumps, n, x_star, t_star, tol, trivial_tol_multiplier)
-            #break on blocking but allow contractive beating or continue status
-            if status == :blocking_expansive || status == :blocking_non_trivial || status == :blocking_trivial
-                @warn "Simulation terminated at t = $t_star due to status :$status"
+            if status == :terminate
                 break
             end
 
-            #cont zeno check
-            zeno_count, zeno_status = check_zeno(jump_interval, last_jump_interval, zeno_count, t_star, tol, zeno_ratio, max_zeno_jumps)
-            if zeno_status == :terminate
-                break
-            end
-
-            last_jump_interval = jump_interval
+            
             last_jump_time = t_star
 
             #Apply Reset
             x⁺ = apply_reset(sys, x_star)
+
 
             #Tracking data
             push!(sol.t, t_star, t_star)
@@ -467,15 +469,15 @@ function solve(prob::prob{F, I, T},
             end
 
             #shrink min step size to avoid overshooting
-            Δt = dt_min
+            Δt = dt_initial
 
         else
-            t_next = tₖ + dt_step
+            t_next = tₖ + dt_used
             push!(sol.t, t_next)
             push!(sol.x, x_predict)
 
             #reset step size
-            Δt = dt_initial
+            Δt = dt_next
 
         end
 
