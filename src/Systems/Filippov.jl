@@ -2,7 +2,7 @@
 struct FilippovSys{F, G, H, N} <: AbstractHybridSystem
     F::F    # Function one, H(x) > 0
     G::G    # Function two, H(x) < 0
-    H::H    # Guard
+    h::H    # Guard
     N::N    # Normal to the guard, ∇H
 end
 
@@ -40,7 +40,10 @@ function filippov_vector_field(sys, x;
         Ftol=1e-7,
         atol=1e-7)
 
-    F, G, H, N = sys
+    F = sys.F
+    G = sys.G
+    H = sys.h
+    N = sys.N
 
     h = H(x)
 
@@ -53,37 +56,32 @@ function filippov_vector_field(sys, x;
 
 # Near the guard
 
-    a(x) = dot(N, F(x))
-    b(x) = dot(N, G(x))
+    a = dot(N(x), F(x))
+    b = dot(N(x), G(x))
 
-    # Attracting sliding
     if a < -atol && b > atol
+        λ = a/(a-b)
+        return y -> (1-λ)*F(y) + λ*G(y)
 
-        λ(x) = a(x) / (a(x) - b(x))
-        return x -> (1 - λ(x)) * F(x) + λ(x) * G(x)
-    end
+    elseif a > atol && b < -atol
+        λ = a/(a-b)
+        return y -> (1-λ)*F(y) + λ*G(y)
 
-    # Repelling sliding (non-unique, but still gotta go somewhere)
-    if a > atol && b < -atol
-
-        λ(x) = a(x) / (a(x) - b(x))
-        return x -> (1 - λ(x)) * F(x) + λ(x) * G(x)
-    end
-
-    # Direct crossings
-    if a > atol && b > atol
+    elseif a > atol && b > atol
         return F
-    end
-    if a < -atol && b < -atol
-        return G
-    end
 
-# Otherwise
-    # fallback: choose least transverse field
-    if abs(a) < abs(b)
+    elseif a < -atol && b < -atol
         return G
     else
-        return F
+        error("Failed vector field determination")
+    end
+end
+
+function guard(sys::FilippovSys, x)
+    if isnothing(sys.h)
+        return nothing
+    else
+        return sys.h(x)
     end
 end
 
@@ -94,7 +92,7 @@ function solve(prob::prob{<:FilippovSys}, solver; dt_initial = 0.01, max_iter = 
     sys = prob.sys
     F = sys.F
     G = sys.G
-    H = sys.H
+    H = sys.h
     sol = initsol(prob)
 
     t_start, t_end = prob.tspan     # Extract start and end times for bounds
@@ -127,7 +125,7 @@ function solve(prob::prob{<:FilippovSys}, solver; dt_initial = 0.01, max_iter = 
         tₖ = sol.T[end] #Retrieve current time at start of step
 
         # Choose vector field for current step based on current position relative to the guard
-        vf(x) = filippov_vector_field(sys, x)
+        vf(x,t) = filippov_vector_field(sys,x)(x)
         x_predict, event_triggered, h_now = take_step(solver, prob, vf, xₖ, tₖ, dt_step, tol, sol)
 
         t_next = tₖ + dt_step
@@ -136,7 +134,7 @@ function solve(prob::prob{<:FilippovSys}, solver; dt_initial = 0.01, max_iter = 
         push!(sol.T, tₖ)
         push!(sol.X, xₖ)
 
-        dt = min(dt_next, dt_initial)
+        # dt = min(dt_next, dt_initial)
         
         ######
         ### WC: You have a handful of variables that are never used. You can use _ 
