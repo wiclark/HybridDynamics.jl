@@ -258,9 +258,9 @@ function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, 
     h_next = guard(sys, x_predict)
 
     #Use cross guard check
-    eventtrigger, dt_next, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
+    eventtrigger, t_root, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
 
-    return x_predict, eventtrigger, h_now, Δt, dt_next
+    return x_predict, eventtrigger, t_root, Δt, Δt
 end
 
 function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol,stepper::AbstractODESolver=ModifiedMidpoint())
@@ -280,9 +280,9 @@ function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, t�
     h_mid  = guard(sys, x_mid)
     h_next = guard(sys, x_predict)
 
-    eventtrigger, _, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + dt_used / 2.0, tₖ + dt_used; tol=tol)
+    eventtrigger, t_root, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + dt_used / 2.0, tₖ + dt_used; tol=tol)
 
-    return x_predict, eventtrigger, h_now, dt_used, dt_next
+    return x_predict, eventtrigger, t_root, dt_used, dt_next
 end
 
 #===========================#
@@ -347,8 +347,8 @@ function take_step(solver::LMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt,
         h_mid  = guard(sys, x_mid)
         h_next = guard(sys, x_predict)
 
-        eventtrigger, dt_next, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
-        return x_predict, eventtrigger, h_now, dt_next
+        eventtrigger, t_root, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
+        return x_predict, eventtrigger, t_root, Δt, Δt
     else
         #Multistep phase: We do have rich enough history. Extract past states
         #If sol.x[end] is xₖ, then sol.x[end-1] is x_{k-1}
@@ -366,15 +366,15 @@ function take_step(solver::LMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt,
         x_prev = sol.x[end-1]
         h_prev = guard(sys, x_prev)
 
-        eventtrigger, dt_next, _ = crossed_guard(h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol = tol)
+        eventtrigger, t_root, _ = crossed_guard(h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol = tol)
 
-        return x_predict, eventtrigger, h_now, dt_next
+        return x_predict, eventtrigger, t_root, Δt, Δt
     end
 
     #Guard Eval
-    h_now  = guard(sys, xₖ)
-    h_mid  = guard(sys, x_mid)
-    h_next = guard(sys, x_predict)
+    #h_now  = guard(sys, xₖ)
+    #h_mid  = guard(sys, x_mid)
+    #h_next = guard(sys, x_predict)
 
     eventtrigger, dt_next, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
 
@@ -511,6 +511,10 @@ function locate_event(::LinearLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_n
     sys = prob.sys
     τ_l, τ_r = 0.0, Δt
     h_l = h_now
+
+    if abs(h_now) < tol || h_now < 0
+        return tₖ, xₖ
+    end
 
     #Get right side of boundary
     x_r, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_r, tol, sol, stepper)

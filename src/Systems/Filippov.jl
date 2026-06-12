@@ -1,5 +1,5 @@
 
-struct FilippovSys{F, G, H, N}
+struct FilippovSys{F, G, H, N} <: AbstractHybridSystem
     F::F    # Function one, H(x) > 0
     G::G    # Function two, H(x) < 0
     H::H    # Guard
@@ -7,7 +7,7 @@ struct FilippovSys{F, G, H, N}
 end
 
 # Default to auto diff to find ∇H
-function FilippovSys(F, G, H; N=ForwardDiff.gradient(H,x))
+function FilippovSys(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
     return FilippovSys(F, G, H, N)
 end
 struct FilippovSol{T, X, S}
