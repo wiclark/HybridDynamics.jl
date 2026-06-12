@@ -35,64 +35,46 @@ end
 
 #SOLUTION STRUCTS AND HELPERS. 
 #Goal to provide standard date for simulation outputs. Keeps cont trajectories and discrete events organized. Currently affine and linear are the samem but kept separate to allow specific plotting later?
-struct LinearSolution <: AbstractHybridSolution
-    t::Vector{Float64}          #Time history
-    x::Vector{Vector{Float64}}  #State History
-    jump_times::Vector{Float64} #Exact timestamps where an event has occurred 
-    jump_indices::Vector{Int}   #Indices in 'x' and 't' where jumps map to
-end
-struct AffineSolution <: AbstractHybridSolution
-    t::Vector{Float64}          #Time history
-    x::Vector{Vector{Float64}}  #State History
-    jump_times::Vector{Float64} #Exact timestamps where an event has occurred
-    jump_indices::Vector{Int}   #Indices in 'x' and 't' where jumps map to
-end
+struct HybridSolution <: AbstractHybridSolution
+    t::Vector{Float64}
+    x::Vector{Vector{Float64}}
+    jump_times::Vector{Float64}
+    jump_indices::Vector{Int}
+end 
 
-######
-### WC: The solution objects for all the different systems are all different. Why? Is there a reason why LinearSolution and AffineSolution are different?
-######
-
-#Technically external, Can be used by user to make solution to see whats going on. 
-#Constructor
-function CreateSolution(prob::prob{LinearSystem, I, T}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector) where {I, T}
-    return LinearSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
-end
-#Technically external, Can be used by user to make solution to see whats going on.
-#Constructor
-function CreateSolution(prob::prob{AffineSystem, I, T}, t::AbstractVector, x::AbstractVector, jump_times::AbstractVector, jump_indices::AbstractVector) where {I, T}
-    return AffineSolution(Float64.(t), Vector{Float64}.(x), Float64.(jump_times), Int.(jump_indices))
+function CreateSolution(prob::prob{S, I, T}, t::AbstractVector, x::AbstractVector,
+    jump_times::AbstractVector, jump_indices::AbstractVector) where {S <: Union{LinearSystem, AffineSystem}, I, T}
+    return HybridSolution(Float64.(t), Vector{Float64}.x, Float64.(jump_times), Int{jump_indices})
 end
 
 #Exact Linear Flow (matrix exponential)
 #The goal is to instead of using numerical approximations for linear systems we can get exact solutions. 
-struct LinearFlow{TM<:AbstractMatrix, TV<:AbstractVector}
-    V::TM       #Eigenvectors
-    Λ::TV       #Eigenvalues
-    V_inv::TM   #inverse of eigenvectors
+struct LinearFlow{TM<:AbstractMatrix{Float64}}
+    A::TM #dx/dt = Ax
 end
 
 #Internal
-#Constructor that performs heavy math ONCE
-function LinearFlow(A)
-    eig = eigen(A) #Perform eigen decomp
+#Constructor with numerical/structural checks
+function LinearFlow(A::AbstractMatrix)
+    #Make sure matrix is square
+    m, n = size(A)
+    if m != n
+        throw(DimensionMismatch("State matrix A must be square, but got ($m × $n) matrix."))
+    end
 
-    #We factor A = V * Λ * V{-1} so we can compute cont evolution of the system.
-    return LinearFlow(eig.vectors, eig.values, inv(eig.vectors))
+    return LinearFlow(Float64.(A))
 end
 
-#Internal
-#Actual step function for the exact solver
-######
-### WC: What happens if V_inv doesn't exist? This would correspond to a matrix that is not diagonalizable (repeated eigenvalues with nontrivial Jordan block).
-######
-function flow(flowmap::LinearFlow, τ, x) 
+function flow(flowmap::LinearFlow, τ::Real, x::AbstractVector)
+    #check matrix and state vector match dim 
+    n = size(flowmap.A, 1)
+    if length(x) != n
+        throw(DimensionMismatch("State vector length ($(length(x))) does not match system matrix dimension ($n)."))
+    end
 
-    #projects the state into the eigendecomposition space
-    y = flowmap.V_inv * x 
-
-    #Computes the exact state at time τ.
-    #Note we use real. because complex conj pairs will result in tiny numerical evils.
-    return real.(flowmap.V * (exp.(flowmap.Λ .* τ) .* y)) 
+    #Computes exact state x(t+τ) = exp(A*τ) * x(t)
+    #This is very memory instensive as of now. Fixing will come later
+    return exp(flowmap.A .* τ) * x
 end
 
 #Beating/Zeno check
@@ -127,218 +109,96 @@ end
 #pre-allocating the vectors with the exact starting conditions ensures that the solver loop is stable 
 
 #internal
-function init_solution(prob::prob{LinearSystem, I, T}) where {I, T}
-    return LinearSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
-end
-#internal
-function init_solution(prob::prob{AffineSystem, I, T}) where {I, T}
-    return AffineSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
+function init_solution(prob::prob{S, I, T}) where {S<:Union{LinearSystem, AffineSystem}, I, T}
+    return HybridSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
 end
 
-#--------------------------------------------
-#BEATING AND BLOCKING SETS
-#External
-######
-### WC: What are the object types here? It looks like the outputs are collection of vectors?
-### As this is external, you should have a doc string explainint the inputs/outputs of this function.
-######
-function beating_and_blocking_sets(sys::AbstractHybridSystem)
-    #Deconstructs the system structure to get the matrices and vectors we need.
+
+"""
+    beating_and_blocking_sets(sys::Union{LinearSystem, AffineSystem})
+
+Compute the discrete sequence of constraint matrices and offset vectors defining the beating sets and the final blocking set for both linear and affine systems
+
+Returns:
+
+A unified "NamedTuple" *fancy*
+- 'beating_sets::Vector{Matrix{Float64}}': Matrix constraints where rows represent normal vectors. Constraint matrix is the [λ^T ; λ^TC^{-1} ; ...]
+- 'beating_offsets::Vector{Vector{Float64}}': Vector offsets shifting the hyperplanes from the origin
+- 'blocking_set::Matrix{Float64}': Final blocking constraint matrix
+- 'blocking_offsets::Vector{Float64}': Final offset for blocking set
+- 'k_blocking::Int': Discrete iteration where the sequence achieved blocking.
+
+
+"""
+function beating_and_blocking_sets(sys::Union{LinearSystem, AffineSystem})
+
     λ, C = sys.λ, sys.C
-    
-    #Sote state space dimension; we want it to stabilize within n steps. 
     n = length(λ)
-
-    #compute inverse of C. We need it to compute Σ_k = Σ ∩ CΣ_k-1
     C_inv = inv(C)
 
-    #intialize contianer to store 
-    O = Matrix{Float64}[] 
+    #Extracts affine properties to see if they exist. Tells us if we have linear or affine system
+    a = hasproperty(sys, :a) ? sys.a : 0.0
+    κ = hasproperty(sys, :κ) ? sys.κ : zeros(Float64, n)
 
-    #Convert the gaurd vector λ  1 times n matrix to represent λ^T x = 0
+    #Initialize containers for Σ_0 = {x | λᵀx = -a}
     O_current = reshape(λ, 1, :)
+    b_current = [-a]
 
-    #store inital guard constraint: \Sigma_0 = {x | λ^T x = 0}
-    push!(O, O_current)
+    O = [O_current]
+    b_vecs = [b_current]
 
-    #Establish initial rank to track dimension of subspace dim = n-rank
     prev_rank = rank(O_current)
+    k_∞ = 0
+    row = λ'
 
-    k_∞ = 0 #tracks when blocking occurs 
-
-    row = sys.λ'
-
-    ######
-    ### WC: Sound more confident in your comments. Avoid *I think*
-    ######
-    #We iterate n times. There is a theorem about this I think
-    for k in 1:n 
-        #Calc the kth constraint row. This maps the guard back through k jumps. 
-        row = (row * C_inv)
+    for k in 1:n
+        #Advance constraint row through inverse reset map
+        row = row * C_inv
         new_row = reshape(row, 1, :)
 
-        #Concatenate new constraint to previous matrix to form next candidate
+        #offset update: b_k = b_{k-1} - row * κ
+        new_offset = b_current[end] - (row * κ)[1]
+
+        #next candidate matrix and offset 
         O_next = vcat(O_current, new_row)
-
-        #Compute rank of new matrix to see if the added constraint is linearly independent. If not, we have found the blocking set and can stop.
-        current_rank = rank(O_next)
-
-        #If rank not increased the new constraint is redundant and we are done
-        if current_rank == prev_rank
-
-            #sequence stabilized; previous index marks start of blocking set. 
-            k_∞ = k - 1
-            break
-        end
-
-        #Update constraint matrix with ind row
-        O_current = O_next
-        
-        #log matrix O_k representing the kth beating set
-        push!(O, O_current)
-        
-        #update rank baseline for next iteration
-        prev_rank = current_rank
-
-        #Tentatively set blocking index to current iteration. 
-        k_∞ = k
-    end
-
-    #return a tuple for access to whole thing
-    return (
-        beating_sets = O,       #Full sequence of constraint matrices which are our beating sets. Each one is a matrix where the rows represent linear constraints that define the set.
-        blocking_set = O[end],  #Final matrix where we have blocking
-        k_blocking = k_∞        #Smallest integer k such that we have the blocking set.
-    )
-end
-
-#External
-######
-### WC: These two functions should be accompanied by a nice example.
-######
-function beating_and_blocking_sets(sys::AffineSystem)
-    λ, a, C, κ = sys.λ, sys.a, sys.C, sys.κ
-
-    n = length(λ)
-    C_inv = inv(C)
-
-    O = Matrix{Float64}[] #this will store the sequence of beating sets as matrices where the rows are the linear constraints defining the set.
-    b_vecs = Vector{Float64}[] #this will store the corresponding constant terms for the affine constraints.
-
-    #Σ_0 is defined by λ^T x + a = 0, which we can write as λ^T x = -a. 
-    O_current = reshape(λ, 1, :) #constraint matrix for Σ_0
-    b_current = [-a] #constant term for Σ_0
-
-    push!(O, O_current)
-    push!(b_vecs, b_current)
-
-    prev_rank = rank(O_current)
-    k_∞ = 0 #tracks when blocking occurs
-
-    for k in 1:n 
-        #linear constraints for λ^T(C^{-1}^k)
-        new_row = reshape(λ' * (C_inv^k), 1, :)
-
-        #for x to be in Σ_k, then Cx+κ must be in Σ_k-1
-        #This takes reset constant κ back through powers of C_inv
-        new_offset = -a - sum(λ' * (C_inv^j) * κ for j in 1:k)
-
-        #append new row of O matrix
-        O_next = vcat(O_current, new_row)
-
-        #append new offset to constant b vector 
         b_next = vcat(b_current, [new_offset])
 
-        #Current rank of matrix to see if ind
-        current_rank = rank(O_next)
-
-        #Check for blocking
+        #Check for rank defi
+        current_rank = rank(O_current)
         if current_rank == prev_rank
             k_∞ = k - 1
             break
         end
 
-        #Update current constraints with new ind affine hyperplane 
+        #update loop and log constraints
         O_current = O_next
         b_current = b_next
 
-        #Store matrix and vector that define Σ_k = {x:O_k x = b_k}
-        push!(O,O_current)
+        push!(O, O_current)
         push!(b_vecs, b_current)
 
         prev_rank = current_rank
         k_∞ = k
     end
-    return (
-        beating_sets = O,                   #Array matrices where each row is a normal vector to guard preimage. Geometrically this gives the orientation of each set. 
-        beating_offsets = b_vecs,           #Array of vectors defining the offset of the constraints. This is how far the above is shifted from the origin. 
-        blocking_set = O[end],              #Specific linear matrix defining blocking set
-        blocking_offsets = b_vecs[end],     #Specific Offset vector of final blocking set
-        k_blocking = k_∞                    #Discrete index where we have blocking. 
-    )
+
+        return (beating_sets = O, beating_offsets = b_vecs, blocking_set = O[end], blocking_offsets = b_vecs[end], k_blocking = k_∞)
 end
 
 #TRIVIALLY BLOCKING
-#External
-function is_trivially_blocking(sys::LinearSystem)
+"""
+    is_trivially_blocking(sys::Union{LinearSystem, AffineSystem})
 
-    #The blocking set is the null space of the matrix O we formed in the analysis part. 
-    #Rank nullity says Rank(blockingset) + nullity(blockingset) = n, where n is the dimension of the state space. Rank is lin ind rows, and nullity is dim of blocking set
-    
-    #the set is trivially blocking if Σ_∞ = {0}.
-    #dim(Σ_∞) = 0 iff nullity(O[end]) = 0 \implies rank(O[end])+0= n \implies rank(O[end]) = n. So we just check if the final matrix has full rank.
+    Determine if the system's blocking set collapses strictly to the origin (Σ_∞ = {0}).
+    For both linear and affine systems, this requires the final constraint matrix to 
+    have full rank and the final offset vector to be (basically) zero.
+
+"""
+function is_trivially_blocking(sys::Union{LinearSystem, AffineSystem})
     analysis = beating_and_blocking_sets(sys)
-
-    #gets dimension of state space from length of λ, which is the same as number of columns in O[end]
     n = length(sys.λ)
 
-    #if rank == n then nullity = 0. 
-    #if nullity == 0 then the solution to O[end] x = 0 is only x = 0, so the blocking set is just the origin, which is trivially blocking.
-    #we return true is the blocking set is trivial and false otherwise. 
-    return rank(analysis.blocking_set) == n
-
-end
-
-######
-### WC: What actually is the blocking_set then? Is this the Krylov matrix [Cλ, ...]? (So its kernel is the blocking set (for linear)?)
-######
-
-#External
-function is_trivially_blocking(sys::AffineSystem)
-    #Perform beating and blocking sets analysis to find constraint matrix and offset
-    analysis = beating_and_blocking_sets(sys)
-
-    #dim of state space
-    n = length(sys.λ)
-     
-    return rank(analysis.blocking_set) == n && isapprox(norm(analysis.blocking_offsets), 0, atol=1e-12)
-end
-######
-### WC: Does the blocking_offsets need to be zero for blocking to occur in affine systems?
-######
-
-#External
-function basis_beating_and_blocking_sets(sys::Union{LinearSystem, AffineSystem})
-    #run function we already have to get constraint matrices
-    analysis = beating_and_blocking_sets(sys)
-
-    #convert the results from above to explicit bases. The nullspace function will return a matrix where columns form a orthonormal basis
-    explicit_beating = Matrix{Float64}[]
-    for i in analysis.beating_sets
-        #compute the null space if it is just the origin this is an empty matrix
-        basis_matrix = nullspace(i)
-        push!(explicit_beating, basis_matrix)
-    end
-
-    #convert final blocking set to its explicit basis 
-    explicit_blocking = nullspace(analysis.blocking_set)
-
-    #return tuple with tangible basis vectors. This will return a n x x matrix where x is the dimension of the set. 
-    return (
-        explicit_beating_sets = explicit_beating,
-        explicit_blocking_set = explicit_blocking,
-        k_blocking = analysis.k_blocking
-    )
+    #check full rank AND the point is the oriign
+    return rank(analysis.blocking_set) == n && isapprox(norm(analysis.blocking_offsets))
 end
 
 #Internal
@@ -360,13 +220,22 @@ function apply_reset(sys::AffineSystem, x::AbstractVector)
 end
 
 #Internal
-######
-### WC: You should have a check (possibly here) to make sure that all of the dimensions are compatable.
-######
-function get_dimension(sys::Union{LinearSystem, AffineSystem})
-    return size(sys.A, 1)
+function get_dimension(sys::LinearSystem)
+    n = size(sys.A, 1)
+    if size(sys.A, 2) != n || length(sys.λ) != n || size(sys.C, 1) != n || size(sys.C, 2) != n
+        throw(DimensionMismatch("LinearSystem dimensions are inconsistent."))
+    end
+    return n
 end
-
+function get_dimension(sys::AffineSystem)
+    n = size(sys.A, 1)
+    # Check consistency of vectors and matrices
+    if size(sys.A, 2) != n || length(sys.b) != n || length(sys.λ) != n || 
+       size(sys.C, 1) != n || size(sys.C, 2) != n || length(sys.κ) != n
+        throw(DimensionMismatch("AffineSystem dimensions are inconsistent."))
+    end
+    return n
+end
 
 #SOLVER
 #Very External
