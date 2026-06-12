@@ -27,13 +27,15 @@ function specular_refl(x, M, dh, sys)
 end
 
 # General solution struct for Lagrangian and Hamiltonian systems
-struct LHSol{T, X, DX, I, T_e1, T_z}
-    t::T        # Time data
-    x::X        # Position data
-    dx::DX      # f(x) Derivative at each state x - only filled when dense_out = true
-    prob::I     # Remember the problem - to aid interpolation
-    T_e1::T_e1  # Time of first event
-    T_z::T_z    # Time of Zeno pts
+struct LHSol{T, X, DX, I, JT, JI, T_e1, T_z}
+    t::T                # Time data
+    x::X                # Position data
+    dx::DX              # f(x) Derivative at each state x - only filled when dense_out = true
+    prob::I             # Remember the problem - to aid interpolation
+    jump_times::JT      # Exact timestamps where an event has occurred 
+    jump_indices::JI    # Indices in 'x' and 't' where jumps map to
+    T_e1::T_e1          # Time of first event
+    T_z::T_z            # Time of Zeno pts
 end
 ######
 ### WC: There can be multiple Zeno events. We'll discuss this more in the future.
@@ -43,7 +45,7 @@ end
 
 # Does this need to be a general constructor or can I go straight to initializing the solution state?
 function LHSol(prob)
-    return LHSol([prob.tspan[1]], [prob.init], Vector{Vector{Float64}}(), prob, Float64[], Float64[])
+    return LHSol([prob.tspan[1]], [prob.init], Vector{Vector{Float64}}(), prob, Float64[], Int[], Float64[], Float64[])
 end
 
 ################################
@@ -309,6 +311,11 @@ function solve(prob::prob{S, I, T};
             push!(sol.x, x_star, x⁺)
             if dense_out
                 push!(sol.dx, similar(sol.x[end]) .= NaN)  # Don't interpolate across discrete jumps
+            end
+            # Add event data
+            if hasproperty(sol, :jump_times)
+                push!(sol.jump_times, t_star)
+                push!(sol.jump_indices, length(sol.t))
             end
 
             # Lock in post-impact state to continue the loop

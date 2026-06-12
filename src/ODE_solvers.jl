@@ -258,7 +258,7 @@ function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, 
     h_next = guard(sys, x_predict)
 
     #Use cross guard check
-    eventtrigger, dt_next, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
+    eventtrigger, _, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
 
     return x_predict, eventtrigger, h_now, Δt, dt_next
 end
@@ -280,7 +280,7 @@ function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, t�
     h_mid  = guard(sys, x_mid)
     h_next = guard(sys, x_predict)
 
-    eventtrigger, _, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + dt_used / 2.0, tₖ + dt_used; tol=tol)
+    eventtrigger, dt_next, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + dt_used / 2.0, tₖ + dt_used; tol=tol)
 
     return x_predict, eventtrigger, h_now, dt_used, dt_next
 end
