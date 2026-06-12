@@ -18,92 +18,81 @@ function init_solution(prob::prob{GeneralSystem, I, T}) where {I, T}
 end
 #Internal
 function guard(sys::GeneralSystem, x::AbstractVector)
-    return sys.h(x)
+    val = sys.h(x)
+    return val isa AbstractVector ? minimum(abs.(val)) : val
 end
 #Internal
 function apply_reset(sys::GeneralSystem, x::AbstractVector)
     return sys.Δ(x)
 end
 
-#Internal
-######
-### WC: Should there be somesort of for loop in this to count up?
-######
-function check_beating_blocking(jump_interval, instant_jump_count, t_star, tol, beating_warn_threshold, max_instant_jumps)
-    status = :continue
-    if jump_interval <= tol
-        instant_jump_count += 1
-        if instant_jump_count == beating_warn_threshold
-            @info "Beating Detected: System has undergone $beating_warn_threshold instant jumps at t = $t_star"
-        elseif instant_jump_count >= max_instant_jumps
-            @warn "Blocking Detected: System trapped on guard ($max_instant_jumps instant jumps). Terminating."
-            status =:terminate
-        end
-    else
-        instant_jump_count = 0
-    end
-    return instant_jump_count, status
-end
-
-#=
 #NEW ZENO PLEASE WORK!!!!!!!!!!!!!!!!!!!
 function check_system_pathology(
     jump_interval, last_intervals, 
     zeno_count, instant_jump_count,
     t_star, tol, zeno_ratio, max_zeno_jumps, max_instant_jumps,
-    max_buffer_size,
-    min_zeno_confirmations = 3)
+    max_buffer_size)
+    #There is room for a lot of tolerance stuff here. I will work on that at some point - DS
 
-    #Evaluate State
-    is_at_floor = jump_interval <= tol
-    
-    #Check for Zeno Convergence 
-    effective_history = length(last_intervals) > max_buffer_size ? 
-                        last_intervals[end-max_buffer_size + 1: end] : 
-                        last_intervals
-    
-    # Logic: Is the current interval smaller than the recent one
-    is_contracting = !isempty(effective_history) && 
-                     (jump_interval < maximum(effective_history) * zeno_ratio)
+    # 1. Update history FIRST so Zeno can be evaluated
+    push!(last_intervals, jump_interval)
+    if length(last_intervals) > max_buffer_size
+        popfirst!(last_intervals)
+    end
 
-    # Cases
-    if is_contracting
+    # 2. Zeno Check before anything else
+    is_contracting = length(last_intervals) >= 3 && 
+                     (last_intervals[end] < last_intervals[end-1] * zeno_ratio) &&
+                     (last_intervals[end-1] < last_intervals[end-2] * zeno_ratio)
+
+    # If we are already in a Zeno and hit the numerical floor, 
+    # maintain the Zeno classification instead of dropping to Blocking.THIS HAPPENED SO MANY TIMES
+    hit_zeno_floor = (zeno_count > 0) && (jump_interval <= tol)
+
+    if (is_contracting && jump_interval < 1e-2) || hit_zeno_floor
         zeno_count += 1
-        instant_jump_count = 0 # Reset blocking counter because we are in a Zeno sequence
-        @info "Zeno contraction detected. zeno_count: $zeno_count"
-    elseif is_at_floor
-        # We are at the floor, but are we in a Zeno sequence?
-        if zeno_count >= min_zeno_confirmations
-            @warn "Zeno Accumulation Point Reached at t = $t_star."
+        instant_jump_count = 0 # Explicitly bypass and reset the blocking trap
+        @info "Zeno contraction detected. count: $zeno_count"
+        
+        if zeno_count >= max_zeno_jumps
+            @warn "Zeno Accumulation Point Reached at t = $t_star. Terminating."
             return zeno_count, instant_jump_count, :terminate
-        else
-            # No Zeno history: This is pure Blocking
-            instant_jump_count += 1
-            if instant_jump_count >= max_instant_jumps
-                @warn "Blocking Detected at t = $t_star"
-                return zeno_count, instant_jump_count, :terminate
-            end
         end
+        
+        return zeno_count, instant_jump_count, :continue
     else
-        # Normal behavior
-        zeno_count = 0
-        instant_jump_count = 0
+        # Only reset if the interval genuinely grows or stabilizes outside Zeno
+        zeno_count = 0 
     end
 
-    # 4. Final safety check for Zeno
-    if zeno_count >= max_zeno_jumps
-        @warn "Zeno Behavior Detected at t = $t_star: Reached max zeno jumps."
-        return zeno_count, instant_jump_count, :terminate
+    # 3. Beating and Blocking Check (Only evaluated if NOT Zeno)
+    if jump_interval <= tol
+        instant_jump_count += 1
+        
+        if instant_jump_count >= max_instant_jumps
+            @warn "Blocking Detected at t = $t_star (Exceeded max instant jumps). Terminating."
+            return zeno_count, instant_jump_count, :terminate
+        end
+        
+        @info "Beating event $instant_jump_count at t = $t_star"
+        return zeno_count, instant_jump_count, :continue
     end
 
+    # 4. Continuous movement
+    instant_jump_count = 0
     return zeno_count, instant_jump_count, :continue
 end
-=#
+
 #External
 function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45(); 
-               event_method::AbstractEventLocator=LinearLocator(), dt_initial=.01, dt_min = 1e-6, 
-               max_iter = 10^6, tol = 1e-6, beating_warn_threshold = 3, max_instant_jumps = 100, 
-               zeno_ratio = .99, max_zeno_jumps = 100, history_window = 3, min_zeno_confirmations = 3) where {F<:GeneralSystem, I, T}
+               event_method::AbstractEventLocator=LinearLocator(), 
+               dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, 
+               tol = 1e-6, 
+               zeno_ratio = 0.90, max_zeno_jumps = 15,
+               stepper::AbstractODESolver=ModifiedTrap(),
+               max_buffer_size=5,
+               beating_warn_threshold=3,
+               max_instant_jumps = 5) where {F<:GeneralSystem, I, T}
     
     sys = prob.sys
     f = sys.f
@@ -113,10 +102,10 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
     iter = 0
 
     # Pathology trackers
-    last_jump_time = -Inf
-    last_intervals = Float64[] # Replaces last_jump_interval with a rolling history window
     instant_jump_count = 0
     zeno_count = 0
+    last_jump_time = t_start
+    last_intervals = Float64[]
 
     while sol.t[end] < t_end 
         iter += 1
@@ -139,63 +128,44 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
         tₖ = sol.t[end]
 
         # Attempt continuous step
-        x_predict, eventtriggered, h_now, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol)
+        x_predict, eventtriggered, h_now, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol)
 
         # Discrete event logic
         if eventtriggered
             # Pinpoint exact time and state event happened
-            t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_step, h_now, tol, sol)
+            t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, h_now, tol, sol, stepper)
 
-            # Apply reset early to calculate the spatial step size
-            x⁺ = sys.Δ(x_star)
-            state_step = norm(x⁺ - x_star)
-
-            # Calculate temporal step size
+            #Pathology Checks
             jump_interval = t_star - last_jump_time
+            zeno_count, instant_jump_count, status = check_system_pathology(
+                jump_interval, last_intervals, 
+                zeno_count, instant_jump_count,
+                t_star, tol, zeno_ratio, max_zeno_jumps, max_instant_jumps,
+                max_buffer_size
+            )
 
-            # Unified Pathology Engine
-            if last_jump_time == -Inf
-                zeno_count = 0
-                instant_jump_count = 0
-            else 
-                zeno_count, instant_jump_count, pathology_status = check_system_pathology(
-                    jump_interval, last_intervals, state_step,
-                    zeno_count, instant_jump_count, t_star, tol,
-                    zeno_ratio, max_zeno_jumps,
-                    max_instant_jumps, min_zeno_confirmations
-                )
-                
-                if pathology_status == :terminate
-                    break
-                end
-
-                # Update tracking histories
-                #Put here to prevent pushin Inf into window on first jump.
-                push!(last_intervals, jump_interval)
-                if length(last_intervals) > history_window
-                    popfirst!(last_intervals)
-                end
+            if status == :terminate
+                break
             end
             last_jump_time = t_star
 
-            # Track data: pre and post jump states
+            # Apply reset early to calculate the spatial step size
+            x⁺ = sys.Δ(x_star)
+           
             push!(sol.t, t_star, t_star)
             push!(sol.x, x_star, x⁺)
 
-            # Record for event analysis
             if hasproperty(sol, :jump_times)
                 push!(sol.jump_times, t_star)
-                push!(sol.jump_indices, length(sol.t))
+                push!(sol.jump_indices, length(sol.x))
             end
 
-            # Shrink main step size to avoid overshooting
-            Δt = dt_min
-
-        else
-            t_next = tₖ + dt_step
-            push!(sol.t, t_next)
-            push!(sol.x, x_predict)
             Δt = dt_initial
+
+        else 
+            push!(sol.t, tₖ + dt_used)
+            push!(sol.x, x_predict)
+            Δt = dt_next
         end
     end
     return sol

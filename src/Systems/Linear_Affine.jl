@@ -371,15 +371,15 @@ end
 #SOLVER
 #Very External
 function solve(prob::prob{F, I, T}, 
-               solver::AbstractODESolver=ModifiedMidpoint(); 
+               solver::AbstractODESolver=RK45(); 
                event_method::AbstractEventLocator=LinearLocator(), 
                dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, 
                tol = 1e-6, 
-               zeno_ratio = .90, max_zeno_jumps = 15,
+               zeno_ratio = 0.90, max_zeno_jumps = 5,
                stepper::AbstractODESolver=ModifiedTrap(),
                max_buffer_size=5,
-               beating_warn_threshold=2,
-               max_instant_jumps =5) where {F<:Union{LinearSystem, AffineSystem}, I<:AbstractVector{Float64}, T<:Tuple{Float64, Float64}}
+               beating_warn_threshold=3,
+               max_instant_jumps = 5) where {F<:Union{LinearSystem, AffineSystem}, I<:AbstractVector{Float64}, T<:Tuple{Float64, Float64}}
     sys = prob.sys
 
     f = hasproperty(sys, :b) ? ((x,t) -> sys.A * x + sys.b) : ((x,t) -> sys.A * x) 
@@ -397,7 +397,7 @@ function solve(prob::prob{F, I, T},
     #trackers for beating blocking and Zeno logic
     instant_jump_count = 0
     zeno_count = 0
-    last_jump_time = -Inf       #calc the current interval
+    last_jump_time = t_start      #calc the current interval
     last_intervals = Float64[]  #History of intervals     
     n = length(prob.init)
 
@@ -424,28 +424,26 @@ function solve(prob::prob{F, I, T},
 
         h_now = guard(sys, xₖ)
 
-        is_in_restricted_zone = h_now <= -tol
-
         #attempt continuous step
         x_predict, eventtriggered, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol)
 
-        #discrete event logic
-        if eventtriggered || is_in_restricted_zone
+        is_exactly_on_guard = abs(h_now) <= tol
 
-            if is_in_restricted_zone
+        #discrete event logic
+        if eventtriggered || is_exactly_on_guard
+
+            if is_exactly_on_guard
                 t_star, x_star = tₖ, xₖ
             else
                 t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, h_now, tol, sol, stepper)
             end
-            #=
-            #PATHOLOGY CHECKS
+            
+            #PATHOLOGY CHECK
             jump_interval = t_star - last_jump_time
-
             zeno_count, instant_jump_count, status = check_system_pathology(
                 jump_interval, last_intervals, 
                 zeno_count, instant_jump_count,
-                t_star, tol, zeno_ratio, max_zeno_jumps,
-                beating_warn_threshold, max_instant_jumps,
+                t_star, tol, zeno_ratio, max_zeno_jumps, max_instant_jumps,
                 max_buffer_size
             )
 
@@ -453,14 +451,7 @@ function solve(prob::prob{F, I, T},
                 break
             end
 
-            if jump_interval > tol
-                push!(last_intervals, jump_interval)
-                if length(last_intervals) > max_buffer_size
-                    popfirst!(last_intervals)
-                end
-            endS
-
-            =#
+            
             last_jump_time = t_star
 
             #Apply Reset
@@ -478,7 +469,7 @@ function solve(prob::prob{F, I, T},
             end
 
             #shrink min step size to avoid overshooting
-            Δt = dt_min
+            Δt = dt_initial
 
         else
             t_next = tₖ + dt_used
