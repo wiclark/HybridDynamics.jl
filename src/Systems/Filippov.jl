@@ -90,9 +90,6 @@ end
 function solve(prob::prob{<:FilippovSys}, solver; dt_initial = 0.01, max_iter = 10^6, tol = 1e-6, kwargs...)
     
     sys = prob.sys
-    F = sys.F
-    G = sys.G
-    H = sys.h
     sol = initsol(prob)
 
     t_start, t_end = prob.tspan     # Extract start and end times for bounds
@@ -128,13 +125,11 @@ function solve(prob::prob{<:FilippovSys}, solver; dt_initial = 0.01, max_iter = 
         vf(x,t) = filippov_vector_field(sys,x)(x)
         x_predict, event_triggered, h_now = take_step(solver, prob, vf, xₖ, tₖ, dt_step, tol, sol)
 
-        t_next = tₖ + dt_step
         tₖ += dt_step
         xₖ = x_predict
         push!(sol.T, tₖ)
         push!(sol.X, xₖ)
 
-        # dt = min(dt_next, dt_initial)
         
         ######
         ### WC: You have a handful of variables that are never used. You can use _ 
