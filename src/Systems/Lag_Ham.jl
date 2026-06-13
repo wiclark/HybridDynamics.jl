@@ -2,7 +2,6 @@
 # INTERNAL
 # Default reset map: specular reflection with coefficient of restitution. 
 # Ames, Aaron & Zheng, Haiyang & Gregg, Robert & Sastry, Shankar. (2006). Is there life after Zeno? Taking executions past the breaking (Zeno) point. 2006. 6 pp.. 10.1109/ACC.2006.1656623
-
 function specular_refl(x, M, dh, sys)
 
     e = sys.e
