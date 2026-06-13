@@ -27,13 +27,15 @@ function specular_refl(x, M, dh, sys)
 end
 
 # General solution struct for Lagrangian and Hamiltonian systems
-struct LHSol{T, X, DX, I, T_e1, T_z}
-    t::T        # Time data
-    x::X        # Position data
-    dx::DX      # f(x) Derivative at each state x - only filled when dense_out = true
-    prob::I     # Remember the problem - to aid interpolation
-    T_e1::T_e1  # Time of first event
-    T_z::T_z    # Time of Zeno pts
+struct LHSol{T, X, DX, I, JT, JI, T_e1, T_z}
+    t::T                # Time data
+    x::X                # Position data
+    dx::DX              # f(x) Derivative at each state x - only filled when dense_out = true
+    prob::I             # Remember the problem - to aid interpolation
+    jump_times::JT      # Exact timestamps where an event has occurred 
+    jump_indices::JI    # Indices in 'x' and 't' where jumps map to
+    T_e1::T_e1          # Time of first event
+    T_z::T_z            # Time of Zeno pts
 end
 ######
 ### WC: There can be multiple Zeno events. We'll discuss this more in the future.
@@ -43,7 +45,7 @@ end
 
 # Does this need to be a general constructor or can I go straight to initializing the solution state?
 function LHSol(prob)
-    return LHSol([prob.tspan[1]], [prob.init], Vector{Vector{Float64}}(), prob, Float64[], Float64[])
+    return LHSol([prob.tspan[1]], [prob.init], Vector{Vector{Float64}}(), prob, Float64[], Int[], Float64[], Float64[])
 end
 
 ################################
@@ -55,7 +57,7 @@ struct LagSys{M,V,G,N,R,E} <: AbstractHybridSystem
     M::M          # Mass matrix function M(q)
     V::V          # Potential energy function V(q)
     guard::G      # guard/event function
-    normal::N     # Normal to the guard, ΔG ### <- ∇G
+    normal::N     # Normal to the guard, ∇G
     reset::R      # reset map
     e::E          # coefficient of restitution
 end
@@ -122,45 +124,67 @@ end
 
 ################################
 ################################
-
-# IGNORE FOR NOW
 # Hamiltonian dynamics
 
-    # Define a general Hamiltonian problem
-    struct HamSys{H,G,R,E}
-        H::H          # Hamiltonian
-        guard::G          # guard/event function
-        reset::R      # reset map
-        e::E          # coefficient of restitution 
-    end
-
-# Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic spectral reflection
-function HamSys(H; guard=nothing, reset = (x,e) -> specularl_refl(x,e), e = 1.0)
-    HamSys(H, guard, reset, e)
+# Define a general Hamiltonian problem
+struct HamSys{M,V,G,N,R,E} <: AbstractHybridSystem
+    M::M          # Mass matrix function M(q)
+    V::V          # Potential energy function V(q)
+    guard::G      # Guard/event function
+    normal::N     # Normal to the guard, ∇G
+    reset::R      # Reset map
+    e::E          # Coefficient of restitution
 end
 
-    # Find the vector field from Hamilton's equations
-    function vec_field(sys::HamSys, x::AbstractVector, t)
+# EXTERNAL
+"""
+Hamiltonian System
+ - M(q): mass matrix
+ - V(q): potential energy
+"""
+function HamSys(M, V;
+                guard = nothing,
+                normal = nothing,
+                reset = (x, Mfun, dh, sys::LagSys) -> specular_refl(x, Mfun, dh, sys),
+                e = 1.0)
 
-        n = length(x) ÷ 2
-
-        # Split up state vector
-        q = x[1:n]
-        p = x[n+1:end]
-
-        # Gradient of H with respect to state vector x = [q; p]
-        gradH = hamiltonian_gradient(sys, x)
-
-        dqdt = gradH[n+1:end]      # ∂H/∂p
-        dpdt = -gradH[1:n]         # -∂H/∂q
-
-        # Recombine derivatives into single vecotr field
-        return vcat(dqdt, dpdt)
+    if isnothing(guard) && !isnothing(normal)
+        error("Normal to guard was provided, but a guard was not")
     end
 
-# Find the gradient of Hamiltonians that can be differentiated using ForwardDiff
-function hamiltonian_gradient(HamSys, x)
-    ForwardDiff.gradient(HamSys.H, x)
+    if !isnothing(guard) && isnothing(normal)
+        normal = q -> ForwardDiff.gradient(guard, q)
+    end
+
+    return HamSys{typeof(M), typeof(V), typeof(guard), typeof(normal), typeof(reset), typeof(e)}(
+        M, V, guard, normal, reset, e
+    )
+end
+
+# Find the vector field from Hamilton's equations
+function vec_field(sys::HamSys, x::AbstractVector, t)
+
+    M = sys.M
+    V = sys.V
+
+    n = length(x) ÷ 2
+
+    # Split up state vector
+    q = x[1:n]
+    p = x[n+1:end]
+
+    # Gradient of H with respect to state vector x = [q; p]
+    H(q,p) = dot(p, M(q)*p) + V(q)
+    qdot(q,p) = ForwardDiff.gradient(p -> H(q,p),p)
+    pdot(q,p,λ) = ForwardDiff.gradient(q -> -H(q,p), q) + λ*dh(q)
+
+    function f(λ)
+        f_λ(q,p) = [qdot(q,p); pdot(q,p,λ)]
+        return f_λ
+    end
+
+    # Recombine derivatives into single vecotr field
+    return vcat(qdot, pdot)
 end
 
 
@@ -193,6 +217,11 @@ function solve(prob::prob{S, I, T};
     G = sys.guard
     dh = sys.normal
     reset = sys.reset
+
+    # init = prob.init
+    # n = length(init) ÷ 2
+    # x = init[1:n]
+    # p = x[n+1:end]
 
     # Create vector field for ODE solving
     f(x,t) = vec_field(sys, x, t)
@@ -283,6 +312,11 @@ function solve(prob::prob{S, I, T};
             if dense_out
                 push!(sol.dx, similar(sol.x[end]) .= NaN)  # Don't interpolate across discrete jumps
             end
+            # Add event data
+            if hasproperty(sol, :jump_times)
+                push!(sol.jump_times, t_star)
+                push!(sol.jump_indices, length(sol.t))
+            end
 
             # Lock in post-impact state to continue the loop
             xₖ = x⁺ 
@@ -310,4 +344,98 @@ function solve(prob::prob{S, I, T};
     end
 
     return sol
+end
+
+
+# I am attempting to write this to be compatable with the current code.
+# It most likely won't be, so please incorporate this.
+# I am writing this in the Hamiltonian form (for now).
+# I am doing a one-sided implementations. (The one-sided allows for an escape from the guard).
+# This is kinda sliding-mode.
+
+# The dynamics are Hamiltonian with the holonomic constraints h(q)=0. This manifests as
+# ̇q = ∂H/∂p, ̇p = -∂H/∂q+λ⋅dh. Here, the multiplier λ needs to be solved for to preserve the constraint.
+# As λ has no direct influence on q_{n+1}, I will look at the differeniated condition dh(̇q)=0.
+
+# The logical use of this function should be the following:
+# if abs(G(xₖ)) < tol && -tol < dot(dh(xₖ), veloapprox) < 0
+#   x_next = one_sided_holonomic_step( ... )
+# else
+#   x_next = next_step( as usual )
+# end
+
+"""
+A function that computes the dynamics for sliding along the guard (to be used post-Zeno).
+    This function allows the particle to leave the surface.
+        Inputs:
+            M::Matrix function (mass matrix)
+            V::Potential function (scalar valued)
+            h::Guard function (scalar valued)
+            dh::Its derivative
+            solver::The solver type, e.g. RK4
+            x::The current state
+        Output:
+            x_out::The computed output state
+            (I suppose this is for fixed-step algorithms, it can be changed for adaptive step solvers and LMMs)
+"""
+function one_sided_holonomic_step(M, V, h, dh, solver, x)
+    # WE WANT PARAMETERS TO BE PASSABLE TO THE STEP SOLVERS!
+    # THE UNKNONWN MULTIPLIER λ 
+    # Let me try to write it in a compatable way.
+
+    # I am more-or-less quoting you here
+    n = length(x) ÷ 2
+    q = x[1:n]
+    p = x[n+1:end]
+
+    H(q,p) = dot(p, M(q)*p) + V(q)
+    qdot(q,p) = ForwardDiff.gradient(p -> H(q,p),p)
+    pdot(q,p,λ) = ForwardDiff.gradient(q -> -H(q,p), q) + λ*dh(q)
+
+    # I *think* this should work
+    function f(λ)
+        f_λ(q,p) = [qdot(q,p); pdot(q,p,λ)]
+        return f_λ
+    end
+
+    # We want to solve for λ such that dh(q_{n+1})⋅(̇q_{n+1}) = 0
+    function guard_error(λ)
+        # This step does not need to be hybrid in anyway. We can just apply a classical stepper here.
+        x_predict, _, _ = take_step(f_λ, x, solver)
+        return dot(dh(x[1:n]), M(q) \ x[n+1:end])
+    end
+
+    # If the guard_error(0)>0, then the particle will be escaping and there is no reason to apply any constraints
+    if guard_error(0) > 0
+        x_predict, _, _ = take_step(f(0), x, solver)
+        return x_predict
+    else # Now we need to actually solve for λ
+        # Let's use the method of false position
+        # This is not particularly good (and can be unstable), but is reasonable
+        λ₀ = 0
+        # This, ↓, is the approximation using forward Euler
+        λ₁ = dot(dh(q), M(q) \ pdot(q,p,0)) / dot(dh(q), M(q) \ dh(q))
+        # Repeat until we get something reasonable
+        for i = 1:100
+            λ₂ = (λ₀*guard_error(λ₁) - λ₁*guard_error(λ₀)) / (guard_error(λ₁) - guard_error(λ₀))
+            # Determine which two to keep
+            if guard_error(λ₀) * guard_error(λ₂) > 0
+                λ_old = λ₁
+                λ_new = λ₂
+            else
+                λ_old = λ₀
+                λ_new = λ₂
+            end
+            λ₀, λ₁ = λ_old, λ_new
+            # Have we converged?
+            if abs(guard_error(λ₁)) < 1e-3
+                break
+            end
+        end
+        # We have our multiplier!
+        Λ = λ₁
+        x_predict, _, _ = take_step(f(Λ), x, solver)
+        return x_predict
+    end
+
 end

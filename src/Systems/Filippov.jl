@@ -2,7 +2,7 @@
 struct FilippovSys{F, G, H, N} <: AbstractHybridSystem
     F::F    # Function one, H(x) > 0
     G::G    # Function two, H(x) < 0
-    H::H    # Guard
+    h::H    # Guard
     N::N    # Normal to the guard, ∇H
 end
 
@@ -11,15 +11,10 @@ function FilippovSys(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
     return FilippovSys(F, G, H, N)
 end
 struct FilippovSol{T, X, S}
-    T::T    # Time data
-    X::X    # Position data
-    S::S    # When sliding perhaps?
+    t::T    # Time data
+    x::X    # Position data
+    s::S    # Time indices while sliding (this still needs added)
 end
-
-######
-### WC: What kind of data is S? Intervals? Start-end points? A collection of ordered pairs?
-# CK: Idk yet, I haven't actually put anything there
-######
 
 # Constructor for solution struct
 function FilippovSol(T, X; S = NaN)
@@ -27,63 +22,58 @@ function FilippovSol(T, X; S = NaN)
 end
 
 # Initialize solution struct
-function initsol(prob::prob{FilippovSys})
+function initsol(prob::prob{<:FilippovSys, I, T}) where {I, T}
     return FilippovSol([prob.tspan[1]], [prob.init])
 end
 
 # INTERNAL
-# Returns a vector field at state `x` for a Filippov system
-######
-### WC: This function confused me for a bit. It is taking in a location x and returning the vector field *function* where x is located. This should be made clearer (via comments).
-######
+# Returns a vector field function at state `x` for a Filippov system
 function filippov_vector_field(sys, x;
-        Ftol=1e-7,
-        atol=1e-7)
+        Ftol=1e-4,
+        atol=1e-4)
 
-    F, G, H, N = sys
+    F = sys.F
+    G = sys.G
+    H = sys.h
+    N = sys.N
 
     h = H(x)
 
 # Away from the guard
     if h > Ftol
-        return F
+        return F, false
     elseif h < -Ftol
-        return G
+        return G, false
     end
 
 # Near the guard
 
-    a(x) = dot(N, F(x))
-    b(x) = dot(N, G(x))
+    a = dot(N(x), F(x))
+    b = dot(N(x), G(x))
 
-    # Attracting sliding
     if a < -atol && b > atol
+        λ = a/(a-b)
+        return y -> (1-λ)*F(y) + λ*G(y), true
 
-        λ(x) = a(x) / (a(x) - b(x))
-        return x -> (1 - λ(x)) * F(x) + λ(x) * G(x)
-    end
+    elseif a > atol && b < -atol
+        λ = a/(a-b)
+        return y -> (1-λ)*F(y) + λ*G(y), true
 
-    # Repelling sliding (non-unique, but still gotta go somewhere)
-    if a > atol && b < -atol
+    elseif a > atol && b > atol
+        return F, false
 
-        λ(x) = a(x) / (a(x) - b(x))
-        return x -> (1 - λ(x)) * F(x) + λ(x) * G(x)
-    end
-
-    # Direct crossings
-    if a > atol && b > atol
-        return F
-    end
-    if a < -atol && b < -atol
-        return G
-    end
-
-# Otherwise
-    # fallback: choose least transverse field
-    if abs(a) < abs(b)
-        return G
+    elseif a < -atol && b < -atol
+        return G, false
     else
-        return F
+        error("Failed vector field determination")
+    end
+end
+
+function guard(sys::FilippovSys, x)
+    if isnothing(sys.h)
+        return nothing
+    else
+        return sys.h(x)
     end
 end
 
@@ -92,18 +82,16 @@ end
 function solve(prob::prob{<:FilippovSys}, solver; dt_initial = 0.01, max_iter = 10^6, tol = 1e-6, kwargs...)
     
     sys = prob.sys
-    F = sys.F
-    G = sys.G
-    H = sys.H
     sol = initsol(prob)
 
-    t_start, t_end = prob.tspan     # Extract start and end times for bounds
+    _, t_end = prob.tspan     # Extract start and end times for bounds
 
     Δt = dt_initial                 #Initialize current time step with user input
     iter = 0                        #Start iteration counter
+    sliding_prev = false
 
     # Run sim until end of specified time span
-    while sol.T[end] < t_end 
+    while sol.t[end] < t_end 
         
     # Safties
         # Stop if we hit the iteration limit to avoid memory doomsday
@@ -114,33 +102,38 @@ function solve(prob::prob{<:FilippovSys}, solver; dt_initial = 0.01, max_iter = 
         end
 
         # Terminate if the remaining time is below machine precision
-        if t_end - sol.T[end] <= eps(t_end)
+        if t_end - sol.t[end] <= eps(t_end)
             break
         end
 
         #Truncate time step if we overshoot the final sim time
-        dt_step = (sol.T[end] + Δt > t_end) ? (t_end - sol.T[end]) : Δt
+        dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
     # Actually solve now
 
-        xₖ = sol.X[end] #Retrieve current state at start of step
-        tₖ = sol.T[end] #Retrieve current time at start of step
+        xₖ = sol.x[end] #Retrieve current state at start of step
+        tₖ = sol.t[end] #Retrieve current time at start of step
 
         # Choose vector field for current step based on current position relative to the guard
-        vf = Filippov_vec_field(sys, x)
-        x_predict, event_triggered, h_now = take_step(solver, prob, vf, xₖ, tₖ, dt_step, tol, sol)
+        vf_fun, sliding_now = filippov_vector_field(sys, xₖ)
 
-        t_next = tₖ + dt_step
+        ## This doesn't quite work due to tolerances in the above function
+        # if sliding_now && !sliding_prev
+        #     @warn "Sliding mode entered at t = $(tₖ)"
+        # end
+
+        sliding_prev = sliding_now
+
+        vf(x,t) = vf_fun(x)
+        # vf(x,t), _ = filippov_vector_field(sys,x)(x)
+        x_predict, _, _ = take_step(solver, prob, vf, xₖ, tₖ, dt_step, tol, sol)
+
         tₖ += dt_step
         xₖ = x_predict
-        push!(sol.T, tₖ)
-        push!(sol.X, xₖ)
+        push!(sol.t, tₖ)
+        push!(sol.x, xₖ)
 
-        dt = min(dt_next, dt_initial)
-        
-        ######
-        ### WC: You have a handful of variables that are never used. You can use _ 
-        ######
+       
 
     end
 
