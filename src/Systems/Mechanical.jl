@@ -175,7 +175,8 @@ function solve(prob::prob{S, I, T};
             @warn "Maximum Iteration Count ($max_iter) exceeded."
             break
         end
-
+        
+        #=
         # Stagnation error
         if length(sol.t) > 6
             Δt = sol.t[end] - sol.t[end-5]
@@ -185,6 +186,7 @@ function solve(prob::prob{S, I, T};
                 error("Stagnation detected: no meaningful time/state progression over 5 steps")
             end
         end
+        =#
 
         # Terminate if the remaining time is below machine precision
         if t_end - sol.t[end] <= eps(t_end)
@@ -200,21 +202,17 @@ function solve(prob::prob{S, I, T};
         xₖ = sol.x[end]
         qₖ = xₖ[1:div(length(xₖ), 2)]
         pₖ = xₖ[(div(length(xₖ), 2) + 1):end]
-        #qₖ = sol.q[end] # Current state at start of step
-        #pₖ = sol.p[end] # Current momentum at start of step
 
         # Recall that we want h(z)≈0 and -ε<dh(q)̇q<0
         # First, is this a (post) Zeno state?
 
-        if h(qₖ) < ztol  &&  -ztol < dot(∇h(qₖ), M(qₖ) \ pₖ) < 0
+        if (h(qₖ) < ztol  &&  -ztol < dot(∇h(qₖ), M(qₖ) \ pₖ) < 0) || h(qₖ) < -ztol
             # Does λ preserve the constraint?
             function guard_error(λ)
                 F(z, t) = f_λ(z[1:div(length(z), 2)],z[(div(length(z), 2) + 1):end], λ)
-                #### Make sure that the syntax below works ####
                 x_next, _, _ = take_step(solver, prob, F, xₖ, tₖ, dt_step, tol, sol; check=false)
                 q_next, p_next = x_next[1:div(length(x_next), 2)], x_next[(div(length(x_next), 2) + 1):end]
-                #q_next = solver(F, xₖ, Δt) 
-                #q_next, p_next = q_next[1:n], q_next[n+1:end]
+
                 # Constraint?
                 return dot(∇h(q_next), M(q_next) \ p_next)
             end
@@ -222,7 +220,6 @@ function solve(prob::prob{S, I, T};
             # If ∇h(q)̇q>0 (with λ=0), then we are moving to the interior of the state-space and the constraint need not be applied
             if guard_error(0) > 0
                 F(z, t) = f_λ(z[1:div(length(z), 2)],z[(div(length(z), 2) + 1):end], 0.0)
-                # x_next = solver(F, xₖ, Δt) #### <--- This should still check for impacts!!!!
                 x_next, _, _ = take_step(solver, prob, F, xₖ, tₖ, dt_step, tol, sol; check=false)
             else
                 # This is the fun part; we need to actually solve for λ
@@ -254,20 +251,21 @@ function solve(prob::prob{S, I, T};
             Δt_found = Δt
 
             # No sliding occurs, 'normal' hybrid situation
-            else
-                # Propose a step assuming no impacts
-                z_proposed, _, _ = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; check=false)
+        else
+            # Propose a step assuming no impacts
+            z_proposed, _, _ = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; check=false)
 
-                # Is there a crossing detected?
-                if crossed_guard_mechanical(h(qₖ), h(z_proposed[1:div(length(z_proposed), 2)]), 0.0, Δt)[1]
-                    Δt_found = locate_event_mechanical(solver, prob, f, xₖ, tₖ, dt_step, tol, sol, h)
-                    z_impact, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt_found, tol, sol; check=false)
-                    x_next = Δ(z_impact, M, ∇h, sys)
-                else
-                    x_next = z_proposed
-                    Δt_found = Δt
-                end
+            # Is there a crossing detected?
+            if crossed_guard_mechanical(h(qₖ), h(z_proposed[1:div(length(z_proposed), 2)]), 0.0, Δt)[1]
+                Δt_found = locate_event_mechanical(solver, prob, f, xₖ, tₖ, dt_step, tol, sol, h)
+                z_impact, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt_found, tol, sol; check=false)
+                x_post = Δ(z_impact, M, ∇h, sys)
+                x_next, _, _ = take_step(solver, prob, f, x_post, tₖ+Δt_found, Δt-Δt_found, tol, sol; check=false)
+            else
+                x_next = z_proposed
+                Δt_found = Δt
             end
+        end
 
         # Record
         push!(sol.t, Δt_found+tₖ)
