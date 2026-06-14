@@ -4,6 +4,18 @@
 using Markdown
 using InteractiveUtils
 
+# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
+macro bind(def, element)
+    #! format: off
+    return quote
+        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
+        local el = $(esc(element))
+        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
+        el
+    end
+    #! format: on
+end
+
 # ╔═╡ 6df38dc0-6787-11f1-a77e-9f1ff29a6e5b
 begin
 	using Pkg
@@ -13,21 +25,20 @@ begin
 	Pkg.precompile()
 end
 
-# ╔═╡ 2b9b16b3-91fd-4b17-bee2-863c0e5ef544
-using LaTeXStrings
-
-# ╔═╡ e2f23c5b-afad-4d71-b3f9-3af04448d873
-import HybridDynamics as HD
-
-# ╔═╡ 70f106e0-7137-4fb4-9b20-371adb3efaa7
-import Plots as plt
+# ╔═╡ 5f758439-587b-4bbe-bd02-f2f9ce6cc8fb
+begin
+	import HybridDynamics as HD
+	import Plots as plt
+	using LaTeXStrings
+	using PlutoUI
+end
 
 # ╔═╡ 30a03940-11a2-45e8-8f91-501370ddcee6
 md"""
 ## A Filippov Example
 ```math
 	\begin{cases}
-		\dot{x} = 3, \ \dot{y} = -1, & y > \sin x \\[1ex]
+		\dot{x} = 3, \ \dot{y} = ξ, & y > \sin x \\[1ex]
 		\dot{x} = 0, \ \dot{y} = 1, & y < \sin x
 	\end{cases}
 ```
@@ -46,9 +57,12 @@ md"""
 	and $N = \nabla H$.
 """
 
+# ╔═╡ e6bc3aba-7b99-4ca8-8657-12b8609cd427
+@bind ξ Slider(-2:0.1:0, show_value=true)
+
 # ╔═╡ 9da11b33-0def-4ac1-bd19-574ef1cceb98
 begin
-	F(x) = [3, -1]
+	F(x) = [3, ξ]
 	G(x) = [0, 1]
 	H(x) = x[2] - sin(x[1])
 	N(x) = [-cos(x[1]), 1]
@@ -155,11 +169,10 @@ end
 
 # ╔═╡ Cell order:
 # ╠═6df38dc0-6787-11f1-a77e-9f1ff29a6e5b
-# ╠═e2f23c5b-afad-4d71-b3f9-3af04448d873
-# ╠═70f106e0-7137-4fb4-9b20-371adb3efaa7
-# ╠═2b9b16b3-91fd-4b17-bee2-863c0e5ef544
+# ╠═5f758439-587b-4bbe-bd02-f2f9ce6cc8fb
 # ╟─30a03940-11a2-45e8-8f91-501370ddcee6
 # ╟─2880f5f2-fb01-4696-aba3-7faf4714c9d3
+# ╠═e6bc3aba-7b99-4ca8-8657-12b8609cd427
 # ╠═9da11b33-0def-4ac1-bd19-574ef1cceb98
 # ╠═0cf59ef8-d158-42dc-913a-7766ac4d2420
 # ╠═1959511b-8aa8-49d0-893c-b9b801a2bda0
