@@ -6,7 +6,8 @@ using ForwardDiff
 include("Definitions.jl")
 
 include("Systems/Linear_Affine.jl")
-include("Systems/Lag_Ham.jl")
+# include("Systems/Lag_Ham.jl")
+include("Systems/Mechanical.jl")
 include("Systems/General.jl")
 include("Systems/Filippov.jl")
 
@@ -25,7 +26,9 @@ export prob
 # Filippov
 export FilippovSys
 # Lagrangian system struct
-export LagSys
+# export LagSys
+# Mechanical Systems
+export MechanicalSystem
 #Linear/Affine System/Problem structs
 export LinearSystem, AffineSystem
 #General System/Problem structs

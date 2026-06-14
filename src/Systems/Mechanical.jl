@@ -19,7 +19,7 @@ Mechanical System
 function MechanicalSystem(M, V;
                 guard = nothing,
                 normal = nothing,
-                reset = (x, Mfun, dh, sys::LagSys) -> specular_refl(x, Mfun, dh, sys),
+                reset = (x, Mfun, dh, sys::MechanicalSystem) -> specular_refl(x, Mfun, dh, sys),
                 e = 1.0)
 
     if isnothing(guard) && !isnothing(normal)
@@ -36,23 +36,30 @@ function MechanicalSystem(M, V;
 end
 
 # General solution struct for mechanical systems
-struct MechanicalSol{T, Q, V, P, DX, I, E, Z}
+#struct MechanicalSol{T, Q, V, P, DX, I, E, Z}
+struct MechanicalSol{T, X, DX, I, E, Z}
     t::T        # Time data
-    q::Q        # Position data
-    v::V        # Velocity
-    p::P        # Momentum
+    x::X        # x = (q,p), the state and momentum
+    #q::Q        # Position data
+    #v::V        # Velocity
+    #p::P        # Momentum
     dx::DX      # f(x) Derivative at each state x - only filled when dense_out = true
     prob::I     # Remember the problem - to aid interpolation
     event::E    # Times where an event has occurred 
     zeno::Z     # Times of Zeno points
 end
 
+######
+### WC: You need to initialize the velocities/momenta. This is incompatable with your current solution object from definitions.
+### I am just keeping everything as x = (q,p). 
+######
+
 # Function to initialize solution struct
 function MechanicalSol(prob)
-    return MechanicalSol(prob.tspan[1],
+    return MechanicalSol([prob.tspan[1]],
         [prob.init],
-        Vector{Vector{Float64}}(),      # Velocity
-        Vector{Vector{Float64}}(),      # Momentum
+        #Vector{Vector{Float64}}(),      # Velocity
+        #Vector{Vector{Float64}}(),      # Momentum
         Vector{Vector{Float64}}(),      
         prob,
         Float64[],
@@ -62,28 +69,81 @@ end
 # INTERNAL
 # Default reset map: specular reflection with coefficient of restitution. 
 # Ames, Aaron & Zheng, Haiyang & Gregg, Robert & Sastry, Shankar. (2006). Is there life after Zeno? Taking executions past the breaking (Zeno) point. 2006. 6 pp.. 10.1109/ACC.2006.1656623
+
+######
+### WC: We are working with momenta
+######
 function specular_refl(x, M, dh, sys)
 
     e = sys.e
     n = length(x) ÷ 2
 
     q = x[1:n]          # positions
-    v = x[n+1:end]      # velocities
-
     Mq = M(q)           # Mass matrix
+    p = x[n+1:end]      # velocities
+    #v = Mq \ p
 
-    # Constraint normal (row -> column)
-    normal = vec(dh(q))
+
+    # Constraint normal (row -> column) # <- It just is a column vector
+    normal = dh(q)
 
     # Denominator
-    denom = normal' * (Mq \ normal)
+    # denom = normal' * (Mq \ normal)
+    println(typeof(normal))
+    denom = dot(normal, Mq \ normal)
 
     # Full equation
-    P = I - (1 + e) * ((Mq \ (normal * normal')) / denom)
-    vnew = P * v
+    #P = I - (1 + e) * ((Mq \ (normal * normal')) / denom)
+    #vnew = P * v
+    #pnew = Mq * vnew
+    pnew = p - (1+e) * dot(p, Mq\normal) / denom * normal
 
-    return vcat(q, vnew)
+    return vcat(q, pnew)
 end
+
+######
+### WC: Incorporate this
+######
+# function locate_event_mechanical(f, z, Δt, h)
+function crossed_guard_mechanical(h_now, h_next, t_now, t_next)
+    # Two point crossing condition
+    if h_now > 0 && h_next < 0
+        t_root = t_now - h_now * (t_next-t_now) / (h_next-h_now)
+        return true, t_root
+    else
+        return false, NaN
+    end
+end
+function locate_event_mechanical(solver, prob, f, z, tₖ, Δt, tol, sol, h)
+    # We will implement a linear finder as that is what triggered 'crossed_guard'
+    t₀, t₁ = 0.0, Δt
+    # The event function as a function of time
+    # E(t) = h(solver(f,z,t))
+    E(t) = h(take_step(solver, prob, f, z, tₖ, t, tol, sol; check=false)[1])
+
+    # Loop until convergence
+    for _ ∈ 1:100
+        t₂ = (t₀*E(t₁) - t₁*E(t₀)) / (E(t₁) - E(t₀))
+        # Keep the two points we like
+        if E(t₀)*E(t₂) > 0
+            t_old, t_new = t₁, t₂
+        else
+            t_old, t_new = t₀, t₂
+        end
+        t₀, t₁ = t_old, t_new
+        # Have we converged? The tolerence is currently hard coded.
+        if abs(E(t₁)) < 1e-3
+            break
+        end
+    end
+    # What if we have failed to converge?
+    if abs(E(t₁)) > 1e-3
+        @warn "Failed to converge to an event time"
+    end
+    # The predicted impact time
+    return t₁
+end
+
 
 function solve(prob::prob{S, I, T};
                solver::AbstractODESolver=RK4(),
@@ -94,10 +154,11 @@ function solve(prob::prob{S, I, T};
                kwargs...) where {S<:MechanicalSystem, I, T}
     
     sys = prob.sys
-    G = sys.guard
-    dh = sys.normal
-    reset = sys.reset
+    h = sys.guard
+    ∇h = sys.normal
+    Δ = sys.reset
     M(q) = sys.M(q)
+    V(q) = sys.V(q)
 
     # Initialize solution struct
     sol = MechanicalSol(prob)
@@ -107,10 +168,13 @@ function solve(prob::prob{S, I, T};
     # Requires ForwardDiff (I'll add the option to user define these later -CK)
     # λ is the unknown multiplier to enforce the constraint ∇h(q)̇q = ∇h(q)M(q)\p = 0
     q_dot(q, p) = ForwardDiff.gradient(p -> H(q,p),p)
-    p_dot(q, p, λ) = ForwardDiff.gradient(q -> -H(q,p), q) + λ*∇h(q)
+    p_dot(q, p, λ) = ForwardDiff.gradient(q -> -H(q,p), q) .+ λ*∇h(q)
     # Combining these vector fields together
-    f_λ(q, p, λ) = [q_dot(q[1:n], q[n+1:end]); p_dot(z[1:n], z[n+1:end], λ)]
-    f(x,t) = f_λ(q, p, λ) # Maybe? I think x needs to contain q and p in spirit before the previous line
+    ######
+    ### WC: Where is n coming from? Also, f should have λ=0?
+    ######
+    f_λ(q, p, λ) = [q_dot(q, p); p_dot(q, p, λ)]
+    f(x,t) = f_λ(x[1:div(length(x), 2)], x[(div(length(x),2)+1):end], 0.0) # Maybe? I think x needs to contain q and p in spirit before the previous line
 
     t_start, t_end = prob.tspan     # Extract start and end times for bounds
 
@@ -150,33 +214,46 @@ function solve(prob::prob{S, I, T};
     # Actually solve now
 
         tₖ = sol.t[end] # Current time at start of step
-        qₖ = sol.q[end] # Current state at start of step
-        pₖ = sol.p[end] # Current momentum at start of step
+        xₖ = sol.x[end]
+        qₖ = xₖ[1:div(length(xₖ), 2)]
+        pₖ = xₖ[(div(length(xₖ), 2) + 1):end]
+        #qₖ = sol.q[end] # Current state at start of step
+        #pₖ = sol.p[end] # Current momentum at start of step
 
         # Recall that we want h(z)≈0 and -ε<dh(q)̇q<0
         # First, is this a (post) Zeno state?
-        if h(qₖ) < ztol  &&  -ztol < dot(∇h(q), M(q) \ p) < 0
+
+        ######
+        ### WC: You never updated 'solver' to 'take_step'
+        ### take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol, stepper)
+        ### take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol)
+        ######
+
+        if h(qₖ) < ztol  &&  -ztol < dot(∇h(qₖ), M(qₖ) \ pₖ) < 0
             # Does λ preserve the constraint?
             function guard_error(λ)
-                F(z, t) = f_λ(z, λ)
+                F(z, t) = f_λ(z[1:div(length(z), 2)],z[(div(length(z), 2) + 1):end], λ)
                 #### Make sure that the syntax below works ####
-                q_next = solver(F, z, Δt) 
-                q_next, p_next = q_next[1:n], q_next[n+1:end]
+                x_next, _, _ = take_step(solver, prob, F, xₖ, tₖ, Δt, tol, sol; check=false)
+                q_next, p_next = x_next[1:div(length(x_next), 2)], x_next[(div(length(x_next), 2) + 1):end]
+                #q_next = solver(F, xₖ, Δt) 
+                #q_next, p_next = q_next[1:n], q_next[n+1:end]
                 # Constraint?
                 return dot(∇h(q_next), M(q_next) \ p_next)
             end
 
             # If ∇h(q)̇q>0 (with λ=0), then we are moving to the interior of the state-space and the constraint need not be applied
             if guard_error(0) > 0
-                F(z, t) = f_λ(z, 0.0)
-                q_next = solver(F, z, Δt) #### <--- This should still check for impacts!!!!
+                F(z, t) = f_λ(z[1:div(length(z), 2)],z[(div(length(z), 2) + 1):end], 0.0)
+                # x_next = solver(F, xₖ, Δt) #### <--- This should still check for impacts!!!!
+                x_next, _, _ = take_step(solver, prob, F, xₖ, tₖ, Δt, tol, sol; check=false)
             else
                 # This is the fun part; we need to actually solve for λ
                 # We will solve for λ via the method of false position. This needs two initial guesses for λ
                 # λ₀ = 0, because why not.
                 # λ₁ = the answer predicted by applying symplectic Euler. 
                 λ₀ = 0.0
-                λ₁ = dot(∇h(q), M(q)\(-p_dot(q,p,0)-p)) / dot(∇h(q), M(q)\∇h(q))
+                λ₁ = dot(∇h(qₖ), M(qₖ)\(-p_dot(qₖ,pₖ,0)-pₖ)) / dot(∇h(qₖ), M(qₖ)\∇h(qₖ))
                 # Repeat until we have an answer
                 for _ ∈ 1:100
                     λ₂ = (λ₀*guard_error(λ₁) - λ₁*guard_error(λ₀)) / (guard_error(λ₁) - guard_error(λ₀))
@@ -193,30 +270,34 @@ function solve(prob::prob{S, I, T};
                     end
                 end
                 # We have our multiplier!
-                f_constrained(z, t) = f_λ(z, λ₁)
-                q_next = solver(F, z, Δt)
+                f_constrained(z, t) = f_λ(z[1:div(length(z), 2)],z[(div(length(z), 2) + 1):end], λ₁)
+                # x_next = solver(F, xₖ, Δt)
+                x_next, _, _ = take_step(solver, prob, f_constrained, xₖ, tₖ, Δt, tol, sol; check=false)
             end            
             Δt_found = Δt
 
             # No sliding occurs, 'normal' hybrid situation
             else
                 # Propose a step assuming no impacts
-                z_proposed = solver(f, z, Δt)
+                # z_proposed = solver(f, xₖ, Δt)
+                z_proposed, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol; check=false)
 
                 # Is there a crossing detected?
-                if crossed_guard(h(z[1:n]), h(z_proposed[1:n]), 0.0, Δt)[1]
-                    Δt_found = locate_event(f, z, Δt, h)
-                    z_impact = solver(f, z, Δt_found)
-                    q_next = Δ(z_impact)
+                if crossed_guard_mechanical(h(qₖ), h(z_proposed[1:div(length(z_proposed), 2)]), 0.0, Δt)[1]
+                    #Δt_found = locate_event_mechanical(f, xₖ, Δt, h)
+                    Δt_found = locate_event_mechanical(solver, prob, f, xₖ, tₖ, Δt, tol, sol, h)
+                    # z_impact = solver(f, xₖ, Δt_found)
+                    z_impact, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt_found, tol, sol; check=false)
+                    x_next = Δ(z_impact, M, ∇h, sys)
                 else
-                    q_next = q_proposed
+                    x_next = z_proposed
                     Δt_found = Δt
                 end
             end
 
         # Record
         push!(sol.t, Δt_found+tₖ)
-        push!(sol.q, q_next)
+        push!(sol.x, x_next)
     end
 
     return sol
@@ -241,7 +322,7 @@ end
 # This requires a 'solver' of the form solver(f::Vector field, z::State, Δt::Time step)
 
 # As things below are written, h(q) is a function of q, not z = [q,p]
-
+#=
 """
 A function that computes the dynamics for sliding along the guard (to be used post-Zeno)
     This function will allow the particle to leave the surface.
@@ -456,3 +537,4 @@ function solve_allowing_zeno(M, V, f, z0, t_f, h, ∇h, solver, Δt, Δ)
     end
     return solt, solz
 end
+=#
