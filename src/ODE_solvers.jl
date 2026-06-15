@@ -6,18 +6,21 @@
 #  4) t::Float is the current time
 
 #Runge Kutta / Single Step Family Solvers
+#Fixed Runge Kutta parent tag
 abstract type RK <: AbstractODESolver end
-
 #Non-adaptive solvers
-struct ForwardEuler <: RK end
-struct ModifiedTrap <: RK end
-struct ModifiedMidpoint <: RK end
-struct RichardsonExtrapolation <: RK end
-struct RK4 <: RK end
+abstract type FixedRK <: RK end
+struct ForwardEuler <: FixedRK end
+struct ModifiedTrap <: FixedRK end
+struct ModifiedMidpoint <: FixedRK end
+struct RichardsonExtrapolation <: FixedRK end
+struct RK4 <: FixedRK end
 
-#Adaptive Solvers
-struct RK45 <: RK end
-struct RK23 <: RK end
+#Adaptive Runge Kutta parent tag
+abstract type AdaptiveRK <: RK end
+#Adaptive solvers
+struct RK45 <: AdaptiveRK end
+struct RK23 <: AdaptiveRK end
  
 #Exponential Solver
 struct ExponentialSolver <: AbstractODESolver end
@@ -25,8 +28,15 @@ struct ExponentialSolver <: AbstractODESolver end
 #Linear Multistep Method Family Solvers
 abstract type LMM <: AbstractODESolver end
 
-struct AdamsBashforth2 <: LMM end
-struct AdamsBashforth3 <: LMM end
+abstract type FixedLMM <: LMM end
+
+struct AdamsBashforth2 <: FixedLMM end
+struct AdamsBashforth3 <: FixedLMM end
+
+abstract type AdaptiveLMM <: LMM end
+
+struct AdaptiveABM2 <: AdaptiveLMM end
+struct AdaptiveABM3 <: AdaptiveLMM end
 
 
 ## Single step, fully explicit methods
@@ -232,7 +242,6 @@ end
 
 #Single take_step for RK methods
 #Fixed step methods 
-const FixedRK = Union{ForwardEuler, ModifiedTrap, ModifiedMidpoint, RichardsonExtrapolation, RK4}
 #Helper function to take the step using multiple dispatch.
 compute_step(::ForwardEuler, f, x, Δt, t) = forward_euler_step(f, x, Δt, t)
 compute_step(::ModifiedTrap, f, x, Δt, t) = modified_trap_step(f, x, Δt, t)
@@ -241,7 +250,6 @@ compute_step(::RichardsonExtrapolation, f, x, Δt, t) = richardson_step(f, x, Δ
 compute_step(::RK4, f, x, Δt, t) = rk_4_step(f, x, Δt, t)
 
 #Adaptive step methods
-const AdaptiveRK = Union{RK23, RK45}
 #Helper function to take the step via multiple dispatch
 compute_step(::RK23, f, x, Δt, t, tf, sys, tol; adaptive=true) = rk_23_step(f, x, Δt, t, tf, sys, tol; adaptive=adaptive)
 compute_step(::RK45, f, x, Δt, t, tf, sys, tol; adaptive=true) = rk_45_step(f, x, Δt, t, tf, sys, tol; adaptive=adaptive)
@@ -286,12 +294,12 @@ function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, t�
 end
 
 #===========================#
-######
-### WC: Have you had any success in learning about adaptive step size LMMs?
-######
 #Helper function to tell engine how many history steps are needed for LMM
 lmm_order(::AdamsBashforth2) = 2
 lmm_order(::AdamsBashforth3) = 3
+
+lmm_order(::AdaptiveABM2) = 2
+lmm_order(::AdaptiveABM3) = 3
 
 function compute_lmm_step(::AdamsBashforth2, f, xₖ, tₖ, Δt, x_history, t_history)
     #x_history[end] is x_{k-1}
@@ -328,8 +336,76 @@ function compute_lmm_step(::AdamsBashforth3, f, xₖ, tₖ, Δt, x_history, t_hi
     return xₖ .+ Δt .* ( (23/12) .* fₖ .- (16/12) .* f_prev1_val .+ (5/12) .* f_prev2_val )
 end
 
-#One take_step for LMM
-function take_step(solver::LMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = RK4)
+function compute_lmm_step(::AdaptiveABM2, f, xₖ, tₖ, Δt, x_history, t_history)
+    #Extract history
+    x_prev = x_history[end]
+    t_prev = t_history[end]
+
+    #Calc previous step size
+    dt_prev = tₖ - t_prev
+    α = Δt / dt_prev
+
+    fₖ = f(xₖ, tₖ)
+    f_prev = f(x_prev, t_prev)
+
+    #Predictor for variable step AB2
+    x_predict = xₖ .+ Δt .* ((1.0 + 0.5 * α) .* fₖ .- (0.5 * α) .* f_prev)
+
+    #Eval vector field at pred state
+    f_predict = f(x_predict, tₖ + Δt)
+
+    #Corrector: Implicit AM2 via predicted vf
+    x_correct = xₖ .+ Δt .* (0.5 .* f_predict .+ 0.5 .* fₖ)
+
+    #Error est: Difference between corrector and predictor give local truncation error
+    LTE = norm(x_correct .- x_predict)
+
+    return x_correct, LTE
+end
+
+function compute_lmm_step(::AdaptiveABM3, f, xₖ, tₖ, Δt, x_history, t_history)
+    #extract history
+    #x_history[2] is x_{k-1}, x_history[1] is x_{k-2}
+    x_prev1 = x_history[2]
+    t_prev1 = t_history[2]
+
+    x_prev2 = x_history[1]
+    t_prev2 = t_history[1]
+
+    #Eval vf at past known coords
+    fₖ      = f(xₖ, tₖ)
+    f_prev1 = f(x_prev1, t_prev1)
+    f_prev2 = f(x_prev2, t_prev2)
+
+    #Calc non uniform time grid ints
+    hk = Δt                     #Current proposed step size t_{k+1} - t_k
+    hk1 = tₖ - t_prev1           #Previous step size duration t_k - t_{k-1}
+    hk2 = t_prev1 - t_prev2      #Two steps back duraction t_{k-1} - t_{k-2}
+
+    #Predictor Step: Fully variable-step explicit AB3
+    β₀ = hk * (hk^2 / 3.0 + hk * (2.0 * hk1 + hk2) / 2.0 + hk1 * (hk1 + hk2)) / (hk1 * (hk1 + hk2))
+    β₁ = -hk^2 * (2.0 * hk + 3.0 * hk1 + 3.0 * hk2) / (6.0 * hk1 * hk2)
+    β₂ = hk^2 * (2.0 * hk + 3.0 * hk1) / (6.0 * hk2 * (hk1 + hk2))
+
+    x_predict = xₖ .+ (β₀ .* fₖ .+ β₁ .* f_prev1 .+ β₂ .* f_prev2)
+
+    #Eval vf at predicted state
+    f_predict = f(x_predict, tₖ + hk)
+
+    #Corrector step: Adams Moulton 3
+    c_β_p1 = hk * (hk / 3.0 + hk1 / 2.0) / (hk + hk1)
+    c_β₀   = hk * (hk + 3.0 * hk1) / (6.0 * hk1)
+    c_β_m1 = -hk^3 / (6.0 * hk1 * (hk + hk1))
+    
+    x_correct = xₖ .+ (c_β_p1 .* f_predict .+ c_β₀ .* fₖ .+ c_β_m1 .* f_prev1)
+
+    #ERROR EST
+    LTE = norm(x_correct .- x_predict)
+
+    return x_correct, LTE
+end
+
+function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = RK4())
     sys = prob.sys
     k = lmm_order(solver)
 
@@ -371,14 +447,82 @@ function take_step(solver::LMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt,
         return x_predict, eventtrigger, t_root, Δt, Δt
     end
 
-    #Guard Eval
-    #h_now  = guard(sys, xₖ)
-    #h_mid  = guard(sys, x_mid)
-    #h_next = guard(sys, x_predict)
-
     eventtrigger, dt_next, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
 
     return x_predict, eventtrigger, h_now, Δt, dt_next
+end
+
+
+"""
+    take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, h, tol, sol, stepper::RK=RK4())
+
+Executes single variable-step Linear Multstep Method update for hybrid systems
+
+How it works:
+1) History Validation: The solver checks the length of continuous history since the last disc jump. If the history buffer is smaller than the order of the LMM 'k', 
+the step is delegated to the single-step stepper (default RK4).
+
+2)Predictor/Corrector and Error Est: Once history is established, the solver used an explicit LMM predictor and an implicit corrector. The Local Truncation Error LTE is isolated useing Milne's device 
+(the norm of the difference between the corrected and predicted states).
+
+3) Adaptivity Loop: Operates within 'while true' rejection loop. If LTE exceeds 'tol' the step size 'h' shrinks, and the step is recalculated. If accepted, it computes the optimal h_next for the subsequent step
+
+WHY I DID THINGS:
+We use Milne's device for error est because it is easy to compute. Since we already are performing an explicit prediction and an implicit correction, the difference serves as a solid estimate.
+
+"""
+#user can specify if they want RK4 here
+function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, h, tol, sol, stepper::RK=RK4())
+    sys = prob.sys
+    k = lmm_order(solver)
+    tf = prob.tspan[2]
+
+    h = minimum([h, tf - tₖ])
+
+    #determine how many cont steps we have since last jump
+    history_len = isempty(sol.jump_indices) ? length(sol.x) : (length(sol.x) - sol.jump_indices[end] + 1)
+
+    #Startup phase: IF we dont have history we use RK stepper
+    if history_len < k
+        return take_step(stepper, prob, f, xₖ, tₖ, h, tol, sol, stepper)
+    end
+
+    #Extract history for LMM
+    x_history = sol.x[end - k + 1 : end - 1]
+    t_history = sol.t[end - k + 1 : end - 1]
+
+    h_now = guard(sys, xₖ)
+
+    #Adaptive step loop
+    #Wanted to try using a max_iter variation here but that breaks things (for some reason idk)
+    while true
+        #compute step and retrieve LTE 
+        x_next, LTE = compute_lmm_step(solver, f, xₖ, tₖ, h, x_history, t_history)
+
+        #Calc proposed next step size using helper from beginning 
+        h_new = updated_step(LTE, tol, h, k)
+
+        if LTE < tol
+            #step accepted
+            h_next = guard(sys, x_next)
+
+            #Guard eval looking back to prev step for the quad check 
+            t_prev = sol.t[end-1]
+            h_prev = guard(sys, sol.x[end-1])
+
+            eventtrigger, t_root, _ = crossed_guard(h_prev, h_now, h_next, t_prev, tₖ, tₖ + h; tol=tol)
+
+            return x_next, eventtrigger, t_root, h, h_new
+        else
+            #Step rejected: shrink and try again 
+            h = h_new
+            if h < 1e-12
+                @warn "LMM Step size has decreased below 1e-12"
+                #Force break to avoid inf loops
+                return x_next, false, NaN, h, h_new
+            end
+        end
+    end
 end
 
 
@@ -469,17 +613,8 @@ function locate_event(locator, prob, solver::LMM, f, xₖ, tₖ, Δt, h_now, tol
 end
 
 #Bisection Method (Iterative)
-######
-### WC: This requires that the LMMs can have variable step size as τ_m is going to vary and not be equal to Δt.
-### Either fix the LMMs or only allow RK methods to work here.
-###
-### Fixed to RK for now. May work on fixing LMMs later - DS
-######
 
-# By restricting these to ::RK, we ensure that LMMs can only reach 
-# these methods if they have been successfully intercepted and "converted" 
-# to an RK solver.
-function locate_event(::BisectionLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = ModifiedTrap())
+function locate_event(::BisectionLocator, prob, solver::Union{RK, AdaptiveLMM}, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
     sys = prob.sys
     τ_l, τ_r = 0.0, Δt
     h_l = h_now
@@ -507,7 +642,7 @@ function locate_event(::BisectionLocator, prob, solver::RK, f, xₖ, tₖ, Δt, 
 end
 #Linear Interpolation
 
-function locate_event(::LinearLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = ModifiedTrap())
+function locate_event(::LinearLocator, prob, solver::Union{RK, AdaptiveLMM}, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
     sys = prob.sys
     τ_l, τ_r = 0.0, Δt
     h_l = h_now
@@ -549,7 +684,7 @@ function locate_event(::LinearLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_n
     return t_star, x_star
 end
 
-function locate_event(::QuadraticLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = ModifiedTrap())
+function locate_event(::QuadraticLocator, prob, solver::Union{RK, AdaptiveLMM}, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
     sys = prob.sys
 
     #Get three points 
@@ -610,7 +745,7 @@ function locate_event(::QuadraticLocator, prob, solver::RK, f, xₖ, tₖ, Δt, 
     return t_star, x_star
 end
 
-function locate_event(::NewtonLocator, prob, solver::RK, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK=RK4())
+function locate_event(::NewtonLocator, prob, solver::Union{RK, AdaptiveLMM}, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
     sys = prob.sys
 
     τ_prev = 0.0

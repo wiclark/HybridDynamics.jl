@@ -33,7 +33,7 @@ if use_affine
     problem = prob(sys, x0, tspan)
     plot_title = "Affine System Test"
 
-    my_solver = RK23()
+    my_solver = AdaptiveABM3()
     event_method = LinearLocator()
     #my_stepper = ForwardEuler()
 

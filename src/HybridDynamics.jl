@@ -39,6 +39,8 @@ export RK23, RK45
 
 #ODE Step solvers - Extrapolation 
 export AdamsBashforth2, AdamsBashforth3
+#Adaptive LMM
+export AdaptiveABM2, AdaptiveABM3
 
 #EventDetection locators
 export LinearLocator, BisectionLocator, QuadraticLocator
