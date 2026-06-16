@@ -83,6 +83,71 @@ function check_system_pathology(
     return zeno_count, instant_jump_count, :continue
 end
 
+function variational_vector_field(f, u, p, t, n)
+    # Unpack state
+    x = u[1:n]
+    Φ = reshape(u[n+1:end], n, n)
+
+    # Base dynamics: x' = f(x, p, t)
+    dx = f(x, p, t)
+
+    # Variational dynamics: Φ' = A(t)Φ
+    A = ForwardDiff.jacobian(y -> f(y, p, t), x)
+    dΦ = A * Φ
+
+    # Return augmented derivative
+    return vcat(dx, vec(dΦ))
+end
+
+function compute_pushforward(f, Δ, h_guard, x⁻, t, p)
+    n = length(x⁻)
+    Id = I(n)
+
+    # Eval field at boundaries (using p for parameters)
+    f⁻ = f(x⁻, p, t)
+    x⁺ = Δ(x⁻, t)
+    f⁺ = f(x⁺, p, t)
+
+    # Compute grads and jacob via ForwardDiff
+    dh⁻ = ForwardDiff.gradient(h_guard, x⁻)
+    DΔ⁻ = ForwardDiff.jacobian(Δ, x⁻)
+
+    # Check dh(x) * f(x) = 0
+    denom = dot(dh⁻, f⁻)
+    if abs(denom) < 1e-12
+        @warn "Non-transversal crossing detected: Trajectory is tangent to guard surface."
+    end
+
+    # Outer prods
+    term1 = Id - (f⁻ * dh⁻') ./ denom
+    term2 = (f⁺ * dh⁻') ./ denom
+
+    # Full pushforward Δᶠ_*
+    Δ_star_f = DΔ⁻ * term1 + term2
+
+    return Δ_star_f
+end
+
+function apply_variational_jump!(u, n, f, Δ, h_guard, t, p)
+    x⁻ = u[1:n]
+    Φ⁻ = reshape(u[n+1:end], n, n)
+
+    # Compute the pushforward before state updates
+    Δ_star_f = compute_pushforward(f, Δ, h_guard, x⁻, t, p)
+
+    # Apply disc jump to base state x⁺ = Δ(x⁻)
+    x⁺ = Δ(x⁻, t)
+
+    # Apply pf mapping to fund matrix: Φ⁺ = Δ_*^f * Φ⁻
+    Φ⁺ = Δ_star_f * Φ⁻
+
+    # Update state vector in-place
+    u[1:n] .= x⁺
+    u[n+1:end] .= vec(Φ⁺)
+    
+    return u
+end
+
 #External
 function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45(); 
                event_method::AbstractEventLocator=LinearLocator(), 
