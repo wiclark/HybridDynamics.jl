@@ -96,11 +96,7 @@ function take_nh_step(solver, prob, xₖ, tₖ, dt_step, tol, sol; Ah = nothing)
     M(q) = sys.M(q)
     V(q) = sys.V(q)
     # We have the option to overwrite the contraint matrix
-    if isnothing(Ah)
-        A(q) = sys.A(q)
-    else
-        A(q) = Ah(q)
-    end
+    A = isnothing(Ah) ? sys.A : Ah
 
     # Extract out the state and momentum
     n = length(xₖ) ÷ 2
@@ -112,13 +108,13 @@ function take_nh_step(solver, prob, xₖ, tₖ, dt_step, tol, sol; Ah = nothing)
     p_dot(q, p, λ) = ForwardDiff.gradient(q -> -H(q,p), q) .+ A(q)'*λ
     # We need to solve for λ such that the constraint is conserved, A(q)v=0
     # A first-order analysis predicts that λ should be
-    λ₀ = (A(qₖ) * (M(qₖ)\A(qₖ))) \ (A(qₖ) * (M(qₖ) \ (ForwardDiff.gradient(q -> V(q), qₖ) - 1/dt_step*pₖ)))
+    λ₀ = (A(qₖ) * (M(qₖ)\A(qₖ)')) \ (A(qₖ) * (M(qₖ) \ (ForwardDiff.gradient(q -> V(q), qₖ) - 1/dt_step*pₖ)))
     # Determine the constraint error as a function of λ
+    f_λ(q, p, λ) = [q_dot(q,p); p_dot(q,p,λ)]
     function constraint_error(λ)
-        f_λ(q, p, λ) = [q_dot(q,p); p_dot(q,p,λ)]
         f(x, t) = f_λ(x[1:div(length(x), 2)], x[(div(length(x),2)+1):end], λ)
         x_next, _, _ = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; check=false)
-        q_next, p_next = x_next[1:n], x[n+1:end]
+        q_next, p_next = x_next[1:n], x_next[n+1:end]
         return A(q_next) * (M(q_next) \ p_next)
     end
     # Let's be brave and solve this via Newton's method
@@ -197,7 +193,8 @@ function solve(prob::prob{S, I, T};
     # Make sure the initial conditions are compatable with the constraints
     x₀ = sol.x[end]
     n = length(x₀) ÷ 2
-    q₀, p₀ = x₀[1:n], x₀[n+1,end]
+    q₀, p₀ = x₀[1:n], x₀[n+1:end]
+    
     # Orthogonal projection to distribution
     B_Δ(q) = A(q) * inv(M(q))
     P_Δ(q) = I - B_Δ(q)' * ( (B_Δ(q) * B_Δ(q)') \ B_Δ(q) )
@@ -206,6 +203,7 @@ function solve(prob::prob{S, I, T};
         p₀ = P_Δ(q₀) * p₀
         sol.x[end] = vcat(q₀, p₀)
     end
+    
 
     # Run until end of specified time span
     while sol.t[end] < t_end

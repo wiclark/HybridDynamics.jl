@@ -138,6 +138,51 @@ begin
 	plt.plot!(cos.(θ), sin.(θ), label="", lc=:black, aspect_ratio=1)
 end
 
+# ╔═╡ 597d4dce-acf4-44a1-bc7a-9d7ec35de2f7
+md"""
+## A Nonholonomic Example
+#### The Chaplygin sleigh
+```math
+	M(q) = \begin{bmatrix}
+		m & 0 & -ma\sin\theta \\
+		0 & m & ma\cos\theta \\
+		-ma\sin\theta & ma\cos\theta & I+ma^2
+	\end{bmatrix}
+```
+```math
+	A(q) = \begin{bmatrix}
+		-\sin\theta & \cos\theta & 0
+	\end{bmatrix}
+```
+```math
+	h(x,y) = 1 - (x^2+y^2) \geq 0.
+```
+"""
+
+# ╔═╡ 8e0f34ac-35ab-4808-a1ed-53525361c688
+@bind a Slider(0.0:0.01:1.0, show_value=true)
+
+# ╔═╡ 6d47f9d2-c604-46ba-af77-254478d19ab0
+begin
+	M_sleigh(q) = [1.0 0.0 -a*sin(q[3]);
+			0.0 1.0 a*cos(q[3]);
+			-a*sin(q[3]) a*cos(q[3]) 1+a^2]
+	V_sleigh(q) = 0.0
+	A_sleigh(q) = [-sin(q[3]) cos(q[3]) 0.0]
+	h_sleigh(q) = 1 - (q[1]^2+q[2]^2)
+	∇h_sleigh(q) = [-2*q[1], -2*q[2]]
+end
+
+# ╔═╡ da267e54-7c2b-4a31-b429-077b47912814
+begin
+	sysNH = HD.NonholonomicSystem(M_sleigh, V_sleigh; A = A_sleigh, guard=h_sleigh, normal=∇h_sleigh, e=1)
+	probNH = HD.prob(sysNH, [0.0, 0.0, 0.0, 1.0, 0.0, 0.0], (0.0, 1.01))
+	solNH = HD.solve(probNH, solver=HD.RK4())
+end
+
+# ╔═╡ 0dab5732-54d9-4daa-8ceb-685579ca6e34
+solNH.x[end]
+
 # ╔═╡ eea32534-7258-478d-b96e-aee9bc212011
 md"""
 ## A General Example
@@ -227,6 +272,11 @@ end
 # ╠═c1a00790-005e-40ae-9e4c-20f8aac7b787
 # ╠═a5cd41cd-b341-49c7-a052-bfd20f631b0c
 # ╠═fb3eb7c9-3f93-4986-aa89-c2ca478429d3
+# ╟─597d4dce-acf4-44a1-bc7a-9d7ec35de2f7
+# ╠═8e0f34ac-35ab-4808-a1ed-53525361c688
+# ╠═6d47f9d2-c604-46ba-af77-254478d19ab0
+# ╠═da267e54-7c2b-4a31-b429-077b47912814
+# ╠═0dab5732-54d9-4daa-8ceb-685579ca6e34
 # ╟─eea32534-7258-478d-b96e-aee9bc212011
 # ╟─15b10a81-2909-4df8-8d1c-0fcd7af5d9ff
 # ╠═33b07ebd-6275-4aa5-a855-7a6b29b97de9

@@ -7,6 +7,7 @@ include("Definitions.jl")
 
 include("Systems/Linear_Affine.jl")
 include("Systems/Mechanical.jl")
+include("Systems/Nonholonomic.jl")
 include("Systems/General.jl")
 include("Systems/Filippov.jl")
 
@@ -26,6 +27,8 @@ export prob
 export FilippovSys
 # Mechanical system struct
 export MechanicalSystem
+# Nonholonomic system struct
+export NonholonomicSystem
 #Linear/Affine System/Problem structs
 export LinearSystem, AffineSystem
 #General System/Problem structs
