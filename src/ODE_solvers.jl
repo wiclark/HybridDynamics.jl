@@ -684,8 +684,12 @@ function (sol::AbstractHybridSolution)(t::AbstractFloat)
          -3/Δt^2  3/Δt^2 -2/Δt  -1/Δt;
           0       0       1      0;
           1       0       0      0]
-    bⁱ = [x₁, x₂, f₁, f₂]
-    α, β, γ, δ = Aⁱ * bⁱ
+    # bⁱ = [x₁, x₂, f₁, f₂]
+    # Update to work for vectors
+    bⁱ = vcat(x₁', x₂', f₁', f₂')
+    #α, β, γ, δ = Aⁱ * bⁱ
+    C = Aⁱ * bⁱ
+    α, β, γ, δ = C[1,:], C[2,:], C[3,:], C[4,:]
     ts = t - t₁
 
     return α*ts^3 + β*ts^2 + γ*ts + δ
