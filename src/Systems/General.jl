@@ -83,30 +83,30 @@ function check_system_pathology(
     return zeno_count, instant_jump_count, :continue
 end
 
-function variational_vector_field(f, u, p, t, n)
+function variational_vector_field(f, u, t, n)
     # Unpack state
     x = u[1:n]
     Φ = reshape(u[n+1:end], n, n)
 
     # Base dynamics: x' = f(x, p, t)
-    dx = f(x, p, t)
+    dx = f(x, t)
 
     # Variational dynamics: Φ' = A(t)Φ
-    A = ForwardDiff.jacobian(y -> f(y, p, t), x)
+    A = ForwardDiff.jacobian(y -> f(y, t), x)
     dΦ = A * Φ
 
     # Return augmented derivative
     return vcat(dx, vec(dΦ))
 end
 
-function compute_pushforward(f, Δ, h_guard, x⁻, t, p)
+function compute_pushforward(f, Δ, h_guard, x⁻, t)
     n = length(x⁻)
     Id = I(n)
 
     # Eval field at boundaries (using p for parameters)
-    f⁻ = f(x⁻, p, t)
+    f⁻ = f(x⁻, t)
     x⁺ = Δ(x⁻, t)
-    f⁺ = f(x⁺, p, t)
+    f⁺ = f(x⁺, t)
 
     # Compute grads and jacob via ForwardDiff
     dh⁻ = ForwardDiff.gradient(h_guard, x⁻)
@@ -128,12 +128,12 @@ function compute_pushforward(f, Δ, h_guard, x⁻, t, p)
     return Δ_star_f
 end
 
-function apply_variational_jump!(u, n, f, Δ, h_guard, t, p)
+function apply_variational_jump(u, n, f, Δ, h_guard, t)
     x⁻ = u[1:n]
     Φ⁻ = reshape(u[n+1:end], n, n)
 
     # Compute the pushforward before state updates
-    Δ_star_f = compute_pushforward(f, Δ, h_guard, x⁻, t, p)
+    Δ_star_f = compute_pushforward(f, Δ, h_guard, x⁻, t)
 
     # Apply disc jump to base state x⁺ = Δ(x⁻)
     x⁺ = Δ(x⁻, t)
