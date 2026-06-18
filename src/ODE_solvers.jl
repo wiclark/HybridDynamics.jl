@@ -457,13 +457,21 @@ end
     take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, h, tol, sol, stepper::RK=RK4())
 
 Executes single variable-step Linear Multstep Method update for hybrid systems
+How adaptive LMMs work:
+Adaptivity requires us to know how much error we haeve when we make the current step so we can shrink or grow the step size h. LMMs do this using a Predictor/Corrector system. 
+Predictor: Uses histoy points to project a rough guess for next state
+Corrector: Takes that guess from predictor and refines it using the current dynamics, acting as a stabilizer.
+Because predictor and corrector have known, and linked, error bounds, the difference between their outputs gives us an estimate of the Local Truncation Error (LTE).
+
+If LTE is too high h is shrunk, and history is interpolated or reset, and we try to step again. If LTE is below our tolerance the step is accepted and solver calcs a slightly larger h for next step. 
+
+
 
 How it works:
 1) History Validation: The solver checks the length of continuous history since the last disc jump. If the history buffer is smaller than the order of the LMM 'k', 
 the step is delegated to the single-step stepper (default RK4).
 
-2)Predictor/Corrector and Error Est: Once history is established, the solver used an explicit LMM predictor and an implicit corrector. The Local Truncation Error LTE is isolated useing Milne's device 
-(the norm of the difference between the corrected and predicted states).
+2)Predictor/Corrector and Error Est: Once history is established, the solver extracts the past `k` states and calls `compute_lmm_step`. This helper function executes the explicit prediction, the implicit correction, and extracts the isolated LTE using Milne's device.
 
 3) Adaptivity Loop: Operates within 'while true' rejection loop. If LTE exceeds 'tol' the step size 'h' shrinks, and the step is recalculated. If accepted, it computes the optimal h_next for the subsequent step
 
