@@ -195,6 +195,32 @@ function apply_variational_jump(U::AbstractMatrix, f, Δ, h_guard, t)
     return U
 end
 
+#Plotting Lines Expelled!
+function split_jumps(sol)
+    n_steps = length(sol.t)
+    n_states = length(sol.x[1])
+
+    t_list = Float64[]
+    X_list = Vector{Vector{Float64}}()
+
+    for i in 1:n_steps
+        push!(t_list, sol.t[i])
+        push!(X_list, vec(sol.x[i]))
+
+        # If a jump occurs between current and next step, insert NaNs
+        if i < n_steps && sol.t[i] == sol.t[i+1]
+            push!(t_list, NaN)
+            push!(X_list, fill(NaN, n_states))
+        end
+    end
+
+    # Convert to the format expected by plotting libraries
+    t_plot = t_list
+    X_plot = reduce(hcat, X_list)' # Creates an (N_total x n_states) matrix
+    
+    return t_plot, X_plot
+end
+
 #External
 function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45(); 
                event_method::AbstractEventLocator=LinearLocator(), 
