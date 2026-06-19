@@ -92,7 +92,96 @@ end
 # ╔═╡ 7b9a3bb2-0b4f-48bf-9c7a-1824281ad707
 md"""
 ## A Mechancal Example
+```math
+	H(x,y,p_x,p_y) = \frac{1}{2}(p_x^2+p_y^2) + y
+```
+```math
+	h(x,y) = 1 - (x^2+y^2) \geq 0.
+```
 """
+
+# ╔═╡ 80034ca8-e254-4beb-8486-da9de404f503
+md"""
+!!! info "A Mechanical Problem"
+	A Mechanical system contains the data $(M, V, G, N, R, E)$
+	1. .$M(q)$ is the mass matrix.
+	2. .$V(q)$ is the potential energy.
+	3. .$G(q)$ is the event location function.
+	4. .$R(q) = dG(q)$ is the normal direction.
+	5. .$E$ is the coefficient of restitution.
+"""
+
+# ╔═╡ 49b430c8-ac20-4988-9c49-83a38111285f
+begin
+	M(q) = [1.0 0.0; 0.0 1.0]
+	V(q) = q[2]
+	h(q) = 1 - (q[1]^2+q[2]^2)
+	∇h(q) = [-2*q[1], -2*q[2]]
+end
+
+# ╔═╡ a5cd41cd-b341-49c7-a052-bfd20f631b0c
+@bind r Slider(0.0:0.01:1.0, show_value=true)
+
+# ╔═╡ c1a00790-005e-40ae-9e4c-20f8aac7b787
+begin
+	sysM = HD.MechanicalSystem(M, V; guard=h, normal=∇h, e=r)
+	probM = HD.prob(sysM, [-0.95, 0.0, 0.2, -1.5], (0.0, 10.0))
+	solM = HD.solve(probM, solver=HD.RK4())
+end
+
+# ╔═╡ fb3eb7c9-3f93-4986-aa89-c2ca478429d3
+begin
+	xm = getindex.(solM.x, 1)
+	ym = getindex.(solM.x, 2)
+	plt.plot(xm, ym, label="Ball Trajectory", lw=2)
+	θ = LinRange(0, 2π, 100)
+	plt.plot!(cos.(θ), sin.(θ), label="", lc=:black, aspect_ratio=1)
+end
+
+# ╔═╡ 597d4dce-acf4-44a1-bc7a-9d7ec35de2f7
+md"""
+## A Nonholonomic Example
+#### The Chaplygin sleigh
+```math
+	M(q) = \begin{bmatrix}
+		m & 0 & -ma\sin\theta \\
+		0 & m & ma\cos\theta \\
+		-ma\sin\theta & ma\cos\theta & I+ma^2
+	\end{bmatrix}
+```
+```math
+	A(q) = \begin{bmatrix}
+		-\sin\theta & \cos\theta & 0
+	\end{bmatrix}
+```
+```math
+	h(x,y) = 1 - (x^2+y^2) \geq 0.
+```
+"""
+
+# ╔═╡ 8e0f34ac-35ab-4808-a1ed-53525361c688
+@bind a Slider(0.0:0.01:1.0, show_value=true)
+
+# ╔═╡ 6d47f9d2-c604-46ba-af77-254478d19ab0
+begin
+	M_sleigh(q) = [1.0 0.0 -a*sin(q[3]);
+			0.0 1.0 a*cos(q[3]);
+			-a*sin(q[3]) a*cos(q[3]) 1+a^2]
+	V_sleigh(q) = 0.0
+	A_sleigh(q) = [-sin(q[3]) cos(q[3]) 0.0]
+	h_sleigh(q) = 1 - (q[1]^2+q[2]^2)
+	∇h_sleigh(q) = [-2*q[1], -2*q[2]]
+end
+
+# ╔═╡ da267e54-7c2b-4a31-b429-077b47912814
+begin
+	sysNH = HD.NonholonomicSystem(M_sleigh, V_sleigh; A = A_sleigh, guard=h_sleigh, normal=∇h_sleigh, e=1)
+	probNH = HD.prob(sysNH, [0.0, 0.0, 0.0, 1.0, 0.0, 0.0], (0.0, 1.01))
+	solNH = HD.solve(probNH, solver=HD.RK4())
+end
+
+# ╔═╡ 0dab5732-54d9-4daa-8ceb-685579ca6e34
+solNH.x[end]
 
 # ╔═╡ eea32534-7258-478d-b96e-aee9bc212011
 md"""
@@ -170,14 +259,24 @@ end
 # ╔═╡ Cell order:
 # ╠═6df38dc0-6787-11f1-a77e-9f1ff29a6e5b
 # ╠═5f758439-587b-4bbe-bd02-f2f9ce6cc8fb
-# ╟─30a03940-11a2-45e8-8f91-501370ddcee6
+# ╠═30a03940-11a2-45e8-8f91-501370ddcee6
 # ╟─2880f5f2-fb01-4696-aba3-7faf4714c9d3
-# ╠═e6bc3aba-7b99-4ca8-8657-12b8609cd427
 # ╠═9da11b33-0def-4ac1-bd19-574ef1cceb98
 # ╠═0cf59ef8-d158-42dc-913a-7766ac4d2420
 # ╠═1959511b-8aa8-49d0-893c-b9b801a2bda0
+# ╠═e6bc3aba-7b99-4ca8-8657-12b8609cd427
 # ╠═bbc202e7-fd8d-4eb1-9de2-93b09a73a425
-# ╠═7b9a3bb2-0b4f-48bf-9c7a-1824281ad707
+# ╟─7b9a3bb2-0b4f-48bf-9c7a-1824281ad707
+# ╟─80034ca8-e254-4beb-8486-da9de404f503
+# ╠═49b430c8-ac20-4988-9c49-83a38111285f
+# ╠═c1a00790-005e-40ae-9e4c-20f8aac7b787
+# ╠═a5cd41cd-b341-49c7-a052-bfd20f631b0c
+# ╠═fb3eb7c9-3f93-4986-aa89-c2ca478429d3
+# ╟─597d4dce-acf4-44a1-bc7a-9d7ec35de2f7
+# ╠═8e0f34ac-35ab-4808-a1ed-53525361c688
+# ╠═6d47f9d2-c604-46ba-af77-254478d19ab0
+# ╠═da267e54-7c2b-4a31-b429-077b47912814
+# ╠═0dab5732-54d9-4daa-8ceb-685579ca6e34
 # ╟─eea32534-7258-478d-b96e-aee9bc212011
 # ╟─15b10a81-2909-4df8-8d1c-0fcd7af5d9ff
 # ╠═33b07ebd-6275-4aa5-a855-7a6b29b97de9
