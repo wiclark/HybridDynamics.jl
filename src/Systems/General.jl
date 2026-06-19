@@ -126,12 +126,11 @@ function check_system_pathology(
     return zeno_count, instant_jump_count, :continue
 end
 
-#Function calcs the continuous time derivative for the augmented state. Runs the usual dx and dΦ. 
-#
-function variational_vector_field(f, u, t, n)
+#Function calcs the continuous time derivative for the augmented state. Runs the usual dx and dΦ.
+function variational_vector_field(f, U::AbstractMatrix, t)
     # Unpack state
-    x = u[1:n]
-    Φ = reshape(u[n+1:end], n, n)
+    x = U[:, 1]
+    Φ = U[:, 2:end]
 
     # Base dynamics: x' = f(x, p, t)
     dx = f(x, t)
@@ -141,7 +140,7 @@ function variational_vector_field(f, u, t, n)
     dΦ = A * Φ
 
     # Return augmented derivative
-    return vcat(dx, vec(dΦ))
+    return hcat(dx, dΦ)
 end
 
 #Calcs the Δ_*^f at a boundary. We look how how much the vf mismatches before and after the jump (f⁺/f⁻), how much it scales things (DΔ⁻), and how the trajectory hits boundary (dh⁻).
@@ -176,9 +175,9 @@ function compute_pushforward(f, Δ, h_guard, x⁻, t)
 end
 
 #When our solver hits h(x)=0 this is called. We get the pushforward matrix and multiply by Φ⁻ to get new Φ⁺. 
-function apply_variational_jump(u, n, f, Δ, h_guard, t)
-    x⁻ = u[1:n]
-    Φ⁻ = reshape(u[n+1:end], n, n)
+function apply_variational_jump(U::AbstractMatrix, f, Δ, h_guard, t)
+    x⁻ = U[:, 1]
+    Φ⁻ = U[:, 2:end]
 
     # Compute the pushforward before state updates
     Δ_star_f = compute_pushforward(f, Δ, h_guard, x⁻, t)
@@ -190,10 +189,10 @@ function apply_variational_jump(u, n, f, Δ, h_guard, t)
     Φ⁺ = Δ_star_f * Φ⁻
 
     # Update state vector in-place
-    u[1:n] .= x⁺
-    u[n+1:end] .= vec(Φ⁺)
+    U[:, 1] .= x⁺
+    U[:, 2:end] .= Φ⁺
     
-    return u
+    return U
 end
 
 #External
