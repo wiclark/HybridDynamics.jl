@@ -255,7 +255,7 @@ compute_step(::RK23, f, x, Δt, t, tf, sys, tol; adaptive=true) = rk_23_step(f, 
 compute_step(::RK45, f, x, Δt, t, tf, sys, tol; adaptive=true) = rk_45_step(f, x, Δt, t, tf, sys, tol; adaptive=adaptive)
 
 #Note sol is not used, we do this to make using the function easier. We would need an if/else statement everytime we use this function without it
-function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint(); check=true) 
+function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint(); check=true, guard_direction=default_guard_direction(prob.sys)) 
     sys = prob.sys
     x_predict = compute_step(solver, f, xₖ, Δt, tₖ)
     x_mid     = compute_step(solver, f, xₖ, Δt / 2.0, tₖ)
@@ -267,7 +267,7 @@ function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, 
         h_next = guard(sys, x_predict)
 
         #Use cross guard check
-        eventtrigger, t_root, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
+        eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol, direction=guard_direction)
 
         return x_predict, eventtrigger, t_root, Δt, Δt
     else
@@ -275,7 +275,7 @@ function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, 
     end
 end
 
-function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol,stepper::AbstractODESolver=ModifiedMidpoint())
+function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint(); guard_direction=default_guard_direction(prob.sys))
     sys = prob.sys
     tf = prob.tspan[2] #terminal time
 
@@ -292,7 +292,7 @@ function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, t�
     h_mid  = guard(sys, x_mid)
     h_next = guard(sys, x_predict)
 
-    eventtrigger, t_root, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + dt_used / 2.0, tₖ + dt_used; tol=tol)
+    eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_mid, h_next, tₖ, tₖ + dt_used / 2.0, tₖ + dt_used; tol=tol, direction=guard_direction)
 
     return x_predict, eventtrigger, t_root, dt_used, dt_next
 end
@@ -409,7 +409,7 @@ function compute_lmm_step(::AdaptiveABM3, f, xₖ, tₖ, Δt, x_history, t_histo
     return x_correct, LTE
 end
 
-function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = RK4())
+function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = RK4();  guard_direction=default_guard_direction(prob.sys))
     sys = prob.sys
     k = lmm_order(solver)
 
@@ -427,7 +427,7 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
         h_mid  = guard(sys, x_mid)
         h_next = guard(sys, x_predict)
 
-        eventtrigger, t_root, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
+        eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol, direction=guard_direction)
         return x_predict, eventtrigger, t_root, Δt, Δt
     else
         #Multistep phase: We do have rich enough history. Extract past states
@@ -446,14 +446,11 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
         x_prev = sol.x[end-1]
         h_prev = guard(sys, x_prev)
 
-        eventtrigger, t_root, _ = crossed_guard(h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol = tol)
+        eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol = tol, direction=guard_direction)
 
         return x_predict, eventtrigger, t_root, Δt, Δt
     end
-
-    eventtrigger, dt_next, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
-
-    return x_predict, eventtrigger, h_now, Δt, dt_next
+    
 end
 
 
@@ -484,7 +481,7 @@ We use Milne's device for error est because it is easy to compute. Since we alre
 
 """
 #user can specify if they want RK4 here
-function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, h, tol, sol, stepper::RK=RK4())
+function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, h, tol, sol, stepper::RK=RK4(); guard_direction=default_guard_direction(prob.sys))
     sys = prob.sys
     k = lmm_order(solver)
     tf = prob.tspan[2]
@@ -496,7 +493,7 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
 
     #Startup phase: IF we dont have history we use RK stepper
     if history_len < k
-        return take_step(stepper, prob, f, xₖ, tₖ, h, tol, sol, stepper)
+        return take_step(stepper, prob, f, xₖ, tₖ, h, tol, sol, stepper; guard_direction=guard_direction)
     end
 
     #Extract history for LMM
@@ -522,14 +519,14 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
             t_prev = sol.t[end-1]
             h_prev = guard(sys, sol.x[end-1])
 
-            eventtrigger, t_root, _ = crossed_guard(h_prev, h_now, h_next, t_prev, tₖ, tₖ + h; tol=tol)
+            eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + h; tol=tol, direction=guard_direction)
 
             return x_next, eventtrigger, t_root, h, h_new
         else
             #Step rejected: shrink and try again 
             h = h_new
-            if h < 1e-12
-                @warn "LMM Step size has decreased below 1e-12"
+            if h < 1e-6
+                @warn "LMM Step size has decreased below 1e-6"
                 #Force break to avoid inf loops
                 return x_next, false, NaN, h, h_new
             end
@@ -541,6 +538,7 @@ end
 #====================================#
 #Event detection utility. 
 #If a guard surface was crossed and during the ODE step. We check for a sign change between start and end of the step.
+#=
 function crossed_guard(h_prev, h_now, h_next, t_prev, t_now, t_next; tol=1e-6)
 
     # Linear Crossing check 
@@ -590,6 +588,75 @@ function crossed_guard(h_prev, h_now, h_next, t_prev, t_now, t_next; tol=1e-6)
         end
     catch 
         #if matrix is singular or calc fails we ignore quad warning
+        return false, NaN, NaN
+    end
+    return false, NaN, NaN
+end
+=#
+
+default_guard_direction(sys::MechanicalSystem) = :falling
+default_guard_direction(sys::NonholonomicSystem) = :falling
+default_guard_direction(sys::GeneralSystem) = :both
+default_guard_direction(sys) = :both
+
+function crossed_guard(sys, h_prev, h_now, h_next, t_prev, t_now, t_next; 
+                       tol=1e-6, direction=default_guard_direction(sys))   
+    # Passes the direction
+    return evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, direction; tol=tol)
+end
+
+function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, direction::Symbol; tol=1e-6)
+    #Helper: Does this linear segment cross in the correct direction?
+    valid_linear(h1, h2) = 
+        (direction == :both && h1 * h2 < 0) ||
+        (direction == :falling && h1 > 0 && h2 < 0) ||
+        (direction == :rising && h1 < 0 && h2 > 0)
+
+    #Linear Crossing check
+    if valid_linear(h_prev, h_now)
+        t_root = t_prev - h_prev * (t_now - t_prev) / (h_now - h_prev)
+        return true, t_root, NaN
+    elseif valid_linear(h_now, h_next)
+        t_root = t_now - h_now * (t_next - t_now) / (h_next - h_now)
+        return true, t_root, NaN 
+    end
+
+    #Quad version
+    try 
+        A = [t_prev^2 t_prev 1; t_now^2 t_now 1; t_next^2 t_next 1]
+        a, b, c  = A \ [h_prev, h_now, h_next]
+
+        if abs(a) > 1e-6
+            discriminant = b^2 - 4*a*c
+            if discriminant > 0
+                sqrt_d = sqrt(discriminant)
+                r1 = (-b - sqrt_d) / (2*a)
+                r2 = (-b + sqrt_d) / (2*a)
+
+                valid_roots = Float64[]
+                eps_t = 1e-9
+
+                #Derivative of parabola eval the slope of root. 
+                h_prime(t) = 2*a*t + b
+
+                #Helper: Does quad curve cross in the correct direction?
+                valid_quad(r) = 
+                    (direction == :both) ||
+                    (direction == :falling && h_prime(r) < 0) ||
+                    (direction == :rising && h_prime(r) > 0)
+
+                #Check bounds and direction
+                if (t_prev + eps_t) <= r1 <= t_next && valid_quad(r1) push!(valid_roots, r1) end 
+                if (t_prev + eps_t) <= r2 <= t_next && valid_quad(r2) push!(valid_roots, r2) end
+
+                if !isempty(valid_roots)
+                    proposed_root = minimum(valid_roots)
+                    critical_point = -b / (2*a)
+                    return true, proposed_root, critical_point
+                end
+            end
+        end
+    catch
         return false, NaN, NaN
     end
     return false, NaN, NaN

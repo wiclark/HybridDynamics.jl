@@ -13,7 +13,7 @@ struct GeneralSolution <: AbstractHybridSolution
 end
 
 #Internal
-function init_solution(prob::prob{GeneralSystem, I, T}) where {I, T}
+function init_solution(prob::prob{F, I, T}) where {F<:GeneralSystem, I, T}
     return GeneralSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
 end
 #Internal
@@ -161,7 +161,7 @@ function compute_pushforward(f, Δ, h_guard, x⁻, t)
 
     # Check dh(x) * f(x) = 0
     denom = dot(dh⁻, f⁻)
-    if abs(denom) < 1e-12
+    if abs(denom) < 1e-6
         @warn "Non-transversal crossing detected: Trajectory is tangent to guard surface."
     end
 
@@ -205,7 +205,8 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
                stepper::AbstractODESolver=ModifiedTrap(),
                max_buffer_size=5,
                beating_warn_threshold=3,
-               max_instant_jumps = 5) where {F<:GeneralSystem, I, T}
+               max_instant_jumps = 5,
+               guard_direction::Symbol = default_guard_direction(prob.sys)) where {F<:GeneralSystem, I, T}
     
     sys = prob.sys
     f = sys.f
@@ -241,7 +242,7 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
         tₖ = sol.t[end]
 
         # Attempt continuous step
-        x_predict, eventtriggered, h_now, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol)
+        x_predict, eventtriggered, h_now, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
 
         # Discrete event logic
         if eventtriggered

@@ -248,7 +248,8 @@ function solve(prob::prob{F, I, T},
                stepper::AbstractODESolver=ModifiedTrap(),
                max_buffer_size=5,
                beating_warn_threshold=3,
-               max_instant_jumps = 5) where {F<:Union{LinearSystem, AffineSystem}, I<:AbstractVector{Float64}, T<:Tuple{Float64, Float64}}
+               max_instant_jumps = 5,
+                guard_direction::Symbol = default_guard_direction(prob.sys)) where {F<:Union{LinearSystem, AffineSystem}, I<:AbstractVector{Float64}, T<:Tuple{Float64, Float64}}
     sys = prob.sys
 
     f = hasproperty(sys, :b) ? ((x,t) -> sys.A * x + sys.b) : ((x,t) -> sys.A * x) 
@@ -294,7 +295,7 @@ function solve(prob::prob{F, I, T},
         h_now = guard(sys, xₖ)
 
         #attempt continuous step
-        x_predict, eventtriggered, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol)
+        x_predict, eventtriggered, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
 
         is_exactly_on_guard = abs(h_now) <= tol
 
