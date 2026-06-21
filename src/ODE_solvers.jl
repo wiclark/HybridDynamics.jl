@@ -15,15 +15,13 @@ struct ModifiedTrap <: FixedRK end
 struct ModifiedMidpoint <: FixedRK end
 struct RichardsonExtrapolation <: FixedRK end
 struct RK4 <: FixedRK end
+struct ImplicitEuler <: FixedRK end
 
 #Adaptive Runge Kutta parent tag
 abstract type AdaptiveRK <: RK end
 #Adaptive solvers
 struct RK45 <: AdaptiveRK end
 struct RK23 <: AdaptiveRK end
- 
-#Exponential Solver
-struct ExponentialSolver <: AbstractODESolver end
 
 #Linear Multistep Method Family Solvers
 abstract type LMM <: AbstractODESolver end
@@ -32,11 +30,18 @@ abstract type FixedLMM <: LMM end
 
 struct AdamsBashforth2 <: FixedLMM end
 struct AdamsBashforth3 <: FixedLMM end
+struct BDF2 <: FixedLMM end
 
 abstract type AdaptiveLMM <: LMM end
 
 struct AdaptiveABM2 <: AdaptiveLMM end
 struct AdaptiveABM3 <: AdaptiveLMM end
+
+#Other solvers Idk where to put
+#Exponential Solver
+struct ExponentialSolver <: AbstractODESolver end
+
+struct MagnusLeapfrog{S<:AbstractODESolver} <: AbstractODESolver end
 
 
 ## Single step, fully explicit methods
@@ -68,6 +73,16 @@ function rk_4_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
     #Shouldnt need to check guard in these inner stages here as no adpative step size.
 
     return z + h/6 * (k1 + 2*k2 + 2*k3 + k4)
+end
+
+#Implicit Euler (Stiff solver)
+function implicit_euler_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
+    t_new = t + h
+    #Initial Guess via exp Euler
+    z_guess = forward_euler_step(f, z, h, t)
+
+    #Imp euler 
+    return implicit_newton_solve(f, z_guess, z, 1.0, h, t_new)
 end
 
 ## Adaptive Runge-Kutta methods
@@ -233,12 +248,30 @@ function richardson_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFl
     return (4 .* z2 .- z1) ./ 3.0
 end
 
+#Extra solvers
+#MagnusLeapfrog step
+function magnus_leapfrog_step(f::Function, U::AbstractMatrix, h::AbstractFloat, t::AbstractFloat)
+    #Extract state and fund matrix
+    xₖ = U[:, 1]
+    Φₖ = U[:, 2:end]
+
+    #Midpoint Eval for base trajectory 
+    x_mid = xₖ .+ (h / 2.0) .* f(xₖ, t)
+    t_mid = t + h / 2.0
+
+    #Advance base state fully
+    x_next = xₖ .+ h .* f(X_mid, t_mid)
+
+    #Compute Jacobian exactly at midpoint
+    A_mid = ForwardDiff.jacobian(y -> f(y, t_mid), x_mid)
+
+    #Lie-Group step for fund matrix 
+    Φ_next = exp(h * A_mid) * Φₖ
+
+    return hcat(x_next, Φ_next)
+end
 #====================================#
 #TAKE STEP SOLVERS CONSOLIDATION
-
-######
-### WC: At some point, it would be good to add a stiff solver to the roster.
-######
 
 #Single take_step for RK methods
 #Fixed step methods 
@@ -248,11 +281,15 @@ compute_step(::ModifiedTrap, f, x, Δt, t) = modified_trap_step(f, x, Δt, t)
 compute_step(::ModifiedMidpoint, f, x, Δt, t) = modified_midpoint_step(f, x, Δt, t)
 compute_step(::RichardsonExtrapolation, f, x, Δt, t) = richardson_step(f, x, Δt, t)
 compute_step(::RK4, f, x, Δt, t) = rk_4_step(f, x, Δt, t)
+compute_step(::ImplicitEuler, f, x, Δt, t) = implicit_euler_step(f, x, Δt, t)
 
 #Adaptive step methods
 #Helper function to take the step via multiple dispatch
 compute_step(::RK23, f, x, Δt, t, tf, sys, tol; adaptive=true) = rk_23_step(f, x, Δt, t, tf, sys, tol; adaptive=adaptive)
 compute_step(::RK45, f, x, Δt, t, tf, sys, tol; adaptive=true) = rk_45_step(f, x, Δt, t, tf, sys, tol; adaptive=adaptive)
+
+#Extra Solvers
+compute_step(::MagnusLeapfrog, f, U, Δt, t) = magnus_leapfrog_step(f, U, Δt, t)
 
 #Note sol is not used, we do this to make using the function easier. We would need an if/else statement everytime we use this function without it
 function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint(); check=true, guard_direction=default_guard_direction(prob.sys)) 
@@ -304,6 +341,8 @@ lmm_order(::AdamsBashforth3) = 3
 
 lmm_order(::AdaptiveABM2) = 2
 lmm_order(::AdaptiveABM3) = 3
+
+lmm_order(::BDF2) = 2
 
 function compute_lmm_step(::AdamsBashforth2, f, xₖ, tₖ, Δt, x_history, t_history)
     #x_history[end] is x_{k-1}
@@ -407,6 +446,17 @@ function compute_lmm_step(::AdaptiveABM3, f, xₖ, tₖ, Δt, x_history, t_histo
     LTE = norm(x_correct .- x_predict)
 
     return x_correct, LTE
+end
+
+function compute_lmm_step(::BDF2, f, zₖ, tₖ, Δt, x_history, t_history)
+    z_prev = x_history[end]
+    t_new = tₖ + Δt
+
+    c = (4.0 / 3.0) .* zₖ .- (1.0 / 3.0) .* z_prev
+    α = 2.0 / 3.0
+
+    z_guess = zₖ .+ Δt .* f(zₖ, tₖ)
+    return implicit_newton_solve(f, z_guess, c, α, Δt, t_new)
 end
 
 function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = RK4();  guard_direction=default_guard_direction(prob.sys))
@@ -534,6 +584,55 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
     end
 end
 
+#Extra Solvers that dont fit into RK or LMM
+#Exponential Goes here
+
+#Supposedly useful as when doing variational equation stuff the magnus expansion preserves Lie group structure (I dont know enough about Lie groups to tell you what that means)
+#so we maintain the properties we want like volume and determinants which is very good for variational equations and eventual Lyapunov Exponents. 
+function take_step(solver::MagnusLeapfrog, prob::AbstractHybridProblem, f, Uₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint(), guard_direction=default_guard_direction(prob.sys))
+    sys = prob.sys
+
+    #Compute augmented matrix predictions
+    U_predict = compute_step(solver, f, Uₖ, Δt, tₖ)
+    U_mid     = compute_step(solver, f, Uₖ, Δt / 2.0, tₖ)
+
+    #Guard checks only care about phys state
+    xₖ = Uₖ[:, 1]
+    x_mid = U_mid[:, 1]
+    x_predict = U_predict[:, 1]
+
+    #Eval guards
+    h_now = guard(sys, xₖ)
+    h_mid = guard(sys, x_mid)
+    h_next = guard(sys, x_predict)
+
+    #Use check
+    eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol, direction=guard_direction)
+
+    return U_predict, eventtrigger, t_root, Δt, Δt
+end
+
+#Newton Raphson solver to find roots for implicit integration steps. 
+#Solves for z in G(z) = z - c - α*h*f(z, t_new) = 0
+function implicit_newton_solve(f::Function, z_guess::Vector, c::Vector, α::AbstractFloat, h::AbstractFloat, t_new::AbstractFloat; max_iter=50, tol=1e-6)
+    z_curr = copy(z_guess)
+
+    for _ in 1:max_iter
+        val = f(z_curr, t_new)
+        G = z_curr .- c .- (α*h) .* val
+
+        if norm(G) < tol
+            return z_curr
+        end
+
+        J_f = ForwardDiff.jacobian(y -> f(y, t_new), z_curr)
+        J_G = I - (α*h) * J_f
+
+        z_curr = z_curr .- J_G \ G
+    end
+    @warn "Newton Raphson solver failed to converge at t = $t_new. Consider a smaller step size."
+    return z_curr
+end
 
 #====================================#
 #Event detection utility. 
