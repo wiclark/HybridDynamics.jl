@@ -247,20 +247,24 @@ compute_step(::RK23, f, x, Δt, t, tf, sys, tol; adaptive=true) = rk_23_step(f, 
 compute_step(::RK45, f, x, Δt, t, tf, sys, tol; adaptive=true) = rk_45_step(f, x, Δt, t, tf, sys, tol; adaptive=adaptive)
 
 #Note sol is not used, we do this to make using the function easier. We would need an if/else statement everytime we use this function without it
-function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint()) 
+function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint(); check=true) 
     sys = prob.sys
     x_predict = compute_step(solver, f, xₖ, Δt, tₖ)
     x_mid     = compute_step(solver, f, xₖ, Δt / 2.0, tₖ)
 
-    #Evaluate Guards
-    h_now  = guard(sys, xₖ)
-    h_mid  = guard(sys, x_mid)
-    h_next = guard(sys, x_predict)
+    if check
+        #Evaluate Guards
+        h_now  = guard(sys, xₖ)
+        h_mid  = guard(sys, x_mid)
+        h_next = guard(sys, x_predict)
 
-    #Use cross guard check
-    eventtrigger, t_root, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
+        #Use cross guard check
+        eventtrigger, t_root, _ = crossed_guard(h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol)
 
-    return x_predict, eventtrigger, t_root, Δt, Δt
+        return x_predict, eventtrigger, t_root, Δt, Δt
+    else
+        return x_predict, NaN, NaN, NaN, NaN
+    end
 end
 
 function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol,stepper::AbstractODESolver=ModifiedMidpoint())
@@ -684,8 +688,12 @@ function (sol::AbstractHybridSolution)(t::AbstractFloat)
          -3/Δt^2  3/Δt^2 -2/Δt  -1/Δt;
           0       0       1      0;
           1       0       0      0]
-    bⁱ = [x₁, x₂, f₁, f₂]
-    α, β, γ, δ = Aⁱ * bⁱ
+    # bⁱ = [x₁, x₂, f₁, f₂]
+    # Update to work for vectors
+    bⁱ = vcat(x₁', x₂', f₁', f₂')
+    #α, β, γ, δ = Aⁱ * bⁱ
+    C = Aⁱ * bⁱ
+    α, β, γ, δ = C[1,:], C[2,:], C[3,:], C[4,:]
     ts = t - t₁
 
     return α*ts^3 + β*ts^2 + γ*ts + δ
