@@ -69,7 +69,7 @@ function specular_refl(x, M, A, ∇h, sys)
     # The denominator
     denom = dot(∇hq, Mq \ ∇hq) - dot(constraint_vector, sub_matrix \ constraint_vector)
     # The 'external' multiplier
-    ε = -(1+e) * dot(p, Mq \ normal) / denom
+    ε = -(1+e) * dot(p, Mq \ ∇hq) / denom
     # The 'intermal' multipliers
     λ = -ε * sub_matrix \ constraint_vector
     # The new momentum
@@ -139,7 +139,7 @@ function locate_event_nonholonomic(solver, prob, xₖ, tₖ, Δt, tol, sol, h)
     # We will implement a linear finder that triggered 'crossed_guard_nonholonomic'
     t₀, t₁ = 0.0, Δt
     # The event function as a function of time
-    E(t) = h(take_nh_step(solver, prob, xₖ, tₖ, t, tol, sol))
+    E(t) = (t>0) ? h(take_nh_step(solver, prob, xₖ, tₖ, t, tol, sol)) : h(xₖ)
 
     # Loop until convergence
     for _ ∈ 1:100
@@ -197,10 +197,11 @@ function solve(prob::prob{S, I, T};
     
     # Orthogonal projection to distribution
     B_Δ(q) = A(q) * inv(M(q))
-    P_Δ(q) = I - B_Δ(q)' * ( (B_Δ(q) * B_Δ(q)') \ B_Δ(q) )
+    # This ↓ functions don't work...
+    # P_Δ(q) = I - B_Δ(q)' * inv(B_Δ(q) * B_Δ(q)') * B_Δ(q) 
     if norm( A(q₀) * (M(q₀) \ p₀) ) > tol
         @warn "Initial conditions do not satisfy the constraint. Projecting to distribution."
-        p₀ = P_Δ(q₀) * p₀
+        p₀ = p₀ - B_Δ(q₀)' * inv(B_Δ(q₀) * B_Δ(q₀)') * B_Δ(q₀) * p₀
         sol.x[end] = vcat(q₀, p₀)
     end
     
