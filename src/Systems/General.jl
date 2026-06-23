@@ -18,10 +18,11 @@ function init_solution(prob::prob{F, I, T}) where {F<:GeneralSystem, I, T}
 end
 #Internal
 function guard(sys::GeneralSystem, x::AbstractArray)
-    # If it's a matrix (like augmented state U), extract the physical state
     x_phys = (x isa AbstractMatrix) ? x[:, 1] : x
     val = sys.h(x_phys)
-    return val isa AbstractVector ? minimum(abs.(val)) : val
+    # Return the most negative value (the most violated constraint)
+    # If all are positive, it returns the smallest positive value.
+    return val isa AbstractVector ? minimum(val) : val
 end
 #Internal
 function apply_reset(sys::GeneralSystem, x::AbstractArray)
@@ -80,14 +81,17 @@ function check_system_pathology(
 
     # 2. Zeno Check before anything else
     is_contracting = length(last_intervals) >= 3 && 
-                     (last_intervals[end] < last_intervals[end-1] * zeno_ratio) &&
-                     (last_intervals[end-1] < last_intervals[end-2] * zeno_ratio)
+                     (last_intervals[end] <= last_intervals[end-1] * zeno_ratio) &&
+                     (last_intervals[end-1] <= last_intervals[end-2] * zeno_ratio) &&
+                     (last_intervals[end-1] > tol)
 
     # If we are already in a Zeno and hit the numerical floor, 
     # maintain the Zeno classification instead of dropping to Blocking.THIS HAPPENED SO MANY TIMES
     hit_zeno_floor = (zeno_count > 0) && (jump_interval <= tol)
 
-    if (is_contracting && jump_interval < 1e-2) || hit_zeno_floor
+    in_zeno_state = (is_contracting && jump_interval < 1e-2) || hit_zeno_floor
+
+    if in_zeno_state
         zeno_count += 1
         instant_jump_count = 0 # Explicitly bypass and reset the blocking trap
         @info "Zeno contraction detected. count: $zeno_count"
@@ -98,7 +102,7 @@ function check_system_pathology(
         end
         
         return zeno_count, instant_jump_count, :continue
-    else
+    elseif jump_interval > tol * 10
         # Only reset if the interval genuinely grows or stabilizes outside Zeno
         zeno_count = 0 
     end
@@ -193,23 +197,28 @@ end
 
 #Plotting Lines Expelled!
 function split_jumps(sol::AbstractHybridSolution) 
-    t_list = sol.t
     states = sol.x
     
-    n_total = length(states[1])
-
-    data_list = Vector{Float64}[]
+    # Preallocate a vector of the type of the state (Vector or Matrix)
+    T = typeof(states[1])
+    data_list = T[]
+    t_list = Float64[] # Create a new time array to match lengths
+    
+    # Create a NaN container of the exact same size as the state
+    nan_state = fill(NaN, size(states[1]))
     
     for i in 1:length(states)
-        push!(data_list, vec(states[i])) 
+        push!(data_list, states[i]) 
+        push!(t_list, sol.t[i])
+        
+        # Insert the NaN break if a jump occurred
         if i < length(sol.t) && sol.t[i] == sol.t[i+1]
-            push!(data_list, fill(NaN, n_total))
+            push!(data_list, nan_state)
+            push!(t_list, NaN)
         end
     end
-
-    data = reduce(hcat, data_list)'
     
-    return t_list, data
+    return t_list, data_list
 end
 
 #External
@@ -237,6 +246,9 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
     last_jump_time = t_start
     last_intervals = Float64[]
 
+    in_sliding_mode = false
+    
+
     while sol.t[end] < t_end 
         iter += 1
         if iter > max_iter 
@@ -257,10 +269,22 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
         xₖ = sol.x[end]
         tₖ = sol.t[end]
 
+        if in_sliding_mode && guard(sys, xₖ) > 0
+            in_sliding_mode = false
+        end
+
         # Attempt continuous step
         x_predict, eventtriggered, h_now, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
 
-        # Discrete event logic
+        if in_sliding_mode
+            eventtriggered = false
+        end
+
+        if !eventtriggered && !in_sliding_mode && guard(sys, x_predict) <= 0
+            eventtriggered = true
+        end
+
+        #Discrete event logic
         if eventtriggered
             # Pinpoint exact time and state event happened
             t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, h_now, tol, sol, stepper)
@@ -278,6 +302,12 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
                 break
             end
             last_jump_time = t_star
+
+            in_sliding_mode = true
+
+            if abs(h_now) < tol * 10
+                in_sliding_mode = true
+            end
 
             x⁺ = apply_reset(sys, x_star)
            

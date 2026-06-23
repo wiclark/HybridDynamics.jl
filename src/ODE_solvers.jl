@@ -379,6 +379,17 @@ function compute_lmm_step(::AdamsBashforth3, f, xₖ, tₖ, Δt, x_history, t_hi
     return xₖ .+ Δt .* ( (23/12) .* fₖ .- (16/12) .* f_prev1_val .+ (5/12) .* f_prev2_val )
 end
 
+function compute_lmm_step(::BDF2, f, zₖ, tₖ, Δt, x_history, t_history)
+    z_prev = x_history[end]
+    t_new = tₖ + Δt
+
+    c = (4.0 / 3.0) .* zₖ .- (1.0 / 3.0) .* z_prev
+    α = 2.0 / 3.0
+
+    z_guess = zₖ .+ Δt .* f(zₖ, tₖ)
+    return implicit_newton_solve(f, z_guess, c, α, Δt, t_new)
+end
+
 function compute_lmm_step(::AdaptiveABM2, f, xₖ, tₖ, Δt, x_history, t_history)
     #Extract history
     x_prev = x_history[end]
@@ -448,17 +459,6 @@ function compute_lmm_step(::AdaptiveABM3, f, xₖ, tₖ, Δt, x_history, t_histo
     return x_correct, LTE
 end
 
-function compute_lmm_step(::BDF2, f, zₖ, tₖ, Δt, x_history, t_history)
-    z_prev = x_history[end]
-    t_new = tₖ + Δt
-
-    c = (4.0 / 3.0) .* zₖ .- (1.0 / 3.0) .* z_prev
-    α = 2.0 / 3.0
-
-    z_guess = zₖ .+ Δt .* f(zₖ, tₖ)
-    return implicit_newton_solve(f, z_guess, c, α, Δt, t_new)
-end
-
 function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = RK4();  guard_direction=default_guard_direction(prob.sys))
     sys = prob.sys
     k = lmm_order(solver)
@@ -478,6 +478,12 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
         h_next = guard(sys, x_predict)
 
         eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol, direction=guard_direction)
+        if eventtrigger
+            if (t_root - tₖ) < (1e-4 * Δt) # Add a small buffer
+                eventtrigger = false
+                t_root = tₖ + Δt # Reset t_root to end of step
+            end
+        end
         return x_predict, eventtrigger, t_root, Δt, Δt
     else
         #Multistep phase: We do have rich enough history. Extract past states
@@ -497,6 +503,12 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
         h_prev = guard(sys, x_prev)
 
         eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol = tol, direction=guard_direction)
+        if eventtrigger
+            if (t_root - tₖ) < (1e-4 * Δt) # Add a small buffer
+                eventtrigger = false
+                t_root = tₖ + Δt # Reset t_root to end of step
+            end
+        end
 
         return x_predict, eventtrigger, t_root, Δt, Δt
     end
@@ -632,7 +644,7 @@ function implicit_newton_solve(f::Function, z_guess::Vector, c::Vector, α::Abst
         z_curr = z_curr .- J_G \ G
     end
     @warn "Newton Raphson solver failed to converge at t = $t_new. Consider a smaller step size."
-    return z_curr
+    return fill(NaN, size(z_curr))
 end
 
 #====================================#
@@ -706,16 +718,11 @@ function crossed_guard(sys, h_prev, h_now, h_next, t_prev, t_now, t_next;
 end
 
 function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, direction::Symbol; tol=1e-6)
-    #Helper: Does this linear segment cross in the correct direction?
-    is_stuck = abs(h_now) < tol * 10
-    
     valid_linear(h1, h2) = 
         (direction == :both && h1 * h2 < 0) ||
         (direction == :falling && h1 > 0 && h2 < 0) ||
-        (direction == :rising && h1 < 0 && h2 > 0) ||
-        (is_stuck && (direction == :falling ? h2 > h1 : h2 < h1))
+        (direction == :rising && h1 < 0 && h2 > 0)
 
-    #Linear Crossing check
     if valid_linear(h_prev, h_now)
         t_root = t_prev - h_prev * (t_now - t_prev) / (h_now - h_prev)
         return true, t_root, NaN
@@ -723,7 +730,6 @@ function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, directi
         t_root = t_now - h_now * (t_next - t_now) / (h_next - h_now)
         return true, t_root, NaN 
     end
-
     #Quad version
     try 
         A = [t_prev^2 t_prev 1; t_now^2 t_now 1; t_next^2 t_next 1]
@@ -784,7 +790,7 @@ struct QuadraticLocator <: AbstractEventLocator end
 #Tag to use Newtons method for event locators
 struct NewtonLocator <: AbstractEventLocator end
 
-
+#=
 #IF a locator is called while using an LMM, we temporaily swap to a RK method . 
 #Since an event implies impending jump (which wipes the LMM history)
 # using an RK method to pinpoint the impact should be sound.
@@ -793,10 +799,10 @@ function locate_event(locator, prob, solver::LMM, f, xₖ, tₖ, Δt, h_now, tol
     # Route through to the RK version, passing the stepper forward
     return locate_event(locator, prob, stepper, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper)
 end
-
+=#
 #Bisection Method (Iterative)
 
-function locate_event(::BisectionLocator, prob, solver::Union{RK, AdaptiveLMM}, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
+function locate_event(::BisectionLocator, prob, solver::Union{RK, AdaptiveLMM, FixedLMM}, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
     sys = prob.sys
     τ_l, τ_r = 0.0, Δt
     h_l = h_now
@@ -824,7 +830,7 @@ function locate_event(::BisectionLocator, prob, solver::Union{RK, AdaptiveLMM}, 
 end
 #Linear Interpolation
 
-function locate_event(::LinearLocator, prob, solver::Union{RK, AdaptiveLMM}, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
+function locate_event(::LinearLocator, prob, solver::Union{RK, AdaptiveLMM, FixedLMM}, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
     sys = prob.sys
     τ_l, τ_r = 0.0, Δt
     h_l = h_now
@@ -866,7 +872,7 @@ function locate_event(::LinearLocator, prob, solver::Union{RK, AdaptiveLMM}, f, 
     return t_star, x_star
 end
 
-function locate_event(::QuadraticLocator, prob, solver::Union{RK, AdaptiveLMM}, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
+function locate_event(::QuadraticLocator, prob, solver::Union{RK, AdaptiveLMM, FixedLMM}, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
     sys = prob.sys
 
     #Get three points 
@@ -927,7 +933,7 @@ function locate_event(::QuadraticLocator, prob, solver::Union{RK, AdaptiveLMM}, 
     return t_star, x_star
 end
 
-function locate_event(::NewtonLocator, prob, solver::Union{RK, AdaptiveLMM}, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
+function locate_event(::NewtonLocator, prob, solver::Union{RK, AdaptiveLMM, FixedLMM}, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
     sys = prob.sys
 
     τ_prev = 0.0
