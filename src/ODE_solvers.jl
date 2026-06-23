@@ -41,30 +41,30 @@ struct AdaptiveABM3 <: AdaptiveLMM end
 #Exponential Solver
 struct ExponentialSolver <: AbstractODESolver end
 
-struct MagnusLeapfrog{S<:AbstractODESolver} <: AbstractODESolver end
+struct MagnusLeapfrog <: FixedRK end
 
 
 ## Single step, fully explicit methods
 
 # Forward Euler
-function forward_euler_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
+function forward_euler_step(f::Function, z::AbstractArray, h::AbstractFloat, t::AbstractFloat)
     return z .+ h*f(z, t)
 end
 
 # Modified (fully explicit) Trapezoid Rule
-function modified_trap_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
+function modified_trap_step(f::Function, z::AbstractArray, h::AbstractFloat, t::AbstractFloat)
     z_guess = z .+ h*f(z,t)
     return z .+ 1/2*h*( f(z, t) + f(z_guess, t+h) )
 end
 
 # Modified (fully explicit) Midpoint Rule
-function modified_midpoint_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
+function modified_midpoint_step(f::Function, z::AbstractArray, h::AbstractFloat, t::AbstractFloat)
     z_guess = z .+ h/2*f(z, t)
     return z .+ h*f(z_guess, t+h/2)
 end
 
 #Classic Runge-Kutta 4
-function rk_4_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
+function rk_4_step(f::Function, z::AbstractArray, h::AbstractFloat, t::AbstractFloat)
     k1 = f(z,t)
     k2 = f(z + h/2 * k1, t + h/2)
     k3 = f(z + h/2 * k2, t + h/2)
@@ -76,7 +76,7 @@ function rk_4_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
 end
 
 #Implicit Euler (Stiff solver)
-function implicit_euler_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
+function implicit_euler_step(f::Function, z::AbstractArray, h::AbstractFloat, t::AbstractFloat)
     t_new = t + h
     #Initial Guess via exp Euler
     z_guess = forward_euler_step(f, z, h, t)
@@ -100,7 +100,7 @@ function updated_step(LTE::AbstractFloat, tol::AbstractFloat, h::AbstractFloat, 
 end
 
 # Runge-Kutta 23
-function rk_23_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, tf::AbstractFloat, sys, tol; adaptive=true)
+function rk_23_step(f::Function, z::AbstractArray, h::AbstractFloat, t::AbstractFloat, tf::AbstractFloat, sys, tol; adaptive=true)
     # As this is an adaptive step solver, h is the step size from the previous step
     # As the step size is not of fixed size, we specify the terminal time, tf, of the problem
     h = minimum([h, tf-t])
@@ -162,7 +162,7 @@ function rk_23_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
 end
 
 # Runge-Kutta 45
-function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, tf::AbstractFloat, sys, tol; adaptive=true)
+function rk_45_step(f::Function, z::AbstractArray, h::AbstractFloat, t::AbstractFloat, tf::AbstractFloat, sys, tol; adaptive=true)
     # As this is an adaptive step solver, h is the step size from the pervious step
     # As the step size is not of fixed size, we specify the terminal time, tf, of the problem
     h = minimum([h, tf-t])
@@ -235,7 +235,7 @@ function rk_45_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat, 
 end
 
 #Richardson Extrapolation based on modifed midpoint from Wiki
-function richardson_step(f::Function, z::Vector, h::AbstractFloat, t::AbstractFloat)
+function richardson_step(f::Function, z::AbstractArray, h::AbstractFloat, t::AbstractFloat)
     #Take one full step size h
     z1 = modified_midpoint_step(f,z,h,t)
 
@@ -260,7 +260,7 @@ function magnus_leapfrog_step(f::Function, U::AbstractMatrix, h::AbstractFloat, 
     t_mid = t + h / 2.0
 
     #Advance base state fully
-    x_next = xₖ .+ h .* f(X_mid, t_mid)
+    x_next = xₖ .+ h .* f(x_mid, t_mid)
 
     #Compute Jacobian exactly at midpoint
     A_mid = ForwardDiff.jacobian(y -> f(y, t_mid), x_mid)
@@ -289,7 +289,7 @@ compute_step(::RK23, f, x, Δt, t, tf, sys, tol; adaptive=true) = rk_23_step(f, 
 compute_step(::RK45, f, x, Δt, t, tf, sys, tol; adaptive=true) = rk_45_step(f, x, Δt, t, tf, sys, tol; adaptive=adaptive)
 
 #Extra Solvers
-compute_step(::MagnusLeapfrog, f, U, Δt, t) = magnus_leapfrog_step(f, U, Δt, t)
+compute_step(::MagnusLeapfrog, f, U::AbstractMatrix, Δt, t) = magnus_leapfrog_step(f, U, Δt, t)
 
 #Note sol is not used, we do this to make using the function easier. We would need an if/else statement everytime we use this function without it
 function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint(); check=true, guard_direction=default_guard_direction(prob.sys)) 
@@ -566,8 +566,9 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
             h_next = guard(sys, x_next)
 
             #Guard eval looking back to prev step for the quad check 
-            t_prev = sol.t[end-1]
-            h_prev = guard(sys, sol.x[end-1])
+            idx = max(1, length(sol.x) - 1)
+            t_prev = sol.t[idx]
+            h_prev = guard(sys, sol.x[idx])
 
             eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + h; tol=tol, direction=guard_direction)
 
@@ -706,10 +707,13 @@ end
 
 function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, direction::Symbol; tol=1e-6)
     #Helper: Does this linear segment cross in the correct direction?
+    is_stuck = abs(h_now) < tol * 10
+    
     valid_linear(h1, h2) = 
         (direction == :both && h1 * h2 < 0) ||
         (direction == :falling && h1 > 0 && h2 < 0) ||
-        (direction == :rising && h1 < 0 && h2 > 0)
+        (direction == :rising && h1 < 0 && h2 > 0) ||
+        (is_stuck && (direction == :falling ? h2 > h1 : h2 < h1))
 
     #Linear Crossing check
     if valid_linear(h_prev, h_now)

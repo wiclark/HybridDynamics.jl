@@ -113,7 +113,6 @@ function init_solution(prob::prob{S, I, T}) where {S<:Union{LinearSystem, Affine
     return HybridSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
 end
 
-
 """
     beating_and_blocking_sets(sys::Union{LinearSystem, AffineSystem})
 

@@ -5,24 +5,26 @@ struct GeneralSystem <: AbstractHybridSystem
     Δ::Function     #Reset map: x-> x⁺
 end
 
-struct GeneralSolution <: AbstractHybridSolution
+struct GeneralSolution{T} <: AbstractHybridSolution
     t::Vector{Float64}
-    x::Vector{Vector{Float64}}
+    x::Vector{T}
     jump_times::Vector{Float64}
     jump_indices::Vector{Int}
 end
 
 #Internal
 function init_solution(prob::prob{F, I, T}) where {F<:GeneralSystem, I, T}
-    return GeneralSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
+    return GeneralSolution{I}([prob.tspan[1]], [prob.init], Float64[], Int[])
 end
 #Internal
-function guard(sys::GeneralSystem, x::AbstractVector)
-    val = sys.h(x)
+function guard(sys::GeneralSystem, x::AbstractArray)
+    # If it's a matrix (like augmented state U), extract the physical state
+    x_phys = (x isa AbstractMatrix) ? x[:, 1] : x
+    val = sys.h(x_phys)
     return val isa AbstractVector ? minimum(abs.(val)) : val
 end
 #Internal
-function apply_reset(sys::GeneralSystem, x::AbstractVector)
+function apply_reset(sys::GeneralSystem, x::AbstractArray)
     return sys.Δ(x)
 end
 
@@ -90,18 +92,11 @@ function check_system_pathology(
         instant_jump_count = 0 # Explicitly bypass and reset the blocking trap
         @info "Zeno contraction detected. count: $zeno_count"
         
-        #Termination when Zeno is detected
-        if zeno_count >= max_zeno_jumps
-            @warn "Zeno behavior detected at t = $t_star after $zeno_count jumps. Terminating"
-            return zeno_count, instant_jump_count, :terminate
-        end
-
-        #= Accumulation point logic. Same as above but needs some tweaking to hit the actual Accu point. 
         if zeno_count >= max_zeno_jumps
             @warn "Zeno Accumulation Point Reached at t = $t_star. Terminating."
             return zeno_count, instant_jump_count, :terminate
         end
-        =#
+        
         return zeno_count, instant_jump_count, :continue
     else
         # Only reset if the interval genuinely grows or stabilizes outside Zeno
@@ -125,6 +120,7 @@ function check_system_pathology(
     instant_jump_count = 0
     return zeno_count, instant_jump_count, :continue
 end
+
 
 #Function calcs the continuous time derivative for the augmented state. Runs the usual dx and dΦ.
 function variational_vector_field(f, U::AbstractMatrix, t)
@@ -156,7 +152,7 @@ function compute_pushforward(f, Δ, h_guard, x⁻, t)
 
     # Compute grads and jacob via ForwardDiff
     dh⁻ = ForwardDiff.gradient(h_guard, x⁻)
-    DΔ⁻ = ForwardDiff.jacobian(Δ, x⁻)
+    DΔ⁻ = ForwardDiff.jacobian(y -> Δ(y, t), x⁻)
 
     # Check dh(x) * f(x) = 0
     denom = dot(dh⁻, f⁻)
@@ -196,29 +192,24 @@ function apply_variational_jump(U::AbstractMatrix, f, Δ, h_guard, t)
 end
 
 #Plotting Lines Expelled!
-function split_jumps(sol)
-    n_steps = length(sol.t)
-    n_states = length(sol.x[1])
+function split_jumps(sol::AbstractHybridSolution) 
+    t_list = sol.t
+    states = sol.x
+    
+    n_total = length(states[1])
 
-    t_list = Float64[]
-    X_list = Vector{Vector{Float64}}()
-
-    for i in 1:n_steps
-        push!(t_list, sol.t[i])
-        push!(X_list, vec(sol.x[i]))
-
-        # If a jump occurs between current and next step, insert NaNs
-        if i < n_steps && sol.t[i] == sol.t[i+1]
-            push!(t_list, NaN)
-            push!(X_list, fill(NaN, n_states))
+    data_list = Vector{Float64}[]
+    
+    for i in 1:length(states)
+        push!(data_list, vec(states[i])) 
+        if i < length(sol.t) && sol.t[i] == sol.t[i+1]
+            push!(data_list, fill(NaN, n_total))
         end
     end
 
-    # Convert to the format expected by plotting libraries
-    t_plot = t_list
-    X_plot = reduce(hcat, X_list)' # Creates an (N_total x n_states) matrix
+    data = reduce(hcat, data_list)'
     
-    return t_plot, X_plot
+    return t_list, data
 end
 
 #External
@@ -288,8 +279,7 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
             end
             last_jump_time = t_star
 
-            # Apply reset early to calculate the spatial step size
-            x⁺ = sys.Δ(x_star)
+            x⁺ = apply_reset(sys, x_star)
            
             push!(sol.t, t_star, t_star)
             push!(sol.x, x_star, x⁺)
