@@ -86,7 +86,7 @@ end
 begin
 	plt.plot(xf, yf, lw=2, label="Filippov Trajectory")
 	plt.plot!(xh, sin.(xh), lw=2, lc=:black, ls=:dash, label=L"H(x)=0")
-	plt.plot!(title = "Filippov Trajectory", label=L"x", ylabel=L"y", dpi=500)
+	plt.plot!(title = "Filippov Trajectory", label=L"x", ylabel=L"y")
 end
 
 # ╔═╡ 7b9a3bb2-0b4f-48bf-9c7a-1824281ad707
@@ -264,7 +264,7 @@ end
 # ╔═╡ Cell order:
 # ╠═6df38dc0-6787-11f1-a77e-9f1ff29a6e5b
 # ╠═5f758439-587b-4bbe-bd02-f2f9ce6cc8fb
-# ╠═30a03940-11a2-45e8-8f91-501370ddcee6
+# ╟─30a03940-11a2-45e8-8f91-501370ddcee6
 # ╟─2880f5f2-fb01-4696-aba3-7faf4714c9d3
 # ╠═9da11b33-0def-4ac1-bd19-574ef1cceb98
 # ╠═0cf59ef8-d158-42dc-913a-7766ac4d2420

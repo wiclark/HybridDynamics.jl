@@ -36,30 +36,19 @@ function MechanicalSystem(M, V;
 end
 
 # General solution struct for mechanical systems
-#struct MechanicalSol{T, Q, V, P, DX, I, E, Z}
-struct MechanicalSol{T, X, DX, I, E, Z}
+struct MechanicalSol{T, X, DX, I, E, Z} <: AbstractHybridSolution
     t::T        # Time data
     x::X        # x = (q,p), the state and momentum
-    #q::Q        # Position data
-    #v::V        # Velocity
-    #p::P        # Momentum
     dx::DX      # f(x) Derivative at each state x - only filled when dense_out = true
     prob::I     # Remember the problem - to aid interpolation
     event::E    # Times where an event has occurred 
     zeno::Z     # Times of Zeno points
 end
 
-######
-### WC: You need to initialize the velocities/momenta. This is incompatable with your current solution object from definitions.
-### I am just keeping everything as x = (q,p). 
-######
-
 # Function to initialize solution struct
 function MechanicalSol(prob)
     return MechanicalSol([prob.tspan[1]],
         [prob.init],
-        #Vector{Vector{Float64}}(),      # Velocity
-        #Vector{Vector{Float64}}(),      # Momentum
         Vector{Vector{Float64}}(),      
         prob,
         Float64[],
@@ -69,10 +58,6 @@ end
 # INTERNAL
 # Default reset map: specular reflection with coefficient of restitution. 
 # Ames, Aaron & Zheng, Haiyang & Gregg, Robert & Sastry, Shankar. (2006). Is there life after Zeno? Taking executions past the breaking (Zeno) point. 2006. 6 pp.. 10.1109/ACC.2006.1656623
-
-######
-### WC: We are working with momenta
-######
 function specular_refl(x, M, dh, sys)
 
     e = sys.e
@@ -81,21 +66,15 @@ function specular_refl(x, M, dh, sys)
     q = x[1:n]          # positions
     Mq = M(q)           # Mass matrix
     p = x[n+1:end]      # velocities
-    #v = Mq \ p
-
 
     # Constraint normal (row -> column) # <- It just is a column vector
     normal = dh(q)
 
     # Denominator
-    # denom = normal' * (Mq \ normal)
-    println(typeof(normal))
+    # println(typeof(normal))
     denom = dot(normal, Mq \ normal)
 
     # Full equation
-    #P = I - (1 + e) * ((Mq \ (normal * normal')) / denom)
-    #vnew = P * v
-    #pnew = Mq * vnew
     pnew = p - (1+e) * dot(p, Mq\normal) / denom * normal
 
     return vcat(q, pnew)
@@ -296,6 +275,9 @@ function solve(prob::prob{S, I, T};
             end
 
         # Record
+        if dense_out
+            push!(sol.dx, f(xₖ, tₖ)) # this is technically redundant, but it would take a lot of rewriting to get f out of take_step
+        end
         push!(sol.t, Δt_found+tₖ)
         push!(sol.x, x_next)
     end
