@@ -7,10 +7,20 @@ struct LinearSystem <: AbstractHybridSystem
     A::Matrix{Float64} #State Transition matrix (dx/dt = Ax)
     λ::Vector{Float64} #Normal Vector for the Guard Surface
     C::Matrix{Float64} #Reset map matrix (x⁺ = Cx)
+
+    #inner constructor: Runs automatically when creating the system to check dimensionality
+    function LinearSystem(A, λ, C)
+        n = size(A, 1)
+        if size(A, 2) != n || length(λ) != n || size(C, 1) != n || size(C, 2) != n
+            throw(DimensionMismatch("LinearSystem dimensions are inconsistent."))
+        end
+        # 'new' creates the instance with the validated data
+        new(A, λ, C) 
+    end
 end
 
 #External
-#Constructor to help user see data types 
+#external constructor to help user see data types 
 function LinearSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix)
     return LinearSystem(Float64.(A), Float64.(λ), Float64.(C))
 end
@@ -25,10 +35,21 @@ struct AffineSystem <: AbstractHybridSystem
     a::Float64          #Guard Offset const dot(λ, x) + a = 0
     C::Matrix{Float64}  #Reset matrix
     κ::Vector{Float64}  #Discrete affine vector const x⁺ = Cx + κ
+
+    #Inner construct: runs automatically when creating system to check dimensionality
+    function AffineSystem(A, b, λ, a, C, κ)
+        n = size(A, 1)
+        if size(A, 2) != n || length(b) != n || length(λ) != n || 
+           size(C, 1) != n || size(C, 2) != n || length(κ) != n
+            throw(DimensionMismatch("AffineSystem dimensions are inconsistent."))
+        end
+        # 'new' creates the instance with the validated data
+        new(A, b, λ, Float64(a), C, κ)
+    end
 end
 
 #External
-# Constructor to help user see data types
+# external constructor to help user see data types
 function AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector)
     return AffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ))
 end
@@ -174,14 +195,18 @@ function is_trivially_blocking(sys::Union{LinearSystem, AffineSystem})
 end
 
 #Internal
+#Calc guard function for linear systems
 function guard(sys::LinearSystem, x::AbstractArray)
-    x_phys = x isa AbstractMatrix ? x[:, 1] : x
-    return sys.λ' * x_phys
+    #if x is a matrix (usually for Variational equation) we isolate the first column to calc the guard
+    x_first_column = x isa AbstractMatrix ? x[:, 1] : x
+    return sys.λ' * x_first_column
 end
 #Internal
+#Calc guard for affine systems
 function guard(sys::AffineSystem, x::AbstractArray)
-    x_phys = x isa AbstractMatrix ? x[:, 1] : x
-    return sys.λ' * x_phys + sys.a 
+    #if x is a matrix (usually for Variational equation) we isolate the first column to calc the guard
+    x_first_column = x isa AbstractMatrix ? x[:, 1] : x
+    return sys.λ' * x_first_column + sys.a 
 end
 #internal
 function apply_reset(sys::LinearSystem, x::AbstractArray)
@@ -189,6 +214,7 @@ function apply_reset(sys::LinearSystem, x::AbstractArray)
 end
 #internal
 function apply_reset(sys::AffineSystem, x::AbstractArray)
+    #first linear transformation Cx
     x_new = sys.C * x
     # If matrix, κ only applies to the physical state (column 1)
     if x isa AbstractMatrix
@@ -197,24 +223,6 @@ function apply_reset(sys::AffineSystem, x::AbstractArray)
         x_new .+= sys.κ
     end
     return x_new
-end
-
-#Internal
-function get_dimension(sys::LinearSystem)
-    n = size(sys.A, 1)
-    if size(sys.A, 2) != n || length(sys.λ) != n || size(sys.C, 1) != n || size(sys.C, 2) != n
-        throw(DimensionMismatch("LinearSystem dimensions are inconsistent."))
-    end
-    return n
-end
-function get_dimension(sys::AffineSystem)
-    n = size(sys.A, 1)
-    # Check consistency of vectors and matrices
-    if size(sys.A, 2) != n || length(sys.b) != n || length(sys.λ) != n || 
-       size(sys.C, 1) != n || size(sys.C, 2) != n || length(sys.κ) != n
-        throw(DimensionMismatch("AffineSystem dimensions are inconsistent."))
-    end
-    return n
 end
 
 #SOLVER
@@ -227,7 +235,6 @@ function solve(prob::prob{F, I, T},
                zeno_ratio = 0.90, max_zeno_jumps = 5,
                stepper::AbstractODESolver=ModifiedTrap(),
                max_buffer_size=5,
-               beating_warn_threshold=3,
                max_instant_jumps = 5,
                guard_direction::Symbol = default_guard_direction(prob.sys)) where {F<:Union{LinearSystem, AffineSystem}, I, T<:Tuple{Float64, Float64}}
     

@@ -6,10 +6,10 @@ struct GeneralSystem <: AbstractHybridSystem
 end
 
 struct GeneralSolution{T} <: AbstractHybridSolution
-    t::Vector{Float64}
-    x::Vector{T}
-    jump_times::Vector{Float64}
-    jump_indices::Vector{Int}
+    t::Vector{Float64}          #Time points of sim
+    x::Vector{T}                #State traj: T is generic to support varying state types 
+    jump_times::Vector{Float64} #Explicit storage of timestamps where resets occurred
+    jump_indices::Vector{Int}   #Map of jump_times to indices in the x and t vectors
 end
 
 #Internal
@@ -105,7 +105,7 @@ function check_system_pathology(
         zeno_count = max(0, zeno_count - 1)
     end
 
-    # 3. Beating and Blocking Check (Only evaluated if NOT Zeno)
+    #Beating and Blocking Check (Only evaluated if NOT Zeno)
     if jump_interval <= tol
         instant_jump_count += 1
         
@@ -118,7 +118,7 @@ function check_system_pathology(
         return zeno_count, instant_jump_count, :continue
     end
 
-    # 4. Continuous movement
+    #Continuous movement
     instant_jump_count = 0
     return zeno_count, instant_jump_count, :continue
 end
@@ -227,7 +227,6 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
                zeno_ratio = 0.90, max_zeno_jumps = 3,
                stepper::AbstractODESolver=ModifiedTrap(),
                max_buffer_size=5,
-               beating_warn_threshold=3,
                max_instant_jumps = 5,
                guard_direction::Symbol = default_guard_direction(prob.sys)) where {F<:GeneralSystem, I, T}
     
@@ -244,6 +243,9 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
     last_jump_time = t_start
     last_intervals = Float64[]
 
+    #State flag: if true, the system is constrained on the guard. This is to avoid weird sliding and it does some work for falling through the guard too!
+    #I will add, for beating and blocking we will most likely need to fine tune the tolerances. I think this will mainly be done when we really test things
+    #Perhaps I will also find a smarter way to do this but for now we are good. Liam can mess with it
     in_sliding_mode = false
     
 
@@ -263,6 +265,7 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
         # Truncate time step if we overshoot
         dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
+        #Adaptive step sizing: slow down when near guard to increase resolution
         if abs(guard(sys, sol.x[end])) < tol * 100
             dt_step = min(dt_step, dt_min * 10)
         end
@@ -271,6 +274,7 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
         xₖ = sol.x[end]
         tₖ = sol.t[end]
 
+        #Exit sliding mod if the trajectory moves back to safe place
         if in_sliding_mode && guard(sys, xₖ) > 0
             in_sliding_mode = false
         end
@@ -278,10 +282,12 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
         # Attempt continuous step
         x_predict, eventtriggered, h_now, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
 
+        #Logic: if we are sliding, we ignore further events to avoid breaking everything
         if in_sliding_mode
             eventtriggered = false
         end
 
+        #Check for crossing: either explict event flag or a sign flip in the guard function
         if !eventtriggered && !in_sliding_mode && (guard(sys, xₖ) * guard(sys, x_predict) < 0 || guard(sys, x_predict) <= 0)
             eventtriggered = true
         end
@@ -300,19 +306,22 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
                 max_buffer_size
             )
 
+            #Terminate sim if pathological behavior is confirmed
             if status == :terminate
                 break
             end
             last_jump_time = t_star
 
+            #Trigger sliding mode after impact
             in_sliding_mode = true
-
             if abs(h_now) < tol * 10
                 in_sliding_mode = true
             end
 
+            #apply state jump (reset map)
             x⁺ = apply_reset(sys, x_star)
            
+            #Record impact point and post reset state 
             push!(sol.t, t_star, t_star)
             push!(sol.x, x_star, x⁺)
 
@@ -321,9 +330,10 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
                 push!(sol.jump_indices, length(sol.x))
             end
 
+            #Reset step size to default after event
             Δt = dt_initial
-
         else 
+            #Normal cont updated
             push!(sol.t, tₖ + dt_used)
             push!(sol.x, x_predict)
             Δt = dt_next

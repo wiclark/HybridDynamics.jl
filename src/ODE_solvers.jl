@@ -380,13 +380,18 @@ function compute_lmm_step(::AdamsBashforth3, f, xₖ, tₖ, Δt, x_history, t_hi
 end
 
 function compute_lmm_step(::BDF2, f, zₖ, tₖ, Δt, x_history, t_history)
+    #retrieve state at previous time step.
     z_prev = x_history[end]
     t_new = tₖ + Δt
 
+    #doing some algebra to isolate the implicit part of BDF2 and "c" is the right side
     c = (4.0 / 3.0) .* zₖ .- (1.0 / 3.0) .* z_prev
+    #coeff scaling step size 
     α = 2.0 / 3.0
 
+    #Gen initial guess using Exp Euler to help the Newton Root finder
     z_guess = zₖ .+ Δt .* f(zₖ, tₖ)
+    #solve implicit system G(z) = 0 using Newtons
     return implicit_newton_solve(f, z_guess, c, α, Δt, t_new)
 end
 
@@ -631,110 +636,72 @@ function implicit_newton_solve(f::Function, z_guess::Vector, c::Vector, α::Abst
     z_curr = copy(z_guess)
 
     for _ in 1:max_iter
+        #Eval vector field at curent guess for z_{n+1}
         val = f(z_curr, t_new)
+        #construct residual function G(z) = z - c - αhf(z). When G(z) = 0 we have a sol
         G = z_curr .- c .- (α*h) .* val
 
+        #Convergence check
         if norm(G) < tol
             return z_curr
         end
 
+        #Calc Jacobian of vector field at our current guess
         J_f = ForwardDiff.jacobian(y -> f(y, t_new), z_curr)
+        #Calc Jacobian of the residual G(z). 
         J_G = I - (α*h) * J_f
 
+        #Update based on Newtons method. 
         z_curr = z_curr .- J_G \ G
     end
+    #Just in case
     @warn "Newton Raphson solver failed to converge at t = $t_new. Consider a smaller step size."
+    #return NaN to signal the sim that this step is invalid. 
     return fill(NaN, size(z_curr))
 end
 
 #====================================#
 #Event detection utility. 
-#If a guard surface was crossed and during the ODE step. We check for a sign change between start and end of the step.
-#=
-function crossed_guard(h_prev, h_now, h_next, t_prev, t_now, t_next; tol=1e-6)
-
-    # Linear Crossing check 
-    #if the sign changes between now and next a root must exist. 
-    #updated to account for Logical error
-    if (h_prev * h_now < 0)
-        #Linear interp
-        t_root = t_prev - h_prev * (t_now - t_prev) / (h_now - h_prev)
-        return true, t_root, NaN
-    elseif (h_now * h_next < 0)
-        t_root = t_now - h_now * (t_next - t_now) / (h_next - h_now)
-        return true, t_root, NaN 
-    end
-
-
-    # Performing the quadratic version. If the discriminant is positive, there are roots.
-    # Recall, that by the IVT, the linear test guarantees a crossing. The quadratic test does not guarantee one. This triggering should be treated as a warning.
-
-    try 
-        #matrix of three points we use per WC
-        A = [t_prev^2 t_prev 1; t_now^2 t_now 1; t_next^2 t_next 1]
-        a, b, c = A \ [h_prev, h_now, h_next]
-
-        #ensure a is valid (a != 0)
-        if abs(a) > 1e-10
-            discriminant = b^2 - 4*a*c
-
-            #if disc is positive, there are roots
-            if discriminant > 0 
-                #calc roots
-                sqrt_d = sqrt(discriminant)
-                r1 = (-b - sqrt_d) / (2*a)
-                r2 = (-b + sqrt_d) / (2*a)
-
-                #Fixed logic error where r1 not in tspan but r2 is
-                valid_roots = Float64[]
-                eps_t = 1e-9 #epsilon buffer only on time interval so state will be good
-                if (t_prev + eps_t) <= r1 <= t_next push!(valid_roots, r1) end
-                if (t_prev + eps_t) <= r2 <= t_next push!(valid_roots, r2) end
-
-                if !isempty(valid_roots)
-                    proposed_root = minimum(valid_roots) #smallest valid root
-                    critical_point = -b / (2*a)
-                    return true, proposed_root, critical_point
-                end
-            end
-        end
-    catch 
-        #if matrix is singular or calc fails we ignore quad warning
-        return false, NaN, NaN
-    end
-    return false, NaN, NaN
-end
-=#
-
+#Assigns a default crossing direction to a specific system to reduce issues (this may be made better for the front end later but for now this works)
 default_guard_direction(sys::MechanicalSystem) = :falling
 default_guard_direction(sys::NonholonomicSystem) = :falling
+#Gen system lack specific constraints so we monitor crossings in both directions
 default_guard_direction(sys::GeneralSystem) = :both
 default_guard_direction(sys) = :both
 
+#Wrapper function to interface between the system state and core logic
 function crossed_guard(sys, h_prev, h_now, h_next, t_prev, t_now, t_next; 
                        tol=1e-6, direction=default_guard_direction(sys))   
-    # Passes the direction
+    # Calls evaluator with the directionality
     return evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, direction; tol=tol)
 end
 
+#Core engine: determines if/when the guard function 'h' changes sign. 
 function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, direction::Symbol; tol=1e-6)
+    #Helper to validate a linear sign change based on the required direction
     valid_linear(h1, h2) = 
         (direction == :both && h1 * h2 < 0) ||
         (direction == :falling && h1 > 0 && h2 < 0) ||
         (direction == :rising && h1 < 0 && h2 > 0)
 
+    #First check: Simple linear crossing detection. Between previous and current
     if valid_linear(h_prev, h_now)
+        #Linear interpolation to find the root
         t_root = t_prev - h_prev * (t_now - t_prev) / (h_now - h_prev)
         return true, t_root, NaN
+    #Second check: Linear beween current and next
     elseif valid_linear(h_now, h_next)
         t_root = t_now - h_now * (t_next - t_now) / (h_next - h_now)
         return true, t_root, NaN 
     end
+
     #Quad version
-    try 
+    try
+        #Set up linear system to solve for parabola coeffs  
         A = [t_prev^2 t_prev 1; t_now^2 t_now 1; t_next^2 t_next 1]
         a, b, c  = A \ [h_prev, h_now, h_next]
 
+        #Ensure it is actually a parabola then check disc
         if abs(a) > 1e-6
             discriminant = b^2 - 4*a*c
             if discriminant > 0
@@ -743,7 +710,7 @@ function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, directi
                 r2 = (-b + sqrt_d) / (2*a)
 
                 valid_roots = Float64[]
-                eps_t = 1e-9
+                eps_t = 1e-9 #Buffer to ensure root isnt some weird artifact (it does seem necessary)
 
                 #Derivative of parabola eval the slope of root. 
                 h_prime(t) = 2*a*t + b
@@ -758,6 +725,7 @@ function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, directi
                 if (t_prev + eps_t) <= r1 <= t_next && valid_quad(r1) push!(valid_roots, r1) end 
                 if (t_prev + eps_t) <= r2 <= t_next && valid_quad(r2) push!(valid_roots, r2) end
 
+                #If root exists, return earliest and the parabolas critical point
                 if !isempty(valid_roots)
                     proposed_root = minimum(valid_roots)
                     critical_point = -b / (2*a)
@@ -766,6 +734,7 @@ function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, directi
             end
         end
     catch
+        #If linear system is singular or math fails, return failure to cross. 
         return false, NaN, NaN
     end
     return false, NaN, NaN
