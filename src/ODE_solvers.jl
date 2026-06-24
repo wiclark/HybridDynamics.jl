@@ -790,19 +790,9 @@ struct QuadraticLocator <: AbstractEventLocator end
 #Tag to use Newtons method for event locators
 struct NewtonLocator <: AbstractEventLocator end
 
-#=
-#IF a locator is called while using an LMM, we temporaily swap to a RK method . 
-#Since an event implies impending jump (which wipes the LMM history)
-# using an RK method to pinpoint the impact should be sound.
-#We will add the stepper to the arg list in each event locator even if not used to allow us to do this. (Should be better for the user)
-function locate_event(locator, prob, solver::LMM, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = ModifiedTrap())
-    # Route through to the RK version, passing the stepper forward
-    return locate_event(locator, prob, stepper, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper)
-end
-=#
 #Bisection Method (Iterative)
 
-function locate_event(::BisectionLocator, prob, solver::Union{RK, AdaptiveLMM, FixedLMM}, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
+function locate_event(::BisectionLocator, prob, solver::AbstractODESolver, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
     sys = prob.sys
     τ_l, τ_r = 0.0, Δt
     h_l = h_now
@@ -830,7 +820,7 @@ function locate_event(::BisectionLocator, prob, solver::Union{RK, AdaptiveLMM, F
 end
 #Linear Interpolation
 
-function locate_event(::LinearLocator, prob, solver::Union{RK, AdaptiveLMM, FixedLMM}, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
+function locate_event(::LinearLocator, prob, solver::AbstractODESolver, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
     sys = prob.sys
     τ_l, τ_r = 0.0, Δt
     h_l = h_now
@@ -872,7 +862,7 @@ function locate_event(::LinearLocator, prob, solver::Union{RK, AdaptiveLMM, Fixe
     return t_star, x_star
 end
 
-function locate_event(::QuadraticLocator, prob, solver::Union{RK, AdaptiveLMM, FixedLMM}, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
+function locate_event(::QuadraticLocator, prob, solver::AbstractODESolver, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
     sys = prob.sys
 
     #Get three points 
@@ -933,7 +923,7 @@ function locate_event(::QuadraticLocator, prob, solver::Union{RK, AdaptiveLMM, F
     return t_star, x_star
 end
 
-function locate_event(::NewtonLocator, prob, solver::Union{RK, AdaptiveLMM, FixedLMM}, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
+function locate_event(::NewtonLocator, prob, solver::AbstractODESolver, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
     sys = prob.sys
 
     τ_prev = 0.0
