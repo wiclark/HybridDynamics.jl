@@ -20,56 +20,44 @@ function Δ_bounce_var(x, t=0.0)
     return [new_position, new_velocity]
 end
 
-n = 2
+f_aug = (U, t) -> variational_vector_field(f_ball_var, U, t)
 
-f_aug = (u, t) -> variational_vector_field(f_ball_var, u, t, n)
+h_aug = (U) -> h_floor_var(U[:, 1])
 
-h_aug = (u) -> h_floor_var(u[1:n])
-
-Δ_aug = (u) -> begin
-    u_copy = copy(u) # Ensure we do not overwrite the current step state prematurely
-    return apply_variational_jump(u_copy, n, f_ball_var, Δ_bounce_var, h_floor_var, 0.0)
+Δ_aug = (U) -> begin
+    U_copy = copy(U)
+    return apply_variational_jump(U_copy, f_ball_var, Δ_bounce_var, h_floor_var, 0.0)
 end
 
 sys_aug = GeneralSystem(f_aug, h_aug, Δ_aug)
 
-x0 = [10.0, 0.0]                      # Initial state (position, velocity)
-Φ0 = Matrix{Float64}(I, n, n)         # Initial fundamental solution matrix (Identity)
-u0 = vcat(x0, vec(Φ0))                # Augmented state vector [x1, x2, Φ11, Φ21, Φ12, Φ22]
+n = 2
+x0 = [10.0, 0.0]                      
+Φ0 = Matrix{Float64}(I, n, n)         
+U0 = hcat(x0, Φ0)                
 
-tspan = (0.0, 5.0)   
-problem_aug = prob(sys_aug, u0, tspan)
+tspan = (0.0, 15.0)   
+problem_aug = prob(sys_aug, U0, tspan)
 
-sol = solve(problem_aug)
+sol = solve(problem_aug, AdamsBashforth3(); 
+            event_method=LinearLocator(), 
+            dt_initial=0.01, 
+            dt_min=1e-6,
+            tol=1e-6)
 
-function get_rid_of_jump_lines_var(sol)
-    t = Float64[]
-    p11, p21, p12, p22 = Float64[], Float64[], Float64[], Float64[]
+t_plot, x_plot = split_jumps(sol)
 
-    for i in 1:length(sol.x)
-        push!(t, sol.t[i])
-        push!(p11, sol.x[i][3])
-        push!(p21, sol.x[i][4])
-        push!(p12, sol.x[i][5])
-        push!(p22, sol.x[i][6])
+p11 = [state[1, 2] for state in x_plot]
+p21 = [state[2, 2] for state in x_plot]
+p12 = [state[1, 3] for state in x_plot]
+p22 = [state[2, 3] for state in x_plot]
 
-        if i < length(sol.t) && sol.t[i] == sol.t[i+1]
-            push!(t, NaN)
-            push!(p11, NaN); push!(p21, NaN); push!(p12, NaN); push!(p22, NaN)
-        end
-    end
-    return t, p11, p21, p12, p22
-end
-
-t_plot, p11, p21, p12, p22 = get_rid_of_jump_lines_var(sol)
-
-# Plot the sensitivity values over time
 p_display = plot(t_plot, [p11 p21 p12 p22], 
                  label=["Φ11 (dx/dx0)" "Φ21 (dv/dx0)" "Φ12 (dx/dv0)" "Φ22 (dv/dv0)"], 
                  linewidth=2.0, 
                  title="Variational Equation Testing", 
                  xlabel="Time", 
-                 ylabel="Sensitivity Value",
+                 ylabel="Sensitivity",
                  grid=true)
 
 display(p_display)
