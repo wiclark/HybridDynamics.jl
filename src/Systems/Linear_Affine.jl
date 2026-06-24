@@ -35,16 +35,16 @@ end
 
 #SOLUTION STRUCTS AND HELPERS. 
 #Goal to provide standard date for simulation outputs. Keeps cont trajectories and discrete events organized. Currently affine and linear are the samem but kept separate to allow specific plotting later?
-struct HybridSolution <: AbstractHybridSolution
+struct HybridSolution{T} <: AbstractHybridSolution
     t::Vector{Float64}
-    x::Vector{Vector{Float64}}
+    x::Vector{T}
     jump_times::Vector{Float64}
     jump_indices::Vector{Int}
 end 
 
 function CreateSolution(prob::prob{S, I, T}, t::AbstractVector, x::AbstractVector,
     jump_times::AbstractVector, jump_indices::AbstractVector) where {S <: Union{LinearSystem, AffineSystem}, I, T}
-    return HybridSolution(Float64.(t), Vector{Float64}.x, Float64.(jump_times), Int{jump_indices})
+    return HybridSolution{I}(Float64.(t), Vector{I}(x), Float64.(jump_times), Vector{Int}(jump_indices))
 end
 
 #Exact Linear Flow (matrix exponential)
@@ -75,33 +75,6 @@ function flow(flowmap::LinearFlow, τ::Real, x::AbstractVector)
     #Computes exact state x(t+τ) = exp(A*τ) * x(t)
     #This is very memory instensive as of now. Fixing will come later
     return exp(flowmap.A .* τ) * x
-end
-
-#Beating/Zeno check
-#Goal is to prevent loops in Linear and Affine systems.
-#Through Multiple dispath, this overrides the default fallback in Definitions.jl only when the solver is Linear or Affine. 
-
-#Internal (could be external if we want?)
-function check_beating_status(sys::Union{LinearSystem, AffineSystem}, instant_jumps, n, x_current, t_current, tol, trivial_tol_multiplier)
-    if (instant_jumps) > (n-1) 
-        if norm(x_current) < tol * trivial_tol_multiplier
-            @info "Trivial Blocking: System settled at origin at t = $t_current"
-            return :blocking_trivial 
-        end
-        x_next = apply_reset(sys, x_current)
-
-        if norm(x_next) < norm(x_current) * (1-tol)
-            @info "Contractive Beating: State shrinking toward origin at t = $t_current"
-            return :contractive_beating
-        elseif norm(x_next) > norm(x_current) * (1+tol)
-            @warn "Expansive Blocking: State trapped and expanding on guard at t = $t_current"
-            return :blocking_expansive
-        else 
-            @warn "Expansive Blocking: State trapped on guard at t = $t_current"
-            return :blocking_non_trivial 
-        end
-    end
-    return :continue
 end
 
 #Solution Initialization
@@ -201,21 +174,29 @@ function is_trivially_blocking(sys::Union{LinearSystem, AffineSystem})
 end
 
 #Internal
-function guard(sys::LinearSystem, x::AbstractVector)
-    return sys.λ' * x
+function guard(sys::LinearSystem, x::AbstractArray)
+    x_phys = x isa AbstractMatrix ? x[:, 1] : x
+    return sys.λ' * x_phys
 end
 #Internal
-function guard(sys::AffineSystem, x::AbstractVector)
-    return sys.λ' * x + sys.a 
+function guard(sys::AffineSystem, x::AbstractArray)
+    x_phys = x isa AbstractMatrix ? x[:, 1] : x
+    return sys.λ' * x_phys + sys.a 
 end
-
 #internal
-function apply_reset(sys::LinearSystem, x::AbstractVector)
+function apply_reset(sys::LinearSystem, x::AbstractArray)
     return sys.C * x
 end
 #internal
-function apply_reset(sys::AffineSystem, x::AbstractVector)
-    return sys.C * x + sys.κ
+function apply_reset(sys::AffineSystem, x::AbstractArray)
+    x_new = sys.C * x
+    # If matrix, κ only applies to the physical state (column 1)
+    if x isa AbstractMatrix
+        x_new[:, 1] .+= sys.κ
+    else
+        x_new .+= sys.κ
+    end
+    return x_new
 end
 
 #Internal
@@ -248,29 +229,37 @@ function solve(prob::prob{F, I, T},
                max_buffer_size=5,
                beating_warn_threshold=3,
                max_instant_jumps = 5,
-                guard_direction::Symbol = default_guard_direction(prob.sys)) where {F<:Union{LinearSystem, AffineSystem}, I<:AbstractVector{Float64}, T<:Tuple{Float64, Float64}}
+               guard_direction::Symbol = default_guard_direction(prob.sys)) where {F<:Union{LinearSystem, AffineSystem}, I, T<:Tuple{Float64, Float64}}
+    
     sys = prob.sys
 
-    f = hasproperty(sys, :b) ? ((x,t) -> sys.A * x + sys.b) : ((x,t) -> sys.A * x) 
+    f = hasproperty(sys, :b) ? function(x, t)
+        dx = sys.A * x
+        if x isa AbstractMatrix
+            dx[:, 1] .+= sys.b # Only add 'b' to physical state, not variational if there
+        else
+            dx .+= sys.b
+        end
+        return dx
+    end : ((x, t) -> sys.A * x)
 
-    #Initialize soltution based on linear/affine
+    # Initialize solution based on linear/affine
     sol = init_solution(prob)
 
-    #extract start and end times
+    # Extract start and end times
     t_start, t_end = prob.tspan
 
-    #initialize time step and iter counter
+    # Initialize time step and iter counter
     Δt = dt_initial
     iter = 0
 
-    #trackers for beating blocking and Zeno logic
+    # Trackers for beating, blocking, and Zeno logic
     instant_jump_count = 0
     zeno_count = 0
-    last_jump_time = t_start      #calc the current interval
-    last_intervals = Float64[]  #History of intervals     
-    n = length(prob.init)
+    last_jump_time = t_start      
+    last_intervals = Float64[]     
 
-    #run until end time or max iter
+    # Run until end time or max iter
     while sol.t[end] < t_end
         iter += 1
         if iter > max_iter 
@@ -278,36 +267,39 @@ function solve(prob::prob{F, I, T},
             break
         end
 
-        #terminate if time is below machine precision
+        # Terminate if time is below machine precision
         if t_end - sol.t[end] < dt_min
             @info "Time to end of simulation below minimum time step. Ending simulation at t = $(sol.t[end])"
             break
         end
 
-        #truncate time step if we overshoot the final time
+        # Truncate time step if we overshoot the final time
         dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
-        #continuous integration
+        if abs(guard(sys, sol.x[end])) < tol * 100
+            dt_step = min(dt_step, dt_min * 10)
+        end
+
         xₖ = sol.x[end]
         tₖ = sol.t[end]
-
         h_now = guard(sys, xₖ)
 
-        #attempt continuous step
+        # Attempt continuous step
         x_predict, eventtriggered, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
 
+        #catch for boundary trapping (Zeno/Beating)
         is_exactly_on_guard = abs(h_now) <= tol
 
-        #discrete event logic
+        # Discrete event logic
         if eventtriggered || is_exactly_on_guard
-
+            
             if is_exactly_on_guard
                 t_star, x_star = tₖ, xₖ
             else
                 t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, h_now, tol, sol, stepper)
             end
             
-            #PATHOLOGY CHECK
+            # PATHOLOGY CHECK
             jump_interval = t_star - last_jump_time
             zeno_count, instant_jump_count, status = check_system_pathology(
                 jump_interval, last_intervals, 
@@ -319,25 +311,21 @@ function solve(prob::prob{F, I, T},
             if status == :terminate
                 break
             end
-
             
             last_jump_time = t_star
 
-            #Apply Reset
+            # Apply Reset
             x⁺ = apply_reset(sys, x_star)
 
-
-            #Tracking data
             push!(sol.t, t_star, t_star)
             push!(sol.x, x_star, x⁺)
 
-            #record event data for analysis
             if hasproperty(sol, :jump_times)
                 push!(sol.jump_times, t_star)
-                push!(sol.jump_indices, length(sol.t))
+                push!(sol.jump_indices, length(sol.x))
             end
 
-            #shrink min step size to avoid overshooting
+            # Shrink min step size to avoid overshooting
             Δt = dt_initial
 
         else
@@ -345,12 +333,10 @@ function solve(prob::prob{F, I, T},
             push!(sol.t, t_next)
             push!(sol.x, x_predict)
 
-            #reset step size
+            # Reset step size
             Δt = dt_next
-
         end
-
-        end
-        return sol
-    end 
+    end
+    return sol
+end
 
