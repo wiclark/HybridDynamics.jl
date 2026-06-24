@@ -73,21 +73,19 @@ function check_system_pathology(
     max_buffer_size)
     #There is room for a lot of tolerance stuff here. I will work on that at some point - DS
 
-    # 1. Update history FIRST so Zeno can be evaluated
+    #Update history FIRST so Zeno can be evaluated
     push!(last_intervals, jump_interval)
     if length(last_intervals) > max_buffer_size
         popfirst!(last_intervals)
     end
 
-    # 2. Zeno Check before anything else
-    is_contracting = length(last_intervals) >= 3 && 
-                     (last_intervals[end] <= last_intervals[end-1] * zeno_ratio) &&
-                     (last_intervals[end-1] <= last_intervals[end-2] * zeno_ratio) &&
-                     (last_intervals[end-1] > tol)
+    #Zeno Check before anything else
+    is_contracting = length(last_intervals) >= 2 && 
+                     (last_intervals[end] <= last_intervals[end-1] * zeno_ratio)
 
     # If we are already in a Zeno and hit the numerical floor, 
     # maintain the Zeno classification instead of dropping to Blocking.THIS HAPPENED SO MANY TIMES
-    hit_zeno_floor = (zeno_count > 0) && (jump_interval <= tol)
+    hit_zeno_floor = (jump_interval <= tol * 2)
 
     in_zeno_state = (is_contracting && jump_interval < 1e-2) || hit_zeno_floor
 
@@ -97,14 +95,14 @@ function check_system_pathology(
         @info "Zeno contraction detected. count: $zeno_count"
         
         if zeno_count >= max_zeno_jumps
-            @warn "Zeno Accumulation Point Reached at t = $t_star. Terminating."
+            @warn "Max Zeno jumps reached at t = $t_star. Terminating."
             return zeno_count, instant_jump_count, :terminate
         end
         
         return zeno_count, instant_jump_count, :continue
-    elseif jump_interval > tol * 10
+    elseif jump_interval > tol * 100
         # Only reset if the interval genuinely grows or stabilizes outside Zeno
-        zeno_count = 0 
+        zeno_count = max(0, zeno_count - 1)
     end
 
     # 3. Beating and Blocking Check (Only evaluated if NOT Zeno)
@@ -226,7 +224,7 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
                event_method::AbstractEventLocator=LinearLocator(), 
                dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, 
                tol = 1e-6, 
-               zeno_ratio = 0.90, max_zeno_jumps = 15,
+               zeno_ratio = 0.90, max_zeno_jumps = 3,
                stepper::AbstractODESolver=ModifiedTrap(),
                max_buffer_size=5,
                beating_warn_threshold=3,
@@ -265,6 +263,10 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
         # Truncate time step if we overshoot
         dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
+        if abs(guard(sys, sol.x[end])) < tol * 100
+            dt_step = min(dt_step, dt_min * 10)
+        end
+
         # Continuous integration
         xₖ = sol.x[end]
         tₖ = sol.t[end]
@@ -280,7 +282,7 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
             eventtriggered = false
         end
 
-        if !eventtriggered && !in_sliding_mode && guard(sys, x_predict) <= 0
+        if !eventtriggered && !in_sliding_mode && (guard(sys, xₖ) * guard(sys, x_predict) < 0 || guard(sys, x_predict) <= 0)
             eventtriggered = true
         end
 
