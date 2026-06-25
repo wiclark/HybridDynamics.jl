@@ -238,7 +238,7 @@ ARGUMENT KEY
 ## Optional:
 
 ### Simulation and Step Controls:
-* 'dt_initial' (Float64, default '.01'): The starting time step for the continuous solver.
+* 'dt_initial' (Float64, default '0.01'): The starting time step for the continuous solver.
 * 'dt_min' (Float64, default '1e-6'): The absolute minimum allowable time step. If the solver tries to go below this, the simulation terminates.
 * 'max_iter' (Int, default '10^6'): The maximum number of continuous integration steps allowed before forcing a timeout.
 'tol' (Float64, default '1e-6'): The baseline numerical tolerance used across the solver. Acts as the foundational unit for multipliers below.
@@ -267,7 +267,7 @@ machine precision drops into beating blocks.
 """
 function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45(); 
                event_method::AbstractEventLocator=LinearLocator(), 
-               dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, 
+               dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6, 
                tol = 1e-6, 
                zeno_ratio = 0.90, max_zeno_jumps = 3,
                stepper::AbstractODESolver=RK4(),
