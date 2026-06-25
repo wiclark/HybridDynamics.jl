@@ -3,7 +3,7 @@ module HybridDynamics
 using LinearAlgebra
 using ForwardDiff
 
-include("Definitions.jl")
+include("ODE_Solvers/Definitions.jl")
 
 include("Systems/Linear_Affine.jl")
 include("Systems/Mechanical.jl")
@@ -11,7 +11,14 @@ include("Systems/Nonholonomic.jl")
 include("Systems/General.jl")
 include("Systems/Filippov.jl")
 
-include("ODE_solvers.jl")
+include("ODE_Solvers/Linear_Multistep_Methods/Adaptive_LMM_Steps.jl")
+include("ODE_Solvers/Linear_Multistep_Methods/Fixed_LMM_Steps.jl")
+include("ODE_Solvers/Runge_Kutta_Methods/Fixed_RK_Steps.jl")
+include("ODE_Solvers/Runge_Kutta_Methods/Adaptive_RK_Steps.jl")
+include("ODE_Solvers/Bonus_Methods.jl")
+include("ODE_Solvers/Event_Locators.jl")
+
+
 
 #Basic Def Structs
 export AbstractHybridSystem, AbstractHybridProblem
@@ -36,12 +43,17 @@ export GeneralSystem, GeneralProblem
 
 ########
 #ODE Step solvers - Interpolation with Fixed Step size
-export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver, RichardsonExtrapolation
+export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver, RichardsonExtrapolationm, ImplicitEuler
 #With Adaptive step size
 export RK23, RK45
 
-#ODE Step solvers - Extrapolation 
-export AdamsBashforth2, AdamsBashforth3
+#Fixed LMM
+export AdamsBashforth2, AdamsBashforth3, BDF2
+#Adaptive LMM
+export AdaptiveABM2, AdaptiveABM3
+
+#Extra Solvers
+export MagnusLeapfrog
 
 #EventDetection locators
 export LinearLocator, BisectionLocator, QuadraticLocator
@@ -49,6 +61,11 @@ export LinearLocator, BisectionLocator, QuadraticLocator
 #Linear/Affine additives
 export beating_and_blocking_sets, is_trivially_blocking
 
+#Variational Equation
+export variational_vector_field, compute_pushforward, apply_variational_jump
+
+#Plotting Help
+export split_jumps
 end
 
 
