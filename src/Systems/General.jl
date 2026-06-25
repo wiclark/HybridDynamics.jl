@@ -225,12 +225,52 @@ function split_jumps(sol::AbstractHybridSolution)
 end
 
 #External
+
+"""
+    solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45(); kwargs...) where {F<:GeneralSystem, I, T}
+
+ARGUMENT KEY
+
+## Required:
+'prob': The problem definition containing the system dynamics 'sys', initial state, and time span.
+'solver': The numerical integration method used for continous steps. Defaults to RK45().
+
+## Optional:
+
+### Simulation and Step Controls:
+* 'dt_initial' (Float64, default '.01'): The starting time step for the continuous solver.
+* 'dt_min' (Float64, default '1e-6'): The absolute minimum allowable time step. If the solver tries to go below this, the simulation terminates.
+* 'max_iter' (Int, default '10^6'): The maximum number of continuous integration steps allowed before forcing a timeout.
+'tol' (Float64, default '1e-6'): The baseline numerical tolerance used across the solver. Acts as the foundational unit for multipliers below.
+
+### Event Handling
+* 'event_method' (AbstractEventLocator, default 'LinearLocator()'): The algorithm used to pinpoint the exact time and state of a guard crossing.
+* 'stepper' (AbstractODESolver. default 'RK4()'): The secondary ODE solver used internally by the event detection locator to pinpoint the impact state.
+* 'guard_direction' (Symbol, default 'default_guard_direction(prob.sys)'): Dictates which zero-crossing direction triggers an event (e.g., positive-to-negative).
+
+### Pathology Tuning
+* 'zeno_ratio' (Float64, default '.90'): The ratio threshold for Zeno detection. If consecutive jump intervals contract by this ratio (or faster) it triggers a Zeno classification. 
+* 'max_zeno_jumps' (Int, default '3'): The maximum number of consecutuve Zeno contractions allowed before terminating the simulation. 
+* 'max_instant_jumps' (Int, default '5'): The maximum number of instantaneous jumps allowed before classifying the system as blocked and terminating. 
+* 'max_buffer_size' (Int, default '5'): The number of previous jump intervals stored in memory to evaluate Zeno contractions.
+
+### Fine-Tuning Multipliers (scaled against 'tol')
+* 'min_zeno_history' (Int, default '2'): The minimum number of recorded jumps required before the solver will attempt to calculate a Zeno contraction ratio. 
+* 'zeno_floor_mult' (Float64, default '2.0'): Defines the numerical floor ('tol * zeno_floor_mult'). If a jump interval falls below this, it maintains a Zeno state to prevent
+machine precision drops into beating blocks.
+* 'zeno_time_threshold' (Float64, default '1e-2'): The absolute maximum duration a jump interval can be while still being eligible for Zeno contraction classification.
+* 'zeno_reset_mult' (Float64, default '100.0'): If a jump interval exceeds 'tol * zeno_reset_mult', the system is deemed safe and the Zeno counter is decremented.
+* 'beating_tol_mult' (Float64, default '1.0'): Defines the time window ('tol * beating_tol_mult'). Jumps occurring within this window are classifed as instantaneous jumps or 'beating'
+* 'adaptive_tol_mult' (Float64, defualt '100.0'): The boundary distance multiplier ('tol * adaptive_tol_mult'). When the system enters this distance from the guard, it shrinks step size to increase resolution.
+* 'sliding_tol_mult' (Float64, default '10.0'): If the post-impact guard value is within 'tol * sliding_tol_mult', the solver enters sliding mode to suppress immediate erroneous events. This helps us avoid strange chattering.  
+
+"""
 function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45(); 
                event_method::AbstractEventLocator=LinearLocator(), 
                dt_initial=.01, dt_min = 1e-6, max_iter = 10^6, 
                tol = 1e-6, 
                zeno_ratio = 0.90, max_zeno_jumps = 3,
-               stepper::AbstractODESolver=ModifiedTrap(),
+               stepper::AbstractODESolver=RK4(),
                max_buffer_size=5,
                max_instant_jumps = 5,
                guard_direction::Symbol = default_guard_direction(prob.sys),
