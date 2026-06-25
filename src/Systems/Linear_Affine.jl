@@ -236,7 +236,16 @@ function solve(prob::prob{F, I, T},
                stepper::AbstractODESolver=ModifiedTrap(),
                max_buffer_size=5,
                max_instant_jumps = 5,
-               guard_direction::Symbol = default_guard_direction(prob.sys)) where {F<:Union{LinearSystem, AffineSystem}, I, T<:Tuple{Float64, Float64}}
+               guard_direction::Symbol = default_guard_direction(prob.sys),
+               #Tunable pathology tolerance parameters
+               min_zeno_history = 2,
+               zeno_floor_mult = 2.0,
+               zeno_time_threshold = 1e-2,
+               zeno_reset_mult = 100.0,
+               beating_tol_mult = 1.0,
+               adaptive_tol_mult = 100.0,
+               adaptive_dt_mult = 10.0,
+               boundary_tol_mult = 1.0) where {F<:Union{LinearSystem, AffineSystem}, I, T<:Tuple{Float64, Float64}}
     
     sys = prob.sys
 
@@ -283,8 +292,8 @@ function solve(prob::prob{F, I, T},
         # Truncate time step if we overshoot the final time
         dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
-        if abs(guard(sys, sol.x[end])) < tol * 100
-            dt_step = min(dt_step, dt_min * 10)
+        if abs(guard(sys, sol.x[end])) < tol * adaptive_tol_mult
+            dt_step = min(dt_step, dt_min * adaptive_dt_mult)
         end
 
         xₖ = sol.x[end]
@@ -295,7 +304,7 @@ function solve(prob::prob{F, I, T},
         x_predict, eventtriggered, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
 
         #catch for boundary trapping (Zeno/Beating)
-        is_exactly_on_guard = abs(h_now) <= tol
+        is_exactly_on_guard = abs(h_now) <= tol * boundary_tol_mult
 
         # Discrete event logic
         if eventtriggered || is_exactly_on_guard
@@ -312,7 +321,12 @@ function solve(prob::prob{F, I, T},
                 jump_interval, last_intervals, 
                 zeno_count, instant_jump_count,
                 t_star, tol, zeno_ratio, max_zeno_jumps, max_instant_jumps,
-                max_buffer_size
+                max_buffer_size;
+                min_zeno_history=min_zeno_history,
+                zeno_floor_mult=zeno_floor_mult,
+                zeno_time_threshold=zeno_time_threshold,
+                zeno_reset_mult=zeno_reset_mult,
+                beating_tol_mult=beating_tol_mult
             )
 
             if status == :terminate

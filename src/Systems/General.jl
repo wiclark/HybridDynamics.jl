@@ -70,8 +70,13 @@ function check_system_pathology(
     jump_interval, last_intervals, 
     zeno_count, instant_jump_count,
     t_star, tol, zeno_ratio, max_zeno_jumps, max_instant_jumps,
-    max_buffer_size)
-    #There is room for a lot of tolerance stuff here. I will work on that at some point - DS
+    max_buffer_size;
+    #Tunable zeno values - mainly for Linear/Affine
+    zeno_floor_mult = 2.0,
+    zeno_time_threshold = 1e-2,
+    zeno_reset_mult = 100.0,
+    beating_tol_mult = 1.0,
+    min_zeno_history = 2)
 
     #Update history FIRST so Zeno can be evaluated
     push!(last_intervals, jump_interval)
@@ -80,18 +85,18 @@ function check_system_pathology(
     end
 
     #Zeno Check before anything else
-    is_contracting = length(last_intervals) >= 2 && 
+    is_contracting = length(last_intervals) >= min_zeno_history && 
                      (last_intervals[end] <= last_intervals[end-1] * zeno_ratio)
 
     # If we are already in a Zeno and hit the numerical floor, 
     # maintain the Zeno classification instead of dropping to Blocking.THIS HAPPENED SO MANY TIMES
-    hit_zeno_floor = (jump_interval <= tol * 2)
+    hit_zeno_floor = (jump_interval <= tol * zeno_floor_mult)
 
-    in_zeno_state = (is_contracting && jump_interval < 1e-2) || hit_zeno_floor
+    in_zeno_state = (is_contracting && jump_interval < zeno_time_threshold) || hit_zeno_floor
 
     if in_zeno_state
         zeno_count += 1
-        instant_jump_count = 0 # Explicitly bypass and reset the blocking trap
+        instant_jump_count = 0 # Explicitly bypass and reset the trap if it happens
         @info "Zeno contraction detected. count: $zeno_count"
         
         if zeno_count >= max_zeno_jumps
@@ -100,13 +105,13 @@ function check_system_pathology(
         end
         
         return zeno_count, instant_jump_count, :continue
-    elseif jump_interval > tol * 100
+    elseif jump_interval > tol * zeno_reset_mult
         # Only reset if the interval genuinely grows or stabilizes outside Zeno
         zeno_count = max(0, zeno_count - 1)
     end
 
     #Beating and Blocking Check (Only evaluated if NOT Zeno)
-    if jump_interval <= tol
+    if jump_interval <= tol * beating_tol_mult
         instant_jump_count += 1
         
         if instant_jump_count >= max_instant_jumps
@@ -228,7 +233,16 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
                stepper::AbstractODESolver=ModifiedTrap(),
                max_buffer_size=5,
                max_instant_jumps = 5,
-               guard_direction::Symbol = default_guard_direction(prob.sys)) where {F<:GeneralSystem, I, T}
+               guard_direction::Symbol = default_guard_direction(prob.sys),
+               #Tolerance tuning
+               min_zeno_history = 2,
+               zeno_floor_mult = 2.0,
+               zeno_time_threshold = 1e-2,
+               zeno_reset_mult = 100.0,
+               beating_tol_mult = 1.0,
+               adaptive_tol_mult = 100.0,
+               adaptive_dt_mult = 10.0,
+               sliding_tol_mult = 10.0) where {F<:GeneralSystem, I, T}
     
     sys = prob.sys
     f = sys.f
@@ -266,8 +280,8 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
         dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
         #Adaptive step sizing: slow down when near guard to increase resolution
-        if abs(guard(sys, sol.x[end])) < tol * 100
-            dt_step = min(dt_step, dt_min * 10)
+        if abs(guard(sys, sol.x[end])) < tol * adaptive_tol_mult
+            dt_step = min(dt_step, dt_min * adaptive_dt_mult)
         end
 
         # Continuous integration
@@ -303,7 +317,12 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
                 jump_interval, last_intervals, 
                 zeno_count, instant_jump_count,
                 t_star, tol, zeno_ratio, max_zeno_jumps, max_instant_jumps,
-                max_buffer_size
+                max_buffer_size;
+                min_zeno_history=min_zeno_history,
+                zeno_floor_mult=zeno_floor_mult,
+                zeno_time_threshold=zeno_time_threshold,
+                zeno_reset_mult=zeno_reset_mult,
+                beating_tol_mult=beating_tol_mult
             )
 
             #Terminate sim if pathological behavior is confirmed
@@ -314,7 +333,7 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
 
             #Trigger sliding mode after impact
             in_sliding_mode = true
-            if abs(h_now) < tol * 10
+            if abs(h_now) < tol * sliding_tol_mult
                 in_sliding_mode = true
             end
 
