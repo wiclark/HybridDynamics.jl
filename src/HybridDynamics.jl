@@ -3,7 +3,7 @@ module HybridDynamics
 using LinearAlgebra
 using ForwardDiff
 
-include("Definitions.jl")
+include("ODE_Solvers/Definitions.jl")
 
 include("Systems/Linear_Affine.jl")
 include("Systems/Mechanical.jl")
@@ -11,7 +11,14 @@ include("Systems/Nonholonomic.jl")
 include("Systems/General.jl")
 include("Systems/Filippov.jl")
 
-include("ODE_solvers.jl")
+include("ODE_Solvers/Linear_Multistep_Methods/Adaptive_LMM_Steps.jl")
+include("ODE_Solvers/Linear_Multistep_Methods/Fixed_LMM_Steps.jl")
+include("ODE_Solvers/Runge_Kutta_Methods/Fixed_RK_Steps.jl")
+include("ODE_Solvers/Runge_Kutta_Methods/Adaptive_RK_Steps.jl")
+include("ODE_Solvers/Bonus_Methods.jl")
+include("ODE_Solvers/Event_Locators.jl")
+
+
 
 #Basic Def Structs
 export AbstractHybridSystem, AbstractHybridProblem
