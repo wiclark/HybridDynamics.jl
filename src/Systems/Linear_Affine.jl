@@ -7,7 +7,6 @@ struct LinearSystem <: AbstractHybridSystem
     A::Matrix{Float64} #State Transition matrix (dx/dt = Ax)
     λ::Vector{Float64} #Normal Vector for the Guard Surface
     C::Matrix{Float64} #Reset map matrix (x⁺ = Cx)
-
     #=
     #inner constructor: Runs automatically when creating the system to check dimensionality
     function LinearSystem(A, λ, C)
@@ -37,7 +36,6 @@ struct AffineSystem <: AbstractHybridSystem
     a::Float64          #Guard Offset const dot(λ, x) + a = 0
     C::Matrix{Float64}  #Reset matrix
     κ::Vector{Float64}  #Discrete affine vector const x⁺ = Cx + κ
-
     #=
     #Inner construct: runs automatically when creating system to check dimensionality
     function AffineSystem(A, b, λ, a, C, κ)
