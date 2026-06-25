@@ -20,7 +20,7 @@ abstract type AbstractHybridProblem end
 abstract type AbstractHybridSolution end
 
 # General problem
-struct prob{F <: AbstractHybridSystem, I  <: AbstractVector{Float64}, T <: Tuple{Float64, Float64}} <: AbstractHybridProblem
+struct prob{F <: AbstractHybridSystem, I  <: AbstractArray{Float64}, T <: Tuple{Float64, Float64}} <: AbstractHybridProblem
     sys::F
     init::I
     tspan::T

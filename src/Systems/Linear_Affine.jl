@@ -7,10 +7,20 @@ struct LinearSystem <: AbstractHybridSystem
     A::Matrix{Float64} #State Transition matrix (dx/dt = Ax)
     λ::Vector{Float64} #Normal Vector for the Guard Surface
     C::Matrix{Float64} #Reset map matrix (x⁺ = Cx)
+
+    #inner constructor: Runs automatically when creating the system to check dimensionality
+    function LinearSystem(A, λ, C)
+        n = size(A, 1)
+        if size(A, 2) != n || length(λ) != n || size(C, 1) != n || size(C, 2) != n
+            throw(DimensionMismatch("LinearSystem dimensions are inconsistent."))
+        end
+        # 'new' creates the instance with the validated data
+        new(A, λ, C) 
+    end
 end
 
 #External
-#Constructor to help user see data types 
+#external constructor to help user see data types 
 function LinearSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix)
     return LinearSystem(Float64.(A), Float64.(λ), Float64.(C))
 end
@@ -25,26 +35,37 @@ struct AffineSystem <: AbstractHybridSystem
     a::Float64          #Guard Offset const dot(λ, x) + a = 0
     C::Matrix{Float64}  #Reset matrix
     κ::Vector{Float64}  #Discrete affine vector const x⁺ = Cx + κ
+
+    #Inner construct: runs automatically when creating system to check dimensionality
+    function AffineSystem(A, b, λ, a, C, κ)
+        n = size(A, 1)
+        if size(A, 2) != n || length(b) != n || length(λ) != n || 
+           size(C, 1) != n || size(C, 2) != n || length(κ) != n
+            throw(DimensionMismatch("AffineSystem dimensions are inconsistent."))
+        end
+        # 'new' creates the instance with the validated data
+        new(A, b, λ, Float64(a), C, κ)
+    end
 end
 
 #External
-# Constructor to help user see data types
+# external constructor to help user see data types
 function AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector)
     return AffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ))
 end
 
 #SOLUTION STRUCTS AND HELPERS. 
 #Goal to provide standard date for simulation outputs. Keeps cont trajectories and discrete events organized. Currently affine and linear are the samem but kept separate to allow specific plotting later?
-struct HybridSolution <: AbstractHybridSolution
+struct HybridSolution{T} <: AbstractHybridSolution
     t::Vector{Float64}
-    x::Vector{Vector{Float64}}
+    x::Vector{T}
     jump_times::Vector{Float64}
     jump_indices::Vector{Int}
 end 
 
 function CreateSolution(prob::prob{S, I, T}, t::AbstractVector, x::AbstractVector,
     jump_times::AbstractVector, jump_indices::AbstractVector) where {S <: Union{LinearSystem, AffineSystem}, I, T}
-    return HybridSolution(Float64.(t), Vector{Float64}.x, Float64.(jump_times), Int{jump_indices})
+    return HybridSolution{I}(Float64.(t), Vector{I}(x), Float64.(jump_times), Vector{Int}(jump_indices))
 end
 
 #Exact Linear Flow (matrix exponential)
@@ -77,33 +98,6 @@ function flow(flowmap::LinearFlow, τ::Real, x::AbstractVector)
     return exp(flowmap.A .* τ) * x
 end
 
-#Beating/Zeno check
-#Goal is to prevent loops in Linear and Affine systems.
-#Through Multiple dispath, this overrides the default fallback in Definitions.jl only when the solver is Linear or Affine. 
-
-#Internal (could be external if we want?)
-function check_beating_status(sys::Union{LinearSystem, AffineSystem}, instant_jumps, n, x_current, t_current, tol, trivial_tol_multiplier)
-    if (instant_jumps) > (n-1) 
-        if norm(x_current) < tol * trivial_tol_multiplier
-            @info "Trivial Blocking: System settled at origin at t = $t_current"
-            return :blocking_trivial 
-        end
-        x_next = apply_reset(sys, x_current)
-
-        if norm(x_next) < norm(x_current) * (1-tol)
-            @info "Contractive Beating: State shrinking toward origin at t = $t_current"
-            return :contractive_beating
-        elseif norm(x_next) > norm(x_current) * (1+tol)
-            @warn "Expansive Blocking: State trapped and expanding on guard at t = $t_current"
-            return :blocking_expansive
-        else 
-            @warn "Expansive Blocking: State trapped on guard at t = $t_current"
-            return :blocking_non_trivial 
-        end
-    end
-    return :continue
-end
-
 #Solution Initialization
 #Goal is to setup the empty memory containers before solver starts running. 
 #pre-allocating the vectors with the exact starting conditions ensures that the solver loop is stable 
@@ -112,7 +106,6 @@ end
 function init_solution(prob::prob{S, I, T}) where {S<:Union{LinearSystem, AffineSystem}, I, T}
     return HybridSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
 end
-
 
 """
     beating_and_blocking_sets(sys::Union{LinearSystem, AffineSystem})
@@ -202,43 +195,79 @@ function is_trivially_blocking(sys::Union{LinearSystem, AffineSystem})
 end
 
 #Internal
-function guard(sys::LinearSystem, x::AbstractVector)
-    return sys.λ' * x
+#Calc guard function for linear systems
+function guard(sys::LinearSystem, x::AbstractArray)
+    #if x is a matrix (usually for Variational equation) we isolate the first column to calc the guard
+    x_first_column = x isa AbstractMatrix ? x[:, 1] : x
+    return sys.λ' * x_first_column
 end
 #Internal
-function guard(sys::AffineSystem, x::AbstractVector)
-    return sys.λ' * x + sys.a 
+#Calc guard for affine systems
+function guard(sys::AffineSystem, x::AbstractArray)
+    #if x is a matrix (usually for Variational equation) we isolate the first column to calc the guard
+    x_first_column = x isa AbstractMatrix ? x[:, 1] : x
+    return sys.λ' * x_first_column + sys.a 
 end
-
 #internal
-function apply_reset(sys::LinearSystem, x::AbstractVector)
+function apply_reset(sys::LinearSystem, x::AbstractArray)
     return sys.C * x
 end
 #internal
-function apply_reset(sys::AffineSystem, x::AbstractVector)
-    return sys.C * x + sys.κ
-end
-
-#Internal
-function get_dimension(sys::LinearSystem)
-    n = size(sys.A, 1)
-    if size(sys.A, 2) != n || length(sys.λ) != n || size(sys.C, 1) != n || size(sys.C, 2) != n
-        throw(DimensionMismatch("LinearSystem dimensions are inconsistent."))
+function apply_reset(sys::AffineSystem, x::AbstractArray)
+    #first linear transformation Cx
+    x_new = sys.C * x
+    # If matrix, κ only applies to the physical state (column 1)
+    if x isa AbstractMatrix
+        x_new[:, 1] .+= sys.κ
+    else
+        x_new .+= sys.κ
     end
-    return n
-end
-function get_dimension(sys::AffineSystem)
-    n = size(sys.A, 1)
-    # Check consistency of vectors and matrices
-    if size(sys.A, 2) != n || length(sys.b) != n || length(sys.λ) != n || 
-       size(sys.C, 1) != n || size(sys.C, 2) != n || length(sys.κ) != n
-        throw(DimensionMismatch("AffineSystem dimensions are inconsistent."))
-    end
-    return n
+    return x_new
 end
 
 #SOLVER
 #Very External
+
+"""
+    solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45(); kwargs...) where {F<:Union{LinearSystem, AffineSystem}, I, T<:Tuple{Float64, Float64}}
+
+# ARGUMENT KEY
+
+## Required
+
+* 'prob': The problem definition containing the system dynamics 'sys', initial state, and time span.
+* 'solver': The numerical integration method used for continous steps. Defaults to RK45().
+
+## Optional
+
+### Simulation and Step Controls:
+* 'dt_initial' (Float64, default '.01'): The starting time step for the continuous solver.
+* 'dt_min' (Float64, default '1e-6'): The absolute minimum allowable time step. If the solver tries to go below this, the simulation terminates.
+* 'max_iter' (Int, default '10^6'): The maximum number of continuous integration steps allowed before forcing a timeout.
+'tol' (Float64, default '1e-6'): The baseline numerical tolerance used across the solver. Acts as the foundational unit for multipliers below.
+
+### Event Handling
+* 'event_method' (AbstractEventLocator, default 'LinearLocator()'): The algorithm used to pinpoint the exact time and state of a guard crossing.
+* 'stepper' (AbstractODESolver. default 'RK4()'): The secondary ODE solver used internally by the event detection locator to pinpoint the impact state.
+* 'guard_direction' (Symbol, default 'default_guard_direction(prob.sys)'): Dictates which zero-crossing direction triggers an event (e.g., positive-to-negative).
+
+### Pathology Tuning
+* 'zeno_ratio' (Float64, default '.90'): The ratio threshold for Zeno detection. If consecutive jump intervals contract by this ratio (or faster) it triggers a Zeno classification. 
+* 'max_zeno_jumps' (Int, default '5'): The maximum number of consecutuve Zeno contractions allowed before terminating the simulation. 
+* 'max_instant_jumps' (Int, default '5'): The maximum number of instantaneous jumps allowed before classifying the system as blocked and terminating. 
+* 'max_buffer_size' (Int, default '5'): The number of previous jump intervals stored in memory to evaluate Zeno contractions.
+
+### Fine-Tuning Multipliers (scaled against 'tol')
+* 'min_zeno_history' (Int, default '2'): The minimum number of recorded jumps required before the solver will attempt to calculate a Zeno contraction ratio. 
+* 'zeno_floor_mult' (Float64, default '2.0'): Defines the numerical floor ('tol * zeno_floor_mult'). If a jump interval falls below this, it maintains a Zeno state to prevent
+machine precision drops into beating blocks.
+* 'zeno_time_threshold' (Float64, default '1e-2'): The absolute maximum duration a jump interval can be while still being eligible for Zeno contraction classification.
+* 'zeno_reset_mult' (Float64, default '100.0'): If a jump interval exceeds 'tol * zeno_reset_mult', the system is deemed safe and the Zeno counter is decremented.
+* 'beating_tol_mult' (Float64, default '1.0'): Defines the time window ('tol * beating_tol_mult'). Jumps occurring within this window are classifed as instantaneous jumps or 'beating'
+* 'adaptive_tol_mult' (Float64, defualt '100.0'): The boundary distance multiplier ('tol * adaptive_tol_mult'). When the system enters this distance from the guard, it shrinks step size to increase resolution.
+* 'sliding_tol_mult' (Float64, default '10.0'): If the post-impact guard value is within 'tol * sliding_tol_mult', the solver enters sliding mode to suppress immediate erroneous events. This helps us avoid strange chattering.  
+
+"""
 function solve(prob::prob{F, I, T}, 
                solver::AbstractODESolver=RK45(); 
                event_method::AbstractEventLocator=LinearLocator(), 
@@ -247,30 +276,47 @@ function solve(prob::prob{F, I, T},
                zeno_ratio = 0.90, max_zeno_jumps = 5,
                stepper::AbstractODESolver=ModifiedTrap(),
                max_buffer_size=5,
-               beating_warn_threshold=3,
-               max_instant_jumps = 5) where {F<:Union{LinearSystem, AffineSystem}, I<:AbstractVector{Float64}, T<:Tuple{Float64, Float64}}
+               max_instant_jumps = 5,
+               guard_direction::Symbol = default_guard_direction(prob.sys),
+               #Tunable pathology tolerance parameters
+               min_zeno_history = 2,
+               zeno_floor_mult = 2.0,
+               zeno_time_threshold = 1e-2,
+               zeno_reset_mult = 100.0,
+               beating_tol_mult = 1.0,
+               adaptive_tol_mult = 100.0,
+               adaptive_dt_mult = 10.0,
+               boundary_tol_mult = 1.0) where {F<:Union{LinearSystem, AffineSystem}, I, T<:Tuple{Float64, Float64}}
+    
     sys = prob.sys
 
-    f = hasproperty(sys, :b) ? ((x,t) -> sys.A * x + sys.b) : ((x,t) -> sys.A * x) 
+    f = hasproperty(sys, :b) ? function(x, t)
+        dx = sys.A * x
+        if x isa AbstractMatrix
+            dx[:, 1] .+= sys.b # Only add 'b' to physical state, not variational if there
+        else
+            dx .+= sys.b
+        end
+        return dx
+    end : ((x, t) -> sys.A * x)
 
-    #Initialize soltution based on linear/affine
+    # Initialize solution based on linear/affine
     sol = init_solution(prob)
 
-    #extract start and end times
+    # Extract start and end times
     t_start, t_end = prob.tspan
 
-    #initialize time step and iter counter
+    # Initialize time step and iter counter
     Δt = dt_initial
     iter = 0
 
-    #trackers for beating blocking and Zeno logic
+    # Trackers for beating, blocking, and Zeno logic
     instant_jump_count = 0
     zeno_count = 0
-    last_jump_time = t_start      #calc the current interval
-    last_intervals = Float64[]  #History of intervals     
-    n = length(prob.init)
+    last_jump_time = t_start      
+    last_intervals = Float64[]     
 
-    #run until end time or max iter
+    # Run until end time or max iter
     while sol.t[end] < t_end
         iter += 1
         if iter > max_iter 
@@ -278,66 +324,70 @@ function solve(prob::prob{F, I, T},
             break
         end
 
-        #terminate if time is below machine precision
+        # Terminate if time is below machine precision
         if t_end - sol.t[end] < dt_min
             @info "Time to end of simulation below minimum time step. Ending simulation at t = $(sol.t[end])"
             break
         end
 
-        #truncate time step if we overshoot the final time
+        # Truncate time step if we overshoot the final time
         dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
-        #continuous integration
+        if abs(guard(sys, sol.x[end])) < tol * adaptive_tol_mult
+            dt_step = min(dt_step, dt_min * adaptive_dt_mult)
+        end
+
         xₖ = sol.x[end]
         tₖ = sol.t[end]
-
         h_now = guard(sys, xₖ)
 
-        #attempt continuous step
-        x_predict, eventtriggered, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol)
+        # Attempt continuous step
+        x_predict, eventtriggered, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
 
-        is_exactly_on_guard = abs(h_now) <= tol
+        #catch for boundary trapping (Zeno/Beating)
+        is_exactly_on_guard = abs(h_now) <= tol * boundary_tol_mult
 
-        #discrete event logic
+        # Discrete event logic
         if eventtriggered || is_exactly_on_guard
-
+            
             if is_exactly_on_guard
                 t_star, x_star = tₖ, xₖ
             else
                 t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, h_now, tol, sol, stepper)
             end
             
-            #PATHOLOGY CHECK
+            # PATHOLOGY CHECK
             jump_interval = t_star - last_jump_time
             zeno_count, instant_jump_count, status = check_system_pathology(
                 jump_interval, last_intervals, 
                 zeno_count, instant_jump_count,
                 t_star, tol, zeno_ratio, max_zeno_jumps, max_instant_jumps,
-                max_buffer_size
+                max_buffer_size;
+                min_zeno_history=min_zeno_history,
+                zeno_floor_mult=zeno_floor_mult,
+                zeno_time_threshold=zeno_time_threshold,
+                zeno_reset_mult=zeno_reset_mult,
+                beating_tol_mult=beating_tol_mult
             )
 
             if status == :terminate
                 break
             end
-
             
             last_jump_time = t_star
 
-            #Apply Reset
+            # Apply Reset
             x⁺ = apply_reset(sys, x_star)
 
-
-            #Tracking data
             push!(sol.t, t_star, t_star)
             push!(sol.x, x_star, x⁺)
 
-            #record event data for analysis
             if hasproperty(sol, :jump_times)
                 push!(sol.jump_times, t_star)
-                push!(sol.jump_indices, length(sol.t))
+                push!(sol.jump_indices, length(sol.x))
             end
 
-            #shrink min step size to avoid overshooting
+            # Shrink min step size to avoid overshooting
             Δt = dt_initial
 
         else
@@ -345,12 +395,10 @@ function solve(prob::prob{F, I, T},
             push!(sol.t, t_next)
             push!(sol.x, x_predict)
 
-            #reset step size
+            # Reset step size
             Δt = dt_next
-
         end
-
-        end
-        return sol
-    end 
+    end
+    return sol
+end
 
