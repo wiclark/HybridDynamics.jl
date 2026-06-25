@@ -160,7 +160,7 @@ md"""
 """
 
 # ╔═╡ 8e0f34ac-35ab-4808-a1ed-53525361c688
-@bind a Slider(0.0:0.01:1.0, show_value=true)
+@bind a Slider(-0.5:0.01:0.5, show_value=true, default=0.0)
 
 # ╔═╡ 6d47f9d2-c604-46ba-af77-254478d19ab0
 begin
@@ -170,18 +170,23 @@ begin
 	V_sleigh(q) = 0.0
 	A_sleigh(q) = [-sin(q[3]) cos(q[3]) 0.0]
 	h_sleigh(q) = 1 - (q[1]^2+q[2]^2)
-	∇h_sleigh(q) = [-2*q[1], -2*q[2]]
+	∇h_sleigh(q) = [-2*q[1], -2*q[2], 0.0]
 end
 
 # ╔═╡ da267e54-7c2b-4a31-b429-077b47912814
 begin
 	sysNH = HD.NonholonomicSystem(M_sleigh, V_sleigh; A = A_sleigh, guard=h_sleigh, normal=∇h_sleigh, e=1)
-	probNH = HD.prob(sysNH, [0.0, 0.0, 0.0, 1.0, 0.0, 0.0], (0.0, 1.01))
+	probNH = HD.prob(sysNH, [0.0, 0.0, 0.0, 1.0, 0.0, 1.5], (0.0, 100.0))
 	solNH = HD.solve(probNH, solver=HD.RK4())
 end
 
-# ╔═╡ 0dab5732-54d9-4daa-8ceb-685579ca6e34
-solNH.x[end]
+# ╔═╡ d8370b2e-077d-488f-afb2-ceffa00fc255
+begin
+	xs = getindex.(solNH.x, 1)
+	ys = getindex.(solNH.x, 2)
+	plt.plot(xs, ys, label="Sleigh Trajectory", lw=2)
+	plt.plot!(cos.(θ), sin.(θ), label="", lc=:black, aspect_ratio=1)
+end
 
 # ╔═╡ eea32534-7258-478d-b96e-aee9bc212011
 md"""
@@ -276,7 +281,7 @@ end
 # ╠═8e0f34ac-35ab-4808-a1ed-53525361c688
 # ╠═6d47f9d2-c604-46ba-af77-254478d19ab0
 # ╠═da267e54-7c2b-4a31-b429-077b47912814
-# ╠═0dab5732-54d9-4daa-8ceb-685579ca6e34
+# ╠═d8370b2e-077d-488f-afb2-ceffa00fc255
 # ╟─eea32534-7258-478d-b96e-aee9bc212011
 # ╟─15b10a81-2909-4df8-8d1c-0fcd7af5d9ff
 # ╠═33b07ebd-6275-4aa5-a855-7a6b29b97de9
