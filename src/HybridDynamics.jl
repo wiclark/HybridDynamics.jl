@@ -21,6 +21,10 @@ include("ODE_Solvers/Runge_Kutta_Methods/Adaptive_RK_Steps.jl")
 include("ODE_Solvers/Bonus_Methods.jl")
 include("ODE_Solvers/Event_Locators.jl")
 
+include("Analysis/VariationalEquation.jl")
+include("Analysis/Utilities.jl")
+
+
 
 
 #Basic Def Structs
