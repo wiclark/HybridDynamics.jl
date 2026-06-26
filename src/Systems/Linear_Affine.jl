@@ -13,7 +13,7 @@ end
 #External
 #external constructor to help user see data types 
 function LinearSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix; direction::Int=0)
-    return LinearSystem(Float64.(A), Float64.(λ), Float64.(C), direction)
+    return LinearSystem(Float64.(A), Float64.(λ), Float64.(C); direction)
 end
 
 # EVERYTHING FOR AFFINE SYSTEMS
@@ -31,8 +31,8 @@ end
 
 #External
 # external constructor to help user see data types
-function AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector, direction::Int=0)
-    return AffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ), direction)
+function AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector; direction::Int=0)
+    return AffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ); direction)
 end
 
 #SOLUTION STRUCTS AND HELPERS. 
@@ -329,21 +329,8 @@ function solve(prob::prob{F, I, T},
 
         xₖ = sol.x[end]
         tₖ = sol.t[end]
-        hₖ = guard(sys, xₖ)
-
-        if !in_sliding_mode && abs(hₖ) < tol * sliding_tol_mult
-            in_sliding_mode = true
-        end
 
         x_predict, eventtriggered, h_next, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
-
-        if in_sliding_mode && abs(h_next) > tol * sliding_tol_mult * 2
-            in_sliding_mode = false
-        end
-        if in_sliding_mode && abs(h_next) < tol * sliding_tol_mult
-            eventtriggered = false
-        end
-
 
         # Discrete event logic
         if eventtriggered 
@@ -382,7 +369,7 @@ function solve(prob::prob{F, I, T},
             end
 
             # Shrink min step size to avoid overshooting
-            Δt = dt_initial
+            Δt = min(dt_initial, jump_interval * 0.5)
 
         else
             t_next = tₖ + dt_used

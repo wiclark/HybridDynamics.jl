@@ -91,7 +91,6 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
     t_start, t_end = prob.tspan
     Δt = dt_initial
     iter = 0
-    sol.x = []
 
     # Pathology trackers
     instant_jump_count = 0
@@ -99,10 +98,6 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
     last_jump_time = t_start
     last_intervals = Float64[]
 
-    #State flag: if true, the system is constrained on the guard. This is to avoid weird sliding and it does some work for falling through the guard too!
-    #I will add, for beating and blocking we will most likely need to fine tune the tolerances. I think this will mainly be done when we really test things
-    #Perhaps I will also find a smarter way to do this but for now we are good. Liam can mess with it
-    in_sliding_mode = false
 
     while sol.t[end] < t_end
         iter += 1
@@ -125,7 +120,6 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
         # Continuous integration
         xₖ = sol.x[end]
         tₖ = sol.t[end]
-        hₖ = guard(sys, xₖ)
 
         x_predict, eventtriggered, t_root, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
    
@@ -157,8 +151,6 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
             x⁺ = apply_reset(sys, x_star)
             h⁺ = guard(sys, x⁺)
 
-            in_sliding_mode = false
-
             #Record impact point and post reset state
             push!(sol.t, t_star, t_star)
             push!(sol.x, x_star, x⁺)
@@ -169,17 +161,16 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
             end
             #Reset step size to default after event
             Δt = dt_initial
-            in_sliding_mode = false
         else
             #Normal cont updated
             if dense_out
+                #Added phys_x for Var Eq
                 phys_x = (xₖ isa AbstractMatrix) ? xₖ[:, 1] : xₖ
                 push!(sol.dx, f(phys_x, tₖ))
             end
             push!(sol.t, tₖ + dt_used)
             push!(sol.x, x_predict)
             Δt = dt_next
-            in_sliding_mode = false
         end
     end
     return sol

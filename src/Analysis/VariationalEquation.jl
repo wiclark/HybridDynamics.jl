@@ -1,4 +1,6 @@
 #Function calcs the continuous time derivative for the augmented state. Runs the usual dx and dΦ.
+
+#CURRENTLY THIS FUNCTION IS WORTHLESS BUT I WANT IT TO BE USEFUL LATER SO I WILL KEEP IT - DS
 function variational_vector_field(f, U::AbstractMatrix, t)
     # Unpack state
     x = U[:, 1]
