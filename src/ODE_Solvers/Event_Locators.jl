@@ -1,10 +1,12 @@
 #====================================#
 #Event detection utility. 
 #Assigns a default crossing direction to a specific system to reduce issues (this may be made better for the front end later but for now this works)
-default_guard_direction(sys::MechanicalSystem) = -1
-default_guard_direction(sys::NonholonomicSystem) = -1
+default_guard_direction(sys::MechanicalSystem) = sys.direction
+default_guard_direction(sys::NonholonomicSystem) = sys.direction
 #Gen system lack specific constraints so we monitor crossings in both directions
-default_guard_direction(sys::GeneralSystem) = 0
+default_guard_direction(sys::GeneralSystem) = sys.direction
+default_guard_direction(sys::LinearSystem) = sys.direction
+default_guard_direction(sys::AffineSystem) = sys.direction
 default_guard_direction(sys) = 0
 
 #Wrapper function to interface between the system state and core logic

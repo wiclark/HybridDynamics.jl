@@ -7,6 +7,7 @@ struct MechanicalSystem{M,V,G,N,R,E} <: AbstractHybridSystem
     normal::N     # Normal to the guard, ∇G
     reset::R      # reset map
     e::E          # coefficient of restitution
+    direction::Int # Directional Support for Guard
 end
 
 # EXTERNAL
@@ -20,7 +21,8 @@ function MechanicalSystem(M, V;
                 guard = nothing,
                 normal = nothing,
                 reset = (x, Mfun, dh, sys::MechanicalSystem) -> specular_refl(x, Mfun, dh, sys),
-                e = 1.0)
+                e = 1.0,
+                direction = -1)
 
     if isnothing(guard) && !isnothing(normal)
         error("Normal to guard was provided, but a guard was not")
@@ -31,7 +33,7 @@ function MechanicalSystem(M, V;
     end
 
     return MechanicalSystem{typeof(M), typeof(V), typeof(guard), typeof(normal), typeof(reset), typeof(e)}(
-        M, V, guard, normal, reset, e
+        M, V, guard, normal, reset, e, direction
     )
 end
 
@@ -130,6 +132,7 @@ function solve(prob::prob{S, I, T};
                dense_out = true,
                dt_initial = 0.01, max_iter = 10^6, 
                tol = 1e-6, ztol = 1e-4,
+               guard_direction = default_guard_direction(prob.sys),
                kwargs...) where {S<:MechanicalSystem, I, T}
     
     sys = prob.sys

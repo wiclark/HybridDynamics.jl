@@ -12,6 +12,7 @@ struct NonholonomicSystem{M, V, A, G, N, R, E} <: AbstractHybridSystem
     normal::N # Normal to the guard, ∇G
     reset::R  # The reset map
     e::E      # Coefficient of restitution
+    direction::Int #Directional support 
 end
 
 # Create the system
@@ -20,7 +21,8 @@ function NonholonomicSystem(M, V;
                         guard = nothing,
                         normal = nothing,
                         reset = (x, Mfun, Afun, ∇h, sys::NonholonomicSystem) -> specular_refl(x, Mfun, Afun, ∇h, sys),
-                        e = 1)
+                        e = 1,
+                        direction = 0)
     # Standard error checking
     if isnothing(guard) && !isnothing(normal)
         error("Normal to guard was provided, but the guard was not.")
@@ -31,7 +33,7 @@ function NonholonomicSystem(M, V;
     end
     # Create the structure
     return NonholonomicSystem{typeof(M), typeof(V), typeof(A), typeof(guard), typeof(normal), typeof(reset), typeof(e)}(
-        M, V, A, guard, normal, reset, e
+        M, V, A, guard, normal, reset, e, direction
     )
 end
 
@@ -171,6 +173,7 @@ function solve(prob::prob{S, I, T};
                dense_out = true,
                dt_initial = 0.01, max_iter = 10^5,
                tol = 1e-6, ztol = 1e-4,
+               guard_direction = default_guard_direction(prob.sys),
                kwargs...) where {S<:NonholonomicSystem, I, T}
     
     # Unpack pertinent information
@@ -204,7 +207,6 @@ function solve(prob::prob{S, I, T};
         p₀ = p₀ - B_Δ(q₀)' * inv(B_Δ(q₀) * B_Δ(q₀)') * B_Δ(q₀) * p₀
         sol.x[end] = vcat(q₀, p₀)
     end
-    
 
     # Run until end of specified time span
     while sol.t[end] < t_end

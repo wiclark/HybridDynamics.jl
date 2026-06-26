@@ -7,23 +7,13 @@ struct LinearSystem <: AbstractHybridSystem
     A::Matrix{Float64} #State Transition matrix (dx/dt = Ax)
     λ::Vector{Float64} #Normal Vector for the Guard Surface
     C::Matrix{Float64} #Reset map matrix (x⁺ = Cx)
-    #=
-    #inner constructor: Runs automatically when creating the system to check dimensionality
-    function LinearSystem(A, λ, C)
-        n = size(A, 1)
-        if size(A, 2) != n || length(λ) != n || size(C, 1) != n || size(C, 2) != n
-            throw(DimensionMismatch("LinearSystem dimensions are inconsistent."))
-        end
-        # 'new' creates the instance with the validated data
-        new(A, λ, C) 
-    end
-    =#
+    direction::Int
 end
 
 #External
 #external constructor to help user see data types 
-function LinearSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix)
-    return LinearSystem(Float64.(A), Float64.(λ), Float64.(C))
+function LinearSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix; direction::Int=0)
+    return LinearSystem(Float64.(A), Float64.(λ), Float64.(C), direction)
 end
 
 # EVERYTHING FOR AFFINE SYSTEMS
@@ -36,24 +26,13 @@ struct AffineSystem <: AbstractHybridSystem
     a::Float64          #Guard Offset const dot(λ, x) + a = 0
     C::Matrix{Float64}  #Reset matrix
     κ::Vector{Float64}  #Discrete affine vector const x⁺ = Cx + κ
-    #=
-    #Inner construct: runs automatically when creating system to check dimensionality
-    function AffineSystem(A, b, λ, a, C, κ)
-        n = size(A, 1)
-        if size(A, 2) != n || length(b) != n || length(λ) != n || 
-           size(C, 1) != n || size(C, 2) != n || length(κ) != n
-            throw(DimensionMismatch("AffineSystem dimensions are inconsistent."))
-        end
-        # 'new' creates the instance with the validated data
-        new(A, b, λ, Float64(a), C, κ)
-    end
-    =#
+    direction::Int
 end
 
 #External
 # external constructor to help user see data types
-function AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector)
-    return AffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ))
+function AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector, direction::Int=0)
+    return AffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ), direction)
 end
 
 #SOLUTION STRUCTS AND HELPERS. 
@@ -282,7 +261,7 @@ function solve(prob::prob{F, I, T},
                stepper::AbstractODESolver=ModifiedTrap(),
                max_buffer_size=5,
                max_instant_jumps = 5,
-               guard_direction::Symbol = default_guard_direction(prob.sys),
+               guard_direction = prob.sys.direction,
                #Tunable pathology tolerance parameters
                min_zeno_history = 2,
                zeno_floor_mult = 2.0,
@@ -291,22 +270,26 @@ function solve(prob::prob{F, I, T},
                beating_tol_mult = 1.0,
                adaptive_tol_mult = 100.0,
                adaptive_dt_mult = 10.0,
-               boundary_tol_mult = 1.0) where {F<:Union{LinearSystem, AffineSystem}, I, T<:Tuple{Float64, Float64}}
+               sliding_tol_mult = 10.0) where {F<:Union{LinearSystem, AffineSystem}, I, T<:Tuple{Float64, Float64}}
     
     sys = prob.sys
 
-    f = hasproperty(sys, :b) ? function(x, t)
-        dx = sys.A * x
-        if x isa AbstractMatrix
-            dx[:, 1] .+= sys.b # Only add 'b' to physical state, not variational if there
-        else
-            dx .+= sys.b
-        end
-        return dx
-    end : ((x, t) -> sys.A * x)
-
     # Initialize solution based on linear/affine
     sol = init_solution(prob)
+
+    function f(x, t)
+        dx = sys.A * x
+
+        if hasproperty(sys, :b)
+            if x isa AbstractMatrix
+                dx[:, 1] .+= sys.b
+            else
+                dx .+= sys.b
+            end
+        end
+
+        return dx
+    end
 
     # Extract start and end times
     t_start, t_end = prob.tspan
@@ -320,6 +303,8 @@ function solve(prob::prob{F, I, T},
     zeno_count = 0
     last_jump_time = t_start      
     last_intervals = Float64[]     
+
+    in_sliding_mode = false
 
     # Run until end time or max iter
     while sol.t[end] < t_end
@@ -344,22 +329,26 @@ function solve(prob::prob{F, I, T},
 
         xₖ = sol.x[end]
         tₖ = sol.t[end]
-        h_now = guard(sys, xₖ)
+        hₖ = guard(sys, xₖ)
 
-        # Attempt continuous step
-        x_predict, eventtriggered, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
+        if !in_sliding_mode && abs(hₖ) < tol * sliding_tol_mult
+            in_sliding_mode = true
+        end
 
-        #catch for boundary trapping (Zeno/Beating)
-        is_exactly_on_guard = abs(h_now) <= tol * boundary_tol_mult
+        x_predict, eventtriggered, h_next, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
+
+        if in_sliding_mode && abs(h_next) > tol * sliding_tol_mult * 2
+            in_sliding_mode = false
+        end
+        if in_sliding_mode && abs(h_next) < tol * sliding_tol_mult
+            eventtriggered = false
+        end
+
 
         # Discrete event logic
-        if eventtriggered || is_exactly_on_guard
+        if eventtriggered 
             
-            if is_exactly_on_guard
-                t_star, x_star = tₖ, xₖ
-            else
-                t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, h_now, tol, sol, stepper)
-            end
+            t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, h_next, tol, sol, stepper)
             
             # PATHOLOGY CHECK
             jump_interval = t_star - last_jump_time

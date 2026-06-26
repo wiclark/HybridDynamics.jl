@@ -5,7 +5,7 @@ struct MagnusLeapfrog <: FixedRK end
 
 #Supposedly useful as when doing variational equation stuff the magnus expansion preserves Lie group structure (I dont know enough about Lie groups to tell you what that means)
 #so we maintain the properties we want like volume and determinants which is very good for variational equations and eventual Lyapunov Exponents. 
-function take_step(solver::MagnusLeapfrog, prob::AbstractHybridProblem, f, Uₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint(), guard_direction=default_guard_direction(prob.sys))
+function take_step(solver::MagnusLeapfrog, prob::AbstractHybridProblem, f, Uₖ, tₖ, Δt, tol, sol, stepper=nothing, guard_direction=default_guard_direction(prob.sys))
     sys = prob.sys
 
     #Compute augmented matrix predictions

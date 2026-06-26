@@ -6,6 +6,7 @@ using ForwardDiff
 include("ODE_Solvers/Definitions.jl")
 
 include("Hermite_Interp.jl")
+include("Analysis/Pathology.jl")
 
 include("Systems/Linear_Affine.jl")
 include("Systems/Mechanical.jl")
