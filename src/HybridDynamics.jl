@@ -5,6 +5,8 @@ using ForwardDiff
 
 include("ODE_Solvers/Definitions.jl")
 
+include("Hermite_Interp.jl")
+
 include("Systems/Linear_Affine.jl")
 include("Systems/Mechanical.jl")
 include("Systems/Nonholonomic.jl")
@@ -21,7 +23,7 @@ include("ODE_Solvers/Event_Locators.jl")
 
 
 #Basic Def Structs
-export AbstractHybridSystem, AbstractHybridProblem
+export AbstractHybridSystem, AbstractHybridProblem, AbstractHybridSolution
 
 #Problem struct
 export prob
@@ -67,7 +69,6 @@ export variational_vector_field, compute_pushforward, apply_variational_jump
 #Plotting Help
 export split_jumps
 end
-
 
 
 

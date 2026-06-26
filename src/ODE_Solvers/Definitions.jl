@@ -9,9 +9,8 @@ abstract type LMM <: AbstractODESolver end
 #Parent Category for any root-finding algorithm used to pinpoint the exact time of a guard crossing.
 abstract type AbstractEventLocator end
 
-#Parent Category for any physical system that features both continuous flow and discrete jumps (unsure how Filippov will integrate but I hope its not too bad)
+#Parent Category for any physical system that features both continuous flow and discrete jumps 
 abstract type AbstractHybridSystem end
-
 abstract type AbstractHybridProblem end
 
 #Parent Category for Solution types.
