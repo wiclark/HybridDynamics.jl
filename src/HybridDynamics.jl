@@ -33,7 +33,7 @@ export prob
 ####
 
 # Filippov
-export FilippovSys
+export FilippovSystem
 # Mechanical system struct
 export MechanicalSystem
 # Nonholonomic system struct

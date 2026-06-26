@@ -1,5 +1,5 @@
 
-struct FilippovSys{F, G, H, N} <: AbstractHybridSystem
+struct FilippovSystem{F, G, H, N} <: AbstractHybridSystem
     F::F    # Function one, H(x) > 0
     G::G    # Function two, H(x) < 0
     h::H    # Guard
@@ -7,23 +7,24 @@ struct FilippovSys{F, G, H, N} <: AbstractHybridSystem
 end
 
 # Default to auto diff to find ∇H
-function FilippovSys(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
-    return FilippovSys(F, G, H, N)
+function FilippovSystem(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
+    return FilippovSystem(F, G, H, N)
 end
-struct FilippovSol{T, X, S}
+struct FilippovSol{T, X, DX, S} <: AbstractHybridSolution
     t::T    # Time data
     x::X    # Position data
+    dx::DX  # f(x) Derivative at each state x - only filled when dense_out = true
     s::S    # Time indices while sliding (this still needs added)
 end
 
 # Constructor for solution struct
-function FilippovSol(T, X; S = NaN)
-    return FilippovSol(T, X, S)
+function FilippovSol(T, X, DX; S = NaN)
+    return FilippovSol(T, X, DX, S)
 end
 
 # Initialize solution struct
-function initsol(prob::prob{<:FilippovSys, I, T}) where {I, T}
-    return FilippovSol([prob.tspan[1]], [prob.init])
+function initsol(prob::prob{<:FilippovSystem, I, T}) where {I, T}
+    return FilippovSol([prob.tspan[1]], [prob.init], Vector{Vector{Float64}}())
 end
 
 # INTERNAL
@@ -69,7 +70,7 @@ function filippov_vector_field(sys, x;
     end
 end
 
-function guard(sys::FilippovSys, x)
+function guard(sys::FilippovSystem, x)
     if isnothing(sys.h)
         return nothing
     else
@@ -79,7 +80,11 @@ end
 
 # EXTERNAL
 # Filippov-specific solve
-function solve(prob::prob{<:FilippovSys}, solver; dt_initial = 0.01, max_iter = 10^6, tol = 1e-6, kwargs...)
+function solve(prob::prob{S,I,T};
+    solver::AbstractODESolver=RK4(),
+    dense_out = true,
+    dt_initial = 0.01, max_iter = 10^6, tol = 1e-6, 
+    kwargs...) where {S<:FilippovSystem, I, T}
     
     sys = prob.sys
     sol = initsol(prob)
@@ -125,11 +130,13 @@ function solve(prob::prob{<:FilippovSys}, solver; dt_initial = 0.01, max_iter = 
         sliding_prev = sliding_now
 
         vf(x,t) = vf_fun(x)
-        # vf(x,t), _ = filippov_vector_field(sys,x)(x)
         x_predict, _, _ = take_step(solver, prob, vf, xₖ, tₖ, dt_step, tol, sol)
 
         tₖ += dt_step
         xₖ = x_predict
+        if dense_out
+            push!(sol.dx, vf(xₖ, tₖ))
+        end
         push!(sol.t, tₖ)
         push!(sol.x, xₖ)
 
