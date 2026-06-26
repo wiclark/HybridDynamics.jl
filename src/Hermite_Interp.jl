@@ -1,42 +1,38 @@
-######
-# Cubic Hermite interpolant for dense output 
-# CK: I don't know where to put this. This also still needs to be integrated into solve dispatches
-function (sol::AbstractHybridSolution)(t::AbstractFloat)
-    t_data = sol.t
-    x_data = sol.x
-    f_data = sol.dx
+# This way of calculating the deriv is redundant, but it would take a lot of rewriting to get f out of take_step.
+# To add dense output to a solve dispatch, add the following:
+# if dense_out
+#     push!(sol.dx, f(xₖ, tₖ))
+# end
 
-    if isempty(sol.dx)
-        error("Solution struct did not return dense output")
-    end
 
-    # The first step is to make sure that t∈t_data
-    if t < t_data[1] || t > t_data[end]
-        @warn "Time is out of bounds"
-        return NaN
-    end
 
-    # Next, determine the interval t lives in
-    idx_first = searchsortedfirst(t_data, t) - 1
-    idx_second = idx_first + 1
-    # Gather all of the useful information
-    t₁, t₂ = t_data[idx_first], t_data[idx_second]
-    x₁, x₂ = x_data[idx_first], x_data[idx_second]
-    f₁, f₂ = f_data[idx_first], f_data[idx_second]
+# Cubic Hermite interpolant for dense output: still needs to be integrated into solve dispatches
+function (sol::AbstractHybridSolution)(t::Real)
+
+    # Safties to make sure it usually works
+    isempty(sol.dx) && error("Solution struct did not return dense output")
+
+    t < sol.t[1] && throw(BoundsError(sol, t))
+    t > sol.t[end] && throw(BoundsError(sol, t))
+
+    t == sol.t[1] && return sol.x[1]
+    t == sol.t[end] && return sol.x[end]
+
+    # Find the index of interest
+    i = searchsortedlast(sol.t, t)
+
+    t₁, t₂ = sol.t[i], sol.t[i+1]
+    x₁, x₂ = sol.x[i], sol.x[i+1]
+    f₁, f₂ = sol.dx[i], sol.dx[i+1]
+
     Δt = t₂ - t₁
+    θ = (t - t₁)/Δt
 
-    # Determine the coefficients
-    Aⁱ = [2/Δt^3 -2/Δt^3  1/Δt^2 1/Δt^2;
-         -3/Δt^2  3/Δt^2 -2/Δt  -1/Δt;
-          0       0       1      0;
-          1       0       0      0]
-    # bⁱ = [x₁, x₂, f₁, f₂]
-    # Update to work for vectors
-    bⁱ = vcat(x₁', x₂', f₁', f₂')
-    #α, β, γ, δ = Aⁱ * bⁱ
-    C = Aⁱ * bⁱ
-    α, β, γ, δ = C[1,:], C[2,:], C[3,:], C[4,:]
-    ts = t - t₁
+    # This is faster than matrix operations
+    A1 = 2θ^3 - 3θ^2 + 1
+    A2 = θ^3 - 2θ^2 + θ
+    A3 = -2θ^3 + 3θ^2
+    A4 = θ^3 - θ^2
 
-    return α*ts^3 + β*ts^2 + γ*ts + δ
+    return A1*x₁ + A2*Δt*f₁ + A3*x₂ + A4*Δt*f₂
 end

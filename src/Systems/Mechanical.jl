@@ -128,7 +128,7 @@ function solve(prob::prob{S, I, T};
                solver::AbstractODESolver=RK4(),
                event_method::AbstractEventLocator=LinearLocator(),
                dense_out = true,
-               dt_initial = 0.01, max_iter = 10^5, 
+               dt_initial = 0.01, max_iter = 10^6, 
                tol = 1e-6, ztol = 1e-4,
                kwargs...) where {S<:MechanicalSystem, I, T}
     
@@ -172,16 +172,6 @@ function solve(prob::prob{S, I, T};
             break
         end
 
-        # Stagnation error
-        if length(sol.t) > 6
-            Δt = sol.t[end] - sol.t[end-5]
-            Δx = norm(sol.x[end] - sol.x[end-5])
-
-            if Δt < tol && Δx < tol
-                error("Stagnation detected: no meaningful time/state progression over 5 steps")
-            end
-        end
-
         # Terminate if the remaining time is below machine precision
         if t_end - sol.t[end] <= eps(t_end)
             break
@@ -202,21 +192,13 @@ function solve(prob::prob{S, I, T};
         # Recall that we want h(z)≈0 and -ε<dh(q)̇q<0
         # First, is this a (post) Zeno state?
 
-        ######
-        ### WC: You never updated 'solver' to 'take_step'
-        ### take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol, stepper)
-        ### take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol)
-        ######
-
         if h(qₖ) < ztol  &&  -ztol < dot(∇h(qₖ), M(qₖ) \ pₖ) < 0
             # Does λ preserve the constraint?
             function guard_error(λ)
                 F(z, t) = f_λ(z[1:div(length(z), 2)],z[(div(length(z), 2) + 1):end], λ)
-                #### Make sure that the syntax below works ####
                 x_next, _, _ = take_step(solver, prob, F, xₖ, tₖ, Δt, tol, sol; check=false)
                 q_next, p_next = x_next[1:div(length(x_next), 2)], x_next[(div(length(x_next), 2) + 1):end]
-                #q_next = solver(F, xₖ, Δt) 
-                #q_next, p_next = q_next[1:n], q_next[n+1:end]
+                
                 # Constraint?
                 return dot(∇h(q_next), M(q_next) \ p_next)
             end
@@ -276,7 +258,7 @@ function solve(prob::prob{S, I, T};
 
         # Record
         if dense_out
-            push!(sol.dx, f(xₖ, tₖ)) # this is technically redundant, but it would take a lot of rewriting to get f out of take_step
+            push!(sol.dx, f(xₖ, tₖ)) # hey, it works (usually)
         end
         push!(sol.t, Δt_found+tₖ)
         push!(sol.x, x_next)
