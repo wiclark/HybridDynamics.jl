@@ -12,6 +12,7 @@ include("Systems/Mechanical.jl")
 include("Systems/Nonholonomic.jl")
 include("Systems/General.jl")
 include("Systems/Filippov.jl")
+include("Systems/Stochastic.jl")
 
 include("ODE_Solvers/Linear_Multistep_Methods/Adaptive_LMM_Steps.jl")
 include("ODE_Solvers/Linear_Multistep_Methods/Fixed_LMM_Steps.jl")
@@ -31,7 +32,7 @@ export prob
 ########
 # System types
 ####
-
+export StochasticSystem
 # Filippov
 export FilippovSystem
 # Mechanical system struct
@@ -41,7 +42,7 @@ export NonholonomicSystem
 #Linear/Affine System/Problem structs
 export LinearSystem, AffineSystem
 #General System/Problem structs
-export GeneralSystem, GeneralProblem
+export GeneralSystem
 
 ########
 #ODE Step solvers - Interpolation with Fixed Step size

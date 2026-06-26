@@ -28,7 +28,7 @@ function StochasticSystem(f, h, Δ; normal = nothing)
 end
 
 # General solution struct for mechanical systems
-struct StochasticSol{T, X, DX, I, E, Z}
+struct StochasticSol{T, X, DX, I, E, Z} <: AbstractHybridSolution
     t::T        # Time data
     x::X        # x, the state
     dx::DX      # f(x) Derivative at each state x - only filled when dense_out = true
@@ -65,6 +65,40 @@ function solve(prob::prob{S, I, T};
     # Initialize solution struct
     sol = StochasticSol(prob)
 
+ # Run sim until end of specified time span
+    while sol.t[end] < t_end 
+        
+    # Safties
+        
+        # Stop if we hit the iteration limit to avoid memory doomsday
+        iter += 1
+        if iter > max_iter 
+            @warn "Maximum Iteration Count ($max_iter) exceeded."
+            break
+        end
 
+        # Terminate if the remaining time is below machine precision
+        if t_end - sol.t[end] <= eps(t_end)
+            break
+        end
+
+        #Truncate time step if we overshoot the final sim time
+        dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
+
+    # Actually solve now
+
+
+
+
+
+     # Record
+        if dense_out
+            push!(sol.dx, f(xₖ, tₖ)) # hey, it works (usually)
+        end
+        push!(sol.t, Δt_found+tₖ)
+        push!(sol.x, x_next)
+    end
+
+    return sol
 
 end
