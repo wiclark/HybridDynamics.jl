@@ -58,16 +58,18 @@ end
 
 #SOLUTION STRUCTS AND HELPERS. 
 #Goal to provide standard date for simulation outputs. Keeps cont trajectories and discrete events organized. Currently affine and linear are the samem but kept separate to allow specific plotting later?
-struct HybridSolution{T} <: AbstractHybridSolution
+struct HybridSolution{T, DX} <: AbstractHybridSolution
     t::Vector{Float64}
     x::Vector{T}
+    dx::DX 
     jump_times::Vector{Float64}
     jump_indices::Vector{Int}
 end 
 
+# CK: Is this ever used?
 function CreateSolution(prob::prob{S, I, T}, t::AbstractVector, x::AbstractVector,
     jump_times::AbstractVector, jump_indices::AbstractVector) where {S <: Union{LinearSystem, AffineSystem}, I, T}
-    return HybridSolution{I}(Float64.(t), Vector{I}(x), Float64.(jump_times), Vector{Int}(jump_indices))
+    return HybridSolution(Float64.(t), Vector{I}(x), Vector{Vector{Float64}}(), Float64.(jump_times), Vector{Int}(jump_indices))
 end
 
 #Exact Linear Flow (matrix exponential)
@@ -106,7 +108,7 @@ end
 
 #internal
 function init_solution(prob::prob{S, I, T}) where {S<:Union{LinearSystem, AffineSystem}, I, T}
-    return HybridSolution([prob.tspan[1]], [prob.init], Float64[], Int[])
+    return HybridSolution([prob.tspan[1]], [prob.init], Vector{Vector{Float64}}(), Float64[], Int[])
 end
 
 """
@@ -272,7 +274,8 @@ machine precision drops into beating blocks.
 """
 function solve(prob::prob{F, I, T}, 
                solver::AbstractODESolver=RK45(); 
-               event_method::AbstractEventLocator=LinearLocator(), 
+               event_method::AbstractEventLocator=LinearLocator(),
+               dense_out = true, 
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6, 
                tol = 1e-6, 
                zeno_ratio = 0.90, max_zeno_jumps = 5,
@@ -394,6 +397,9 @@ function solve(prob::prob{F, I, T},
 
         else
             t_next = tₖ + dt_used
+            if dense_out
+                push!(sol.dx, f(xₖ, tₖ)) # hey, it works (usually)
+            end
             push!(sol.t, t_next)
             push!(sol.x, x_predict)
 

@@ -5,16 +5,17 @@ struct GeneralSystem <: AbstractHybridSystem
     Δ::Function     #Reset map: x-> x⁺
 end
 
-struct GeneralSolution{T} <: AbstractHybridSolution
+struct GeneralSolution{X, DX} <: AbstractHybridSolution
     t::Vector{Float64}          #Time points of sim
-    x::Vector{T}                #State traj: T is generic to support varying state types 
+    x::Vector{X}                #State traj: T is generic to support varying state types
+    dx::DX 
     jump_times::Vector{Float64} #Explicit storage of timestamps where resets occurred
     jump_indices::Vector{Int}   #Map of jump_times to indices in the x and t vectors
 end
 
 #Internal
 function init_solution(prob::prob{F, I, T}) where {F<:GeneralSystem, I, T}
-    return GeneralSolution{I}([prob.tspan[1]], [prob.init], Float64[], Int[])
+    return GeneralSolution([prob.tspan[1]], [prob.init], Vector{Vector{Float64}}(), Float64[], Int[])
 end
 #Internal
 function guard(sys::GeneralSystem, x::AbstractArray)
@@ -266,7 +267,8 @@ machine precision drops into beating blocks.
 
 """
 function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45(); 
-               event_method::AbstractEventLocator=LinearLocator(), 
+               event_method::AbstractEventLocator=LinearLocator(),
+               dense_out = true, 
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6, 
                tol = 1e-6, 
                zeno_ratio = 0.90, max_zeno_jumps = 3,
@@ -393,6 +395,9 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
             Δt = dt_initial
         else 
             #Normal cont updated
+            if dense_out
+                push!(sol.dx, f(xₖ, tₖ)) # hey, it works (usually)
+            end
             push!(sol.t, tₖ + dt_used)
             push!(sol.x, x_predict)
             Δt = dt_next
