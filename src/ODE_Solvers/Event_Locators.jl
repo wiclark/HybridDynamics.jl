@@ -1,11 +1,11 @@
 #====================================#
 #Event detection utility. 
 #Assigns a default crossing direction to a specific system to reduce issues (this may be made better for the front end later but for now this works)
-default_guard_direction(sys::MechanicalSystem) = :falling
-default_guard_direction(sys::NonholonomicSystem) = :falling
+default_guard_direction(sys::MechanicalSystem) = -1
+default_guard_direction(sys::NonholonomicSystem) = -1
 #Gen system lack specific constraints so we monitor crossings in both directions
-default_guard_direction(sys::GeneralSystem) = :both
-default_guard_direction(sys) = :both
+default_guard_direction(sys::GeneralSystem) = 0
+default_guard_direction(sys) = 0
 
 #Wrapper function to interface between the system state and core logic
 function crossed_guard(sys, h_prev, h_now, h_next, t_prev, t_now, t_next; 
@@ -15,12 +15,12 @@ function crossed_guard(sys, h_prev, h_now, h_next, t_prev, t_now, t_next;
 end
 
 #Core engine: determines if/when the guard function 'h' changes sign. 
-function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, direction::Symbol; tol=1e-6)
+function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, direction::Int; tol=1e-6)
     #Helper to validate a linear sign change based on the required direction
     valid_linear(h1, h2) = 
-        (direction == :both && h1 * h2 < 0) ||
-        (direction == :falling && h1 > 0 && h2 < 0) ||
-        (direction == :rising && h1 < 0 && h2 > 0)
+        (direction == 0 && h1 * h2 < 0) ||
+        (direction == -1 && h1 > 0 && h2 < 0) ||
+        (direction == 1 && h1 < 0 && h2 > 0)
 
     #First check: Simple linear crossing detection. Between previous and current
     if valid_linear(h_prev, h_now)
@@ -40,7 +40,7 @@ function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, directi
         a, b, c  = A \ [h_prev, h_now, h_next]
 
         #Ensure it is actually a parabola then check disc
-        if abs(a) > 1e-6
+        if abs(a) > tol
             discriminant = b^2 - 4*a*c
             if discriminant > 0
                 sqrt_d = sqrt(discriminant)
@@ -55,9 +55,9 @@ function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, directi
 
                 #Helper: Does quad curve cross in the correct direction?
                 valid_quad(r) = 
-                    (direction == :both) ||
-                    (direction == :falling && h_prime(r) < 0) ||
-                    (direction == :rising && h_prime(r) > 0)
+                    (direction == 0) ||
+                    (direction == -1 && h_prime(r) < 0) ||
+                    (direction == 1 && h_prime(r) > 0)
 
                 #Check bounds and direction
                 if (t_prev + eps_t) <= r1 <= t_next && valid_quad(r1) push!(valid_roots, r1) end 
