@@ -7,7 +7,7 @@ lmm_order(::AdaptiveABM2) = 2
 lmm_order(::AdaptiveABM3) = 3
 
 """
-    take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, h, tol, sol, stepper::RK=RK4())
+    take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::RK=RK4())
 
 Executes single variable-step Linear Multstep Method update for hybrid systems
 How adaptive LMMs work:
@@ -16,7 +16,7 @@ Predictor: Uses histoy points to project a rough guess for next state
 Corrector: Takes that guess from predictor and refines it using the current dynamics, acting as a stabilizer.
 Because predictor and corrector have known, and linked, error bounds, the difference between their outputs gives us an estimate of the Local Truncation Error (LTE).
 
-If LTE is too high h is shrunk, and history is interpolated or reset, and we try to step again. If LTE is below our tolerance the step is accepted and solver calcs a slightly larger h for next step. 
+If LTE is too high Δt is shrunk, and history is interpolated or reset, and we try to step again. If LTE is below our tolerance the step is accepted and solver calcs a slightly larger Δt for next step. 
 
 
 
@@ -26,26 +26,26 @@ the step is delegated to the single-step stepper (default RK4).
 
 2)Predictor/Corrector and Error Est: Once history is established, the solver extracts the past `k` states and calls `compute_lmm_step`. This helper function executes the explicit prediction, the implicit correction, and extracts the isolated LTE using Milne's device.
 
-3) Adaptivity Loop: Operates within 'while true' rejection loop. If LTE exceeds 'tol' the step size 'h' shrinks, and the step is recalculated. If accepted, it computes the optimal h_next for the subsequent step
+3) Adaptivity Loop: Operates within 'while true' rejection loop. If LTE exceeds 'tol' the step size 'Δt' shrinks, and the step is recalculated. If accepted, it computes the optimal Δt_next for the subsequent step
 
 WHY I DID THINGS:
 We use Milne's device for error est because it is easy to compute. Since we already are performing an explicit prediction and an implicit correction, the difference serves as a solid estimate.
 
 """
 #user can specify if they want RK4 here
-function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, h, tol, sol, stepper::RK=RK4(); guard_direction=default_guard_direction(prob.sys))
+function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::RK=RK4(); guard_direction=default_guard_direction(prob.sys))
     sys = prob.sys
     k = lmm_order(solver)
     tf = prob.tspan[2]
 
-    h = minimum([h, tf - tₖ])
+    Δt = minimum([Δt, tf - tₖ])
 
     #determine how many cont steps we have since last jump
     history_len = isempty(sol.jump_indices) ? length(sol.x) : (length(sol.x) - sol.jump_indices[end] + 1)
 
     #Startup phase: IF we dont have history we use RK stepper
     if history_len < k
-        return take_step(stepper, prob, f, xₖ, tₖ, h, tol, sol, stepper; guard_direction=guard_direction)
+        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; guard_direction=guard_direction)
     end
 
     #Extract history for LMM
@@ -58,10 +58,10 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
     #Wanted to try using a max_iter variation here but that breaks things (for some reason idk)
     while true
         #compute step and retrieve LTE 
-        x_next, LTE = compute_lmm_step(solver, f, xₖ, tₖ, h, x_history, t_history)
+        x_next, LTE = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
 
         #Calc proposed next step size using helper from beginning 
-        h_new = updated_step(LTE, tol, h, k)
+        Δt_new = updated_step(LTE, tol, Δt, k)
 
         if LTE < tol
             #step accepted
@@ -72,16 +72,16 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
             t_prev = sol.t[idx]
             h_prev = guard(sys, sol.x[idx])
 
-            eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + h; tol=tol, direction=guard_direction)
+            eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
 
-            return x_next, eventtrigger, t_root, h, h_new
+            return x_next, eventtrigger, t_root, h, Δt_new
         else
             #Step rejected: shrink and try again 
-            h = h_new
-            if h < 1e-6
+            Δt = Δt_new
+            if Δt < 1e-6
                 @warn "LMM Step size has decreased below 1e-6"
                 #Force break to avoid inf loops
-                return x_next, false, NaN, h, h_new
+                return x_next, false, NaN, Δt, Δt_new
             end
         end
     end

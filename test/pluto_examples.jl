@@ -70,7 +70,7 @@ end
 
 # ╔═╡ 0cf59ef8-d158-42dc-913a-7766ac4d2420
 begin
-	sysF = HD.FilippovSys(F, G, H, N)
+	sysF = HD.FilippovSystem(F, G, H, N)
 	probF = HD.prob(sysF, [0.0, 1.0], (0.0, 10.0))
 	solF = HD.solve(probF, HD.RK4(); dt_initial=0.01)
 end
@@ -129,6 +129,9 @@ begin
 	solM = HD.solve(probM, solver=HD.RK4())
 end
 
+# ╔═╡ 999c672e-fdff-4225-b6c8-80a7096432c8
+solM(1.0)
+
 # ╔═╡ fb3eb7c9-3f93-4986-aa89-c2ca478429d3
 begin
 	xm = getindex.(solM.x, 1)
@@ -137,6 +140,9 @@ begin
 	θ = LinRange(0, 2π, 100)
 	plt.plot!(cos.(θ), sin.(θ), label="", lc=:black, aspect_ratio=1)
 end
+
+# ╔═╡ 5a82346d-c04c-4438-85b8-f6d66e8f32db
+plt.plot(solM.t, 1 .- (xm.^2 + ym.^2))
 
 # ╔═╡ 597d4dce-acf4-44a1-bc7a-9d7ec35de2f7
 md"""
@@ -275,8 +281,10 @@ end
 # ╟─80034ca8-e254-4beb-8486-da9de404f503
 # ╠═49b430c8-ac20-4988-9c49-83a38111285f
 # ╠═c1a00790-005e-40ae-9e4c-20f8aac7b787
+# ╠═999c672e-fdff-4225-b6c8-80a7096432c8
 # ╠═a5cd41cd-b341-49c7-a052-bfd20f631b0c
 # ╠═fb3eb7c9-3f93-4986-aa89-c2ca478429d3
+# ╠═5a82346d-c04c-4438-85b8-f6d66e8f32db
 # ╟─597d4dce-acf4-44a1-bc7a-9d7ec35de2f7
 # ╠═8e0f34ac-35ab-4808-a1ed-53525361c688
 # ╠═6d47f9d2-c604-46ba-af77-254478d19ab0

@@ -6,6 +6,10 @@
 abstract type AbstractODESolver end
 abstract type RK <: AbstractODESolver end
 abstract type LMM <: AbstractODESolver end
+abstract type STO <: AbstractODESolver end
+abstract type ME <: AbstractODESolver end
+abstract type NH <: AbstractODESolver end
+
 #Parent Category for any root-finding algorithm used to pinpoint the exact time of a guard crossing.
 abstract type AbstractEventLocator end
 

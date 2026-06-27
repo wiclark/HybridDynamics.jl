@@ -7,6 +7,7 @@ default_guard_direction(sys::NonholonomicSystem) = sys.direction
 default_guard_direction(sys::GeneralSystem) = sys.direction
 default_guard_direction(sys::LinearSystem) = sys.direction
 default_guard_direction(sys::AffineSystem) = sys.direction
+default_guard_direction(sys::StochasticSystem) = sys.direction
 default_guard_direction(sys) = 0
 
 #Wrapper function to interface between the system state and core logic

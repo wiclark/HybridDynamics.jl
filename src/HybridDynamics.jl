@@ -2,6 +2,9 @@ module HybridDynamics
 
 using LinearAlgebra
 using ForwardDiff
+# Needed for Stochastic Systems
+using Random
+using Distributions
 
 include("ODE_Solvers/Definitions.jl")
 

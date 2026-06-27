@@ -18,8 +18,8 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
     h_now = guard(sys, xₖ)
 
     if history_len < k
-        #Startup phase: Use single step predictor
-        #using midpoint here to feed the quadratic guard check
+        # Startup phase: Use single step predictor
+        # using midpoint here to feed the quadratic guard check
         x_predict = compute_step(stepper, f, xₖ, Δt, tₖ)
         x_mid     = compute_step(stepper, f, xₖ, Δt / 2.0, tₖ)
 

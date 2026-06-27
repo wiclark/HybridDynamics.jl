@@ -38,43 +38,43 @@ function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, 
 end
 
 # Forward Euler
-function forward_euler_step(f::Function, z::AbstractArray, h::AbstractFloat, t::AbstractFloat)
-    return z .+ h*f(z, t)
+function forward_euler_step(f::Function, z::AbstractArray, Δt::AbstractFloat, t::AbstractFloat)
+    return z .+ Δt*f(z, t)
 end
 
 # Modified (fully explicit) Trapezoid Rule
-function modified_trap_step(f::Function, z::AbstractArray, h::AbstractFloat, t::AbstractFloat)
-    z_guess = z .+ h*f(z,t)
-    return z .+ 1/2*h*( f(z, t) + f(z_guess, t+h) )
+function modified_trap_step(f::Function, z::AbstractArray, Δt::AbstractFloat, t::AbstractFloat)
+    z_guess = z .+ Δt*f(z,t)
+    return z .+ 1/2*Δt*( f(z, t) + f(z_guess, t+Δt) )
 end
 
 # Modified (fully explicit) Midpoint Rule
-function modified_midpoint_step(f::Function, z::AbstractArray, h::AbstractFloat, t::AbstractFloat)
-    z_guess = z .+ h/2*f(z, t)
-    return z .+ h*f(z_guess, t+h/2)
+function modified_midpoint_step(f::Function, z::AbstractArray, Δt::AbstractFloat, t::AbstractFloat)
+    z_guess = z .+ Δt/2*f(z, t)
+    return z .+ Δt*f(z_guess, t+Δt/2)
 end
 
 #Classic Runge-Kutta 4
-function rk_4_step(f::Function, z::AbstractArray, h::AbstractFloat, t::AbstractFloat)
+function rk_4_step(f::Function, z::AbstractArray, Δt::AbstractFloat, t::AbstractFloat)
     k1 = f(z,t)
-    k2 = f(z + h/2 * k1, t + h/2)
-    k3 = f(z + h/2 * k2, t + h/2)
-    k4 = f(z + h * k3, t + h)
+    k2 = f(z + Δt/2 * k1, t + Δt/2)
+    k3 = f(z + Δt/2 * k2, t + Δt/2)
+    k4 = f(z + Δt * k3, t + Δt)
 
     #Shouldnt need to check guard in these inner stages here as no adpative step size.
 
-    return z + h/6 * (k1 + 2*k2 + 2*k3 + k4)
+    return z + Δt/6 * (k1 + 2*k2 + 2*k3 + k4)
 end
 
 #Richardson Extrapolation based on modifed midpoint from Wiki
-function richardson_step(f::Function, z::AbstractArray, h::AbstractFloat, t::AbstractFloat)
+function richardson_step(f::Function, z::AbstractArray, Δt::AbstractFloat, t::AbstractFloat)
     #Take one full step size h
-    z1 = modified_midpoint_step(f,z,h,t)
+    z1 = modified_midpoint_step(f,z,Δt,t)
 
     #Take two smaller steps of h/2
-    h_half = h / 2
-    z_half = modified_midpoint_step(f,z,h_half,t)
-    z2 = modified_midpoint_step(f, z_half,h_half,t+h_half)
+    Δt_half = Δt / 2
+    z_half = modified_midpoint_step(f, z, Δt_half, t)
+    z2 = modified_midpoint_step(f, z_half, Δt_half, t+Δt_half)
 
     #Extrapolate to get rid of lower order error
     return (4 .* z2 .- z1) ./ 3.0
