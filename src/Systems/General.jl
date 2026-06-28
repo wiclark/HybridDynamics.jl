@@ -1,26 +1,38 @@
-
+# A general hybrid dynamical system
 struct GeneralSystem <: AbstractHybridSystem
     f::Function     #Continuous Dynamics: (x,t) -> dx/dt
-    h::Function     #Guard Surface: x-> real
-    Δ::Function     #Reset map: x-> x⁺
+    h::Function     #Guard Surface: x -> real
+    Δ::Function     #Reset map: x -> x⁺
     direction::Int  #Direction for the guard
 end
 
 #Constructor for above
-GeneralSystem(f,h,Δ,direction::Int=0) = GeneralSystem(f,h,Δ,direction)
+function GeneralSystem(f, h, Δ; direction::Int=0)
+    return GeneralSystem(f, h, Δ, direction)
+end
+# GeneralSystem(f,h,Δ,direction::Int=0) = GeneralSystem(f,h,Δ,direction)
 
-struct GeneralSolution{X, DX} <: AbstractHybridSolution
-    t::Vector{Float64}          #Time points of sim
-    x::Vector{X}                #State traj: T is generic to support varying state types
+struct GeneralSol{T, X, DX} <: AbstractHybridSolution
+    t::T                        #Time points of sim
+    x::X                        #State traj: T is generic to support varying state types
     dx::DX 
     jump_times::Vector{Float64} #Explicit storage of timestamps where resets occurred
     jump_indices::Vector{Int}   #Map of jump_times to indices in the x and t vectors
 end
 
-#Internal
+#Internal - to initialize the solution struct
+function GeneralSol(prob::prob{F, I, T}) where {F<:GeneralSystem, I, T}
+    return GeneralSol([prob.tspan[1]], 
+        [prob.init], 
+        Vector{Vector{Float64}}(),
+        Float64[],
+        Int[])
+end
+#=
 function init_solution(prob::prob{F, I, T}) where {F<:GeneralSystem, I, T}
     return GeneralSolution([prob.tspan[1]], [prob.init], Vector{Vector{Float64}}(), Float64[], Int[])
 end
+=#
 #Internal
 function guard(sys::GeneralSystem, x::AbstractArray)
     x_phys = (x isa AbstractMatrix) ? x[:, 1] : x
@@ -73,12 +85,12 @@ machine precision drops into beating blocks.
 * 'sliding_tol_mult' (Float64, default '10.0'): If the post-impact guard value is within 'tol * sliding_tol_mult', the solver enters sliding mode to suppress immediate erroneous events. This helps us avoid strange chattering.  
 
 """
-function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
+function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK4();
                event_method::AbstractEventLocator=LinearLocator(),
                dense_out = true,
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
                tol = 1e-6,
-               zeno_ratio = 0.90, max_zeno_jumps = 5,
+               zeno_ratio = 0.90, max_zeno_jumps = 10,
                stepper::AbstractODESolver=RK4(),
                max_buffer_size=10,
                max_instant_jumps = 5,
@@ -87,7 +99,7 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
 
     sys = prob.sys
     f = sys.f
-    sol = init_solution(prob)
+    sol = GeneralSol(prob)
     t_start, t_end = prob.tspan
     Δt = dt_initial
     iter = 0
@@ -100,6 +112,7 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
 
 
     while sol.t[end] < t_end
+        # Halt if we hit the iteration limit 
         iter += 1
         if iter > max_iter
             @info "Maximum iterations $max_iter reached."
@@ -107,22 +120,62 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
         end
 
         # Terminate if time is below machine precision
-        if t_end - sol.t[end] < dt_min
+        if t_end - sol.t[end] <= eps(t_end)
             @info "Time step below minimum threshold $dt_min. Terminating."
             break
         end
 
-        # Truncate time step if we overshoot
-        dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
-
-        dt_step = min(Δt, t_end - sol.t[end])
-
-        # Continuous integration
+        # The current state/time
         xₖ = sol.x[end]
         tₖ = sol.t[end]
 
-        x_predict, eventtriggered, t_root, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
-   
+        # Truncate time step if we overshoot
+        Δt = (tₖ + Δt > t_end) ? (t_end - tₖ) : Δt
+        x_predict, eventtriggered, t_root, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction)
+
+        if eventtriggered
+            # An event has been found, time to locate it
+            t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, Δt, guard(sys, xₖ), tol, sol, stepper)
+            # Record the impact information
+            if abs(guard(sys, x_star)) > 1e-3
+                @warn "Event location is not located on the guard."
+            end
+            x⁺ = apply_reset(sys, x_star)
+
+            # Perform a naive pathological check
+            if (guard_direction == 0) && (abs(guard(sys, x⁺)>tol))
+                @warn "An instantaneous reset is detected. Possible beating/blocking/Zeno. Terminating."
+                break
+            end
+            # Pre-reset
+            push!(sol.jump_times, t_star)
+            push!(sol.t, t_star)
+            push!(sol.x, x_star)
+            # Post-reset
+            push!(sol.t, t_star)
+            push!(sol.x, x⁺)
+            # println(x⁺)
+            if dense_out
+                push!(sol.dx, f(x_star, t_star))
+                push!(sol.dx, f(x⁺, t_star))
+            end
+            
+            # Check for fast switchings
+            if (length(sol.jump_times) > 2) && (sol.jump_times[end]-sol.jump_times[end-1]<1e-3)
+                @warn "Fast switching is detected. Possible beating/blocking/Zeno. Terminating"
+                break
+            end
+
+        else
+            push!(sol.t, tₖ+dt_used)
+            push!(sol.x, x_predict)
+            if dense_out
+                push!(sol.dx, f(x_predict, tₖ+dt_used))
+            end
+        end
+        Δt = dt_next
+
+        #=
         #Discrete event logic
         if eventtriggered
             
@@ -171,7 +224,7 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
             push!(sol.t, tₖ + dt_used)
             push!(sol.x, x_predict)
             Δt = dt_next
-        end
+        end =#
     end
     return sol
 end

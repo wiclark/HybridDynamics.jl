@@ -180,19 +180,24 @@ begin
 end
 
 # ╔═╡ da267e54-7c2b-4a31-b429-077b47912814
+# ╠═╡ disabled = true
+#=╠═╡
 begin
 	sysNH = HD.NonholonomicSystem(M_sleigh, V_sleigh; A = A_sleigh, guard=h_sleigh, normal=∇h_sleigh, e=1)
 	probNH = HD.prob(sysNH, [0.0, 0.0, 0.0, 1.0, 0.0, 1.5], (0.0, 100.0))
 	solNH = HD.solve(probNH, solver=HD.RK4())
 end
+  ╠═╡ =#
 
 # ╔═╡ d8370b2e-077d-488f-afb2-ceffa00fc255
+#=╠═╡
 begin
 	xs = getindex.(solNH.x, 1)
 	ys = getindex.(solNH.x, 2)
 	plt.plot(xs, ys, label="Sleigh Trajectory", lw=2)
 	plt.plot!(cos.(θ), sin.(θ), label="", lc=:black, aspect_ratio=1)
 end
+  ╠═╡ =#
 
 # ╔═╡ eea32534-7258-478d-b96e-aee9bc212011
 md"""
@@ -229,12 +234,12 @@ end
 h_ball(x) = x[1]
 
 # ╔═╡ 8702895d-c0ea-459b-814a-b67f4c193860
-Δ_ball(x) = [abs(x[1]), 0.8*abs(x[2])]
+Δ_ball(x) = [abs(x[1]), -0.8*x[2]]
 
 # ╔═╡ cb05396f-92a2-468c-af34-f64e25a93e16
 begin
-	sysG = HD.GeneralSystem(f_ball, h_ball, Δ_ball)
-	probG = HD.prob(sysG, [10.0, 0.0], (0.0, 5.0))
+	sysG = HD.GeneralSystem(f_ball, h_ball, Δ_ball; direction=-1)
+	probG = HD.prob(sysG, [10.0, 0.0], (0.0, 15.0))
 	solG = HD.solve(probG)
 end
 
@@ -267,6 +272,15 @@ begin
 	plt.plot!(title = "Nonlinear bouncing ball", xlabel = "Time", grid = true)
 end
 
+# ╔═╡ 293d4ac4-bbb7-41ea-ae29-ae0844fd3992
+solG.jump_times
+
+# ╔═╡ a62b426b-cb7f-44f1-9371-9f446a494a59
+solG.x
+
+# ╔═╡ 67463097-3bb9-48a6-bb63-008eb7936427
+solG.t
+
 # ╔═╡ Cell order:
 # ╠═6df38dc0-6787-11f1-a77e-9f1ff29a6e5b
 # ╠═5f758439-587b-4bbe-bd02-f2f9ce6cc8fb
@@ -298,3 +312,6 @@ end
 # ╠═cb05396f-92a2-468c-af34-f64e25a93e16
 # ╟─72a895f8-655e-4a0e-8025-90458f0f2819
 # ╠═5bb10f03-ebc5-4b86-a150-04c0eb12e404
+# ╠═293d4ac4-bbb7-41ea-ae29-ae0844fd3992
+# ╠═a62b426b-cb7f-44f1-9371-9f446a494a59
+# ╠═67463097-3bb9-48a6-bb63-008eb7936427

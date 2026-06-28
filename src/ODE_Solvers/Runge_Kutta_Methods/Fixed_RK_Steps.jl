@@ -21,7 +21,6 @@ function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, 
     sys = prob.sys
     x_predict = compute_step(solver, f, xₖ, Δt, tₖ)
     x_mid     = compute_step(solver, f, xₖ, Δt / 2.0, tₖ)
-
     if check
         #Evaluate Guards
         h_now  = guard(sys, xₖ)

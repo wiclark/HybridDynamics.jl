@@ -29,6 +29,7 @@ function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, directi
     if valid_linear(h_prev, h_now)
         #Linear interpolation to find the root
         t_root = t_prev - h_prev * (t_now - t_prev) / (h_now - h_prev)
+        # println([h_prev, h_now, h_next])
         return true, t_root, NaN
     #Second check: Linear beween current and next
     elseif valid_linear(h_now, h_next)
@@ -147,17 +148,25 @@ function locate_event(::LinearLocator, prob, solver::AbstractODESolver, f, xₖ,
     x_star = x_r
 
     for _ in 1:100
+        #=
         if abs(τ_r - τ_l) < tol || abs(h_r) < tol
             τ_star = τ_r
             x_star = x_r
             break
         end
+        =#
 
         #Linear Interp
         τ_m = τ_r - h_r * (τ_r - τ_l) / (h_r - h_l)
 
         x_m, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_m, tol, sol, stepper)
         h_m = guard(sys, x_m)
+
+        if abs(h_m) < tol
+            τ_star = τ_m
+            x_star = x_m
+            break
+        end
 
         #keep root bracketed
         if signbit(h_l) != signbit(h_m)
@@ -169,6 +178,7 @@ function locate_event(::LinearLocator, prob, solver::AbstractODESolver, f, xₖ,
         end
     end
     t_star = tₖ + τ_star
+    x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper)
     return t_star, x_star
 end
 

@@ -98,6 +98,10 @@ function check_system_pathology(
     return zeno_count, instant_jump_count, :continue
 end
 
+######
+### WC: This function is far too complicated.
+### (Additionally, it does not work. It incorrectly identifies the NL bouncing ball as Zeno quite prematurely.)
+######
 function check_general_pathology(
     jump_interval,
     last_intervals,
