@@ -1,4 +1,4 @@
-
+# A Filippov (discontinuous) dynamical system
 struct FilippovSystem{F, G, H, N} <: AbstractHybridSystem
     F::F    # Function one, H(x) > 0
     G::G    # Function two, H(x) < 0
@@ -10,6 +10,7 @@ end
 function FilippovSystem(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
     return FilippovSystem(F, G, H, N)
 end
+
 struct FilippovSol{T, X, DX, S} <: AbstractHybridSolution
     t::T    # Time data
     x::X    # Position data
@@ -17,15 +18,25 @@ struct FilippovSol{T, X, DX, S} <: AbstractHybridSolution
     s::S    # Time indices while sliding (this still needs added)
 end
 
+#=
 # Constructor for solution struct
 function FilippovSol(T, X, DX; S = NaN)
     return FilippovSol(T, X, DX, S)
 end
+=#
 
+function FilippovSol(prob::prob{F, I, T}) where {F<:FilippovSystem, I, T}
+    return FilippovSol([prob.tspan[1]],
+        [prob.init],
+        Vector{Vector{Float64}}(),
+        Float64[])
+end
+#=
 # Initialize solution struct
 function initsol(prob::prob{<:FilippovSystem, I, T}) where {I, T}
     return FilippovSol([prob.tspan[1]], [prob.init], Vector{Vector{Float64}}())
 end
+=#
 
 # INTERNAL
 # Returns a vector field function at state `x` for a Filippov system
@@ -80,14 +91,14 @@ end
 
 # EXTERNAL
 # Filippov-specific solve
-function solve(prob::prob{S,I,T};
-    solver::AbstractODESolver=RK4(),
+function solve(prob::prob{F,I,T}, solver::AbstractODESolver=RK45();
     dense_out = true,
     dt_initial = 0.01, max_iter = 10^6, tol = 1e-6, 
-    kwargs...) where {S<:FilippovSystem, I, T}
+    stepper::AbstractODESolver=RK4(), event_method::AbstractEventLocator=LinearLocator(),
+    kwargs...) where {F<:FilippovSystem, I, T}
     
     sys = prob.sys
-    sol = initsol(prob)
+    sol = FilippovSol(prob)
 
     _, t_end = prob.tspan     # Extract start and end times for bounds
 
@@ -128,11 +139,14 @@ function solve(prob::prob{S,I,T};
         # end
 
         sliding_prev = sliding_now
+        if sliding_now
+            push!(sol.s, tₖ)
+        end
 
         vf(x,t) = vf_fun(x)
-        x_predict, _, _ = take_step(solver, prob, vf, xₖ, tₖ, dt_step, tol, sol)
+        x_predict, _, _, dt_used, dt_next = take_step(solver, prob, vf, xₖ, tₖ, dt_step, tol, sol)
 
-        tₖ += dt_step
+        tₖ += dt_used
         xₖ = x_predict
         if dense_out
             push!(sol.dx, vf(xₖ, tₖ))
@@ -140,7 +154,7 @@ function solve(prob::prob{S,I,T};
         push!(sol.t, tₖ)
         push!(sol.x, xₖ)
 
-       
+        Δt = dt_next
 
     end
 

@@ -72,8 +72,11 @@ end
 begin
 	sysF = HD.FilippovSystem(F, G, H, N)
 	probF = HD.prob(sysF, [0.0, 1.0], (0.0, 10.0))
-	solF = HD.solve(probF, HD.RK4(); dt_initial=0.01)
+	solF = HD.solve(probF, HD.RK4())
 end
+
+# ╔═╡ e405e5fb-703e-452a-a704-962a162f9751
+solF.s
 
 # ╔═╡ 1959511b-8aa8-49d0-893c-b9b801a2bda0
 begin
@@ -288,6 +291,7 @@ solG.t
 # ╟─2880f5f2-fb01-4696-aba3-7faf4714c9d3
 # ╠═9da11b33-0def-4ac1-bd19-574ef1cceb98
 # ╠═0cf59ef8-d158-42dc-913a-7766ac4d2420
+# ╠═e405e5fb-703e-452a-a704-962a162f9751
 # ╠═1959511b-8aa8-49d0-893c-b9b801a2bda0
 # ╠═e6bc3aba-7b99-4ca8-8657-12b8609cd427
 # ╠═bbc202e7-fd8d-4eb1-9de2-93b09a73a425
