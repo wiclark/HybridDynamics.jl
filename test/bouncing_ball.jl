@@ -48,6 +48,9 @@ end
 # ╔═╡ 262d6990-173d-4f11-92bd-647874bc4c11
 solG.x
 
+# ╔═╡ bf26a7ab-eeb1-4462-a78b-cfa30a636a45
+solG.t
+
 # ╔═╡ 338eeb44-86d5-4827-bb60-488b12269924
 function get_rid_of_jump_lines(sol)
     t = Float64[]
@@ -95,11 +98,17 @@ end
 # ╔═╡ c644ac64-4bc5-45ca-9aa2-60f0170e5eac
 plt.plot(solM.t, getindex.(solM.x, 1))
 
+# ╔═╡ 5e4f9237-ded8-46d4-8811-1b74fa2cbc55
+solM(14.1)
+
 # ╔═╡ 16fad695-ebd3-4470-a91a-96d41ae202f6
 begin
 	plt.plot(t_plot, x1_plot, label="Position", lw=3, lc=:blue)
-	plt.plot!(solM.t, getindex.(solM.x, 1))
+	plt.plot!(solM.t, getindex.(solM.x, 1), lw=2)
 end
+
+# ╔═╡ c94e2802-5814-4b51-8080-59cdc264406a
+solM.event
 
 # ╔═╡ Cell order:
 # ╠═6dab3570-7290-11f1-b67c-277aa2a67d52
@@ -111,8 +120,11 @@ end
 # ╠═b8befa98-6049-424b-8f4c-e7d868dea35d
 # ╠═49da0e79-d4ec-4dc4-b14c-206f08f9f0bc
 # ╠═262d6990-173d-4f11-92bd-647874bc4c11
+# ╠═bf26a7ab-eeb1-4462-a78b-cfa30a636a45
 # ╟─338eeb44-86d5-4827-bb60-488b12269924
 # ╠═13da5896-c5ef-4829-b934-917a42495d01
 # ╠═88bd4e41-04e8-4fa2-9223-66b25b5bd6b0
 # ╠═c644ac64-4bc5-45ca-9aa2-60f0170e5eac
+# ╠═5e4f9237-ded8-46d4-8811-1b74fa2cbc55
 # ╠═16fad695-ebd3-4470-a91a-96d41ae202f6
+# ╠═c94e2802-5814-4b51-8080-59cdc264406a

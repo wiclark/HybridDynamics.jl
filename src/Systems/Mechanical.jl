@@ -131,7 +131,7 @@ function solve(prob::prob{S, I, T};
                event_method::AbstractEventLocator=LinearLocator(),
                dense_out = true,
                dt_initial = 0.01, max_iter = 10^6, 
-               tol = 1e-6, ztol = 1e-2,
+               tol = 1e-6, ztol = 1e-3,
                guard_direction = default_guard_direction(prob.sys),
                kwargs...) where {S<:MechanicalSystem, I, T}
     
@@ -177,7 +177,7 @@ function solve(prob::prob{S, I, T};
         end
 
         #Truncate time step if we overshoot the final sim time
-        dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
+        Δt = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
     # Actually solve now
 
@@ -188,7 +188,7 @@ function solve(prob::prob{S, I, T};
 
         # Recall that we want h(z)≈0 and -ε<dh(q)̇q<0
         # First, is this a (post) Zeno state?
-        if h(qₖ) < ztol  &&  -ztol < dot(∇h(qₖ), M(qₖ) \ pₖ) < 0
+        if h(qₖ) < ztol  &&  abs(dot(∇h(qₖ), M(qₖ) \ pₖ))<ztol #-ztol < dot(∇h(qₖ), M(qₖ) \ pₖ) < 0
             # Does λ preserve the constraint?
             function guard_error(λ)
                 F(z, t) = f_λ(z[1:div(length(z), 2)],z[(div(length(z), 2) + 1):end], λ)

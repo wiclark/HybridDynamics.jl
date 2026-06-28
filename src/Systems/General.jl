@@ -10,7 +10,6 @@ end
 function GeneralSystem(f, h, Δ; direction::Int=0)
     return GeneralSystem(f, h, Δ, direction)
 end
-# GeneralSystem(f,h,Δ,direction::Int=0) = GeneralSystem(f,h,Δ,direction)
 
 struct GeneralSol{T, X, DX} <: AbstractHybridSolution
     t::T                        #Time points of sim
@@ -28,11 +27,7 @@ function GeneralSol(prob::prob{F, I, T}) where {F<:GeneralSystem, I, T}
         Float64[],
         Int[])
 end
-#=
-function init_solution(prob::prob{F, I, T}) where {F<:GeneralSystem, I, T}
-    return GeneralSolution([prob.tspan[1]], [prob.init], Vector{Vector{Float64}}(), Float64[], Int[])
-end
-=#
+
 #Internal
 function guard(sys::GeneralSystem, x::AbstractArray)
     x_phys = (x isa AbstractMatrix) ? x[:, 1] : x
@@ -85,7 +80,7 @@ machine precision drops into beating blocks.
 * 'sliding_tol_mult' (Float64, default '10.0'): If the post-impact guard value is within 'tol * sliding_tol_mult', the solver enters sliding mode to suppress immediate erroneous events. This helps us avoid strange chattering.  
 
 """
-function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK4();
+function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
                event_method::AbstractEventLocator=LinearLocator(),
                dense_out = true,
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
@@ -132,7 +127,7 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK4();
         # Truncate time step if we overshoot
         Δt = (tₖ + Δt > t_end) ? (t_end - tₖ) : Δt
         x_predict, eventtriggered, t_root, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction)
-
+        
         if eventtriggered
             # An event has been found, time to locate it
             t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, Δt, guard(sys, xₖ), tol, sol, stepper)

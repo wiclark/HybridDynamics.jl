@@ -15,11 +15,13 @@ function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, t�
 
     #Take adaptive step (passes tf to prevent overshooting)
     #Disable adaptive loop to get the true midpoint. Without it it would reset the loop and ruin or previous adaptivity
-    x_predict, dt_used, dt_next = compute_step(solver, f, xₖ, Δt, tₖ, tf, sys, tol; adaptive=false)
-
+    ######
+    ### WC: Why was adaptive=false here?
+    ######
+    x_predict, dt_used, dt_next = compute_step(solver, f, xₖ, Δt, tₖ, tf, sys, tol)
     #Get midpoint for quad guard check
     #For a half-step the local ceiling is just midpoint of time 
-    x_mid, _, _ = compute_step(solver, f, xₖ, dt_used / 2.0, tₖ, tf, sys, tol)
+    x_mid, _, _ = compute_step(solver, f, xₖ, dt_used / 2.0, tₖ, tf, sys, tol; adaptive=false)
 
     #eval guards
     h_now  = guard(sys, xₖ)
@@ -60,11 +62,11 @@ function rk_23_step(f::Function, z::AbstractArray, Δt::AbstractFloat, t::Abstra
 
         z2 = z + dt*k1
         k2 = f(z2, t+dt)
-        h2    = guard(sys, z2)
+        h2 = guard(sys, z2)
 
         z3 = z + dt/4*(k1+k2)
-        k3 = f(z+dt/4*(k1+k2), t+dt/2)
-        h3    = guard(sys, z3)
+        k3 = f(z3, t+dt/2)
+        h3 = guard(sys, z3)
 
         z1_3 = z + dt*(1/6*k1+1/6*k2+2/3*k3)
         z1_2 = z + dt*(1/2*k1+1/2*k2)
@@ -121,23 +123,23 @@ function rk_45_step(f::Function, z::AbstractArray, Δt::AbstractFloat, t::Abstra
         k1 = f(z, t)
 
         z2 = z + dt*1/5*k1
-        k2 = f(z+dt*1/5*k1, t+dt*1/5)
+        k2 = f(z2, t+dt*1/5)
         h2 = guard(sys, z2)
 
         z3 = z + dt*(3/40*k1 + 9/40*k2)
-        k3 = f(z+dt*(3/40*k1+9/40*k2), t+dt*3/10)
+        k3 = f(z3, t+dt*3/10)
         h3 = guard(sys, z3)
 
         z4 = z + dt*(44/45*k1 - 56/15*k2 + 32/9*k3)
-        k4 = f(z+dt*(44/45*k1-56/15*k2+32/9*k3), t+dt*4/5)
+        k4 = f(z4, t+dt*4/5)
         h4 = guard(sys, z4)
 
         z5 = z + dt*(19372/6561*k1 - 25360/2187*k2 + 64448/6561*k3 - 212/729*k4)
-        k5 = f(z+dt*(19372/6561*k1-25360/2187*k2+64448/6561*k3-212/729*k4),t+dt*8/9)
+        k5 = f(z5,t+dt*8/9)
         h5 = guard(sys, z5)
 
         z6 = z + dt*(9017/3168*k1 - 355/33*k2 + 46732/5247*k3 + 49/176*k4 - 5105/18656*k5)
-        k6 = f(z+dt*(9017/3168*k1-355/33*k2+46732/5247*k3+49/176*k4-5105/18656*k5), t+dt)
+        k6 = f(z6, t+dt)
         h6 = guard(sys, z6)
 
         k7 = f(z + dt*(35/384*k1 + 0*k2 + 500/1113*k3 + 125/192*k4 - 2187/6784*k5 + 11/84*k6), t+dt)
@@ -155,7 +157,7 @@ function rk_45_step(f::Function, z::AbstractArray, Δt::AbstractFloat, t::Abstra
         LTE = norm(z1_4 - z1_5)
         # Reject or accept?
         dt_new = updated_step(LTE, tol, dt, 5)
-
+        
         h_end = guard(sys, z1_4)
 
         stage_crossed = (h_now * h2 < 0) || (h_now * h3 < 0) || (h_now * h4 < 0) || (h_now * h5 < 0) || (h_now * h6 < 0)
@@ -165,6 +167,7 @@ function rk_45_step(f::Function, z::AbstractArray, Δt::AbstractFloat, t::Abstra
             dt = dt / 2.0 #force smaller step
             continue
         end
+        
 
         if LTE < tol
             return z1_4, dt, dt_new
