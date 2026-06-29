@@ -17,7 +17,9 @@ compute_step(::RichardsonExtrapolation, f, x, Δt, t) = richardson_step(f, x, Δ
 compute_step(::RK4, f, x, Δt, t) = rk_4_step(f, x, Δt, t)
 
 #Note sol is not used, we do this to make using the function easier. We would need an if/else statement everytime we use this function without it
-function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint(); check=true, guard_direction=default_guard_direction(prob.sys)) 
+function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint(); 
+        check=true, guard_direction=default_guard_direction(prob.sys)) 
+        
     sys = prob.sys
     x_predict = compute_step(solver, f, xₖ, Δt, tₖ)
     x_mid     = compute_step(solver, f, xₖ, Δt / 2.0, tₖ)
@@ -32,7 +34,7 @@ function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, xₖ, tₖ, 
 
         return x_predict, eventtrigger, t_root, Δt, Δt
     else
-        return x_predict, NaN, NaN, NaN, NaN
+        return x_predict, false, NaN, Δt, Δt
     end
 end
 

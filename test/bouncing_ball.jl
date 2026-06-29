@@ -88,6 +88,9 @@ begin
 	∇h(q) = [1.0]
 end
 
+# ╔═╡ 85d7a8f6-c5b9-4094-948c-a9d838497a2b
+(length(∇h([1.0, 1.0])'*rand(1,1))>1) ? (∇h([1.0, 1.0])'*rand(2,2)) : [∇h([1.0])'*M(1.0)]
+
 # ╔═╡ 88bd4e41-04e8-4fa2-9223-66b25b5bd6b0
 begin
 	sysM = HD.MechanicalSystem(M, V; guard=h, normal=∇h, e=0.8)
@@ -123,6 +126,7 @@ solM.event
 # ╠═bf26a7ab-eeb1-4462-a78b-cfa30a636a45
 # ╟─338eeb44-86d5-4827-bb60-488b12269924
 # ╠═13da5896-c5ef-4829-b934-917a42495d01
+# ╠═85d7a8f6-c5b9-4094-948c-a9d838497a2b
 # ╠═88bd4e41-04e8-4fa2-9223-66b25b5bd6b0
 # ╠═c644ac64-4bc5-45ca-9aa2-60f0170e5eac
 # ╠═5e4f9237-ded8-46d4-8811-1b74fa2cbc55

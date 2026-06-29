@@ -9,7 +9,8 @@ struct RK23 <: AdaptiveRK end
 compute_step(::RK23, f, x, Δt, t, tf, sys, tol; adaptive=true) = rk_23_step(f, x, Δt, t, tf, sys, tol; adaptive=adaptive)
 compute_step(::RK45, f, x, Δt, t, tf, sys, tol; adaptive=true) = rk_45_step(f, x, Δt, t, tf, sys, tol; adaptive=adaptive)
 
-function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint(); guard_direction=default_guard_direction(prob.sys))
+function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint();
+        check=true, guard_direction=default_guard_direction(prob.sys))
     sys = prob.sys
     tf = prob.tspan[2] #terminal time
 
@@ -19,18 +20,22 @@ function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, t�
     ### WC: Why was adaptive=false here?
     ######
     x_predict, dt_used, dt_next = compute_step(solver, f, xₖ, Δt, tₖ, tf, sys, tol)
-    #Get midpoint for quad guard check
-    #For a half-step the local ceiling is just midpoint of time 
+    # Get midpoint for quad guard check
+    # For a half-step the local ceiling is just midpoint of time 
     x_mid, _, _ = compute_step(solver, f, xₖ, dt_used / 2.0, tₖ, tf, sys, tol; adaptive=false)
 
-    #eval guards
-    h_now  = guard(sys, xₖ)
-    h_mid  = guard(sys, x_mid)
-    h_next = guard(sys, x_predict)
+    if check
+        # Evaluate guards
+        h_now  = guard(sys, xₖ)
+        h_mid  = guard(sys, x_mid)
+        h_next = guard(sys, x_predict)
+        # Use cross guard check
+        eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_mid, h_next, tₖ, tₖ + dt_used / 2.0, tₖ + dt_used; tol=tol, direction=guard_direction)
 
-    eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_mid, h_next, tₖ, tₖ + dt_used / 2.0, tₖ + dt_used; tol=tol, direction=guard_direction)
-
-    return x_predict, eventtrigger, t_root, dt_used, dt_next
+        return x_predict, eventtrigger, t_root, dt_used, dt_next
+    else
+        return x_predict, false, NaN, Δt, Δt
+    end
 end
 
 # A helper function to determine the adapted step size
