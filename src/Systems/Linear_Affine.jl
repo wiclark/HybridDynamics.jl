@@ -13,7 +13,7 @@ end
 #External
 #external constructor to help user see data types 
 function LinearSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix; direction::Int=0)
-    return LinearSystem(Float64.(A), Float64.(λ), Float64.(C); direction)
+    return LinearSystem(Float64.(A), Float64.(λ), Float64.(C), direction)
 end
 
 # EVERYTHING FOR AFFINE SYSTEMS
@@ -32,7 +32,7 @@ end
 #External
 # external constructor to help user see data types
 function AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector; direction::Int=0)
-    return AffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ); direction)
+    return AffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ), direction)
 end
 
 #SOLUTION STRUCTS AND HELPERS. 
@@ -330,12 +330,14 @@ function solve(prob::prob{F, I, T},
         xₖ = sol.x[end]
         tₖ = sol.t[end]
 
-        x_predict, eventtriggered, h_next, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
+        x_predict, eventtriggered, t_root, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
 
         # Discrete event logic
         if eventtriggered 
+
+            h_now = guard(sys, xₖ)
             
-            t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, h_next, tol, sol, stepper)
+            t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, h_now, tol, sol, stepper)
             
             # PATHOLOGY CHECK
             jump_interval = t_star - last_jump_time

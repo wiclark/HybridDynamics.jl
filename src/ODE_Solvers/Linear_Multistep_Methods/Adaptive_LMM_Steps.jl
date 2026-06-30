@@ -74,7 +74,7 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
 
             eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
 
-            return x_next, eventtrigger, t_root, h, Δt_new
+            return x_next, eventtrigger, t_root, Δt, Δt_new
         else
             #Step rejected: shrink and try again 
             Δt = Δt_new

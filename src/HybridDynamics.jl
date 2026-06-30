@@ -54,7 +54,7 @@ export GeneralSystem
 
 ########
 #ODE Step solvers - Interpolation with Fixed Step size
-export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver, RichardsonExtrapolationm, ImplicitEuler
+export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver, RichardsonExtrapolationm, ImplicitEuler, RK4
 #With Adaptive step size
 export RK23, RK45
 

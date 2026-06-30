@@ -136,7 +136,7 @@ function locate_event(::LinearLocator, prob, solver::AbstractODESolver, f, xₖ,
     τ_l, τ_r = 0.0, Δt
     h_l = h_now
 
-    if abs(h_now) < tol || h_now < 0
+    if abs(h_now) < tol
         return tₖ, xₖ
     end
 
@@ -148,14 +148,13 @@ function locate_event(::LinearLocator, prob, solver::AbstractODESolver, f, xₖ,
     x_star = x_r
 
     for _ in 1:100
-        #=
-        if abs(τ_r - τ_l) < tol || abs(h_r) < tol
+
+        # Stop if the time bracket is smaller than our tolerance
+        if abs(τ_r - τ_l) < tol
             τ_star = τ_r
-            x_star = x_r
+            x_star = x_r # fallback to the right boundary
             break
         end
-        =#
-
         #Linear Interp
         τ_m = τ_r - h_r * (τ_r - τ_l) / (h_r - h_l)
 
