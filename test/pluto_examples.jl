@@ -176,9 +176,10 @@ md"""
 
 # ╔═╡ 6d47f9d2-c604-46ba-af77-254478d19ab0
 begin
-	M_sleigh(q) = [1.0 0.0 -a*sin(q[3]);
-			0.0 1.0 a*cos(q[3]);
-			-a*sin(q[3]) a*cos(q[3]) 1+a^2]
+	#M_sleigh(q) = [1.0 0.0 -a*sin(q[3]);
+	#		0.0 1.0 a*cos(q[3]);
+	#		-a*sin(q[3]) a*cos(q[3]) 1+a^2]
+	M_sleigh(q) = [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
 	V_sleigh(q) = 0.0
 	A_sleigh(q) = [-sin(q[3]) cos(q[3]) 0.0]
 	h_sleigh(q) = 1 - (q[1]^2+q[2]^2)

@@ -71,9 +71,9 @@ function specular_refl(x, M, A, ∇h, sys)
     # The denominator
     denom = dot(∇hq, Mq \ ∇hq) - dot(constraint_vector, sub_matrix \ constraint_vector)
     # The 'external' multiplier
-    ε = -(1+e) * dot(p, Mq \ ∇hq) / denom
+    ε = (1+e) * (dot(constraint_vector, sub_matrix \ (Aq * (Mq\p))) - dot(p, Mq \ ∇hq)) / denom
     # The 'intermal' multipliers
-    λ = -ε * sub_matrix \ constraint_vector
+    λ = -ε * inv(Aq * inv(Mq) * Aq') * Aq * inv(Mq) * ∇hq
     # The new momentum
     p_new = p + ε*∇hq + Aq'*λ
     return vcat(q, p_new)
@@ -120,8 +120,8 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Δt,
     end
     
     # The multipliers for both the free and sliding modes
-    λ_free = find_multiplier(prob, sol)
-    λ_dh   = find_multiplier(prob, sol; sliding=true)
+    λ_free = find_multiplier(prob)
+    λ_dh   = find_multiplier(prob; sliding=true)
 
     # Check to make sure we're on the correct side of the guard
     if h(qₖ) < ztol
@@ -152,10 +152,18 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Δt,
         if guard_error_nh(0.0) > 0
             F(z, t) = f_λ(z[1:n], z[n+1:end], λ_free(z[1:n], z[n+1:end]), 0.0)
             x_next, _, _, dt_used, dt_next = take_step(solver, prob, F, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false)
+            # Record the derivative
+            if dense_out
+                push!(sol.dx, F(x_next, tₖ+dt_used))
+            end
         else
             # We have the augmented multiplier
             F2(z, t) = f_λ(z[1:n], z[n+1:end], λ_free(z[1:n], z[n+1:end]), λ_dh(z[1:n], z[n+1:end])[end])
             x_next, _, _, dt_used, dt_next = take_step(solver, prob, F2, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false)
+            # Record the derivative
+            if dense_out
+                push!(sol.dx, F2(x_next, tₖ+dt_used))
+            end
         end
         # Collect our results
         push!(sol.x, x_next)
@@ -189,32 +197,22 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Δt,
 end
 
 
-function find_multiplier(prob::prob{S, I, T}, sol; sliding=false) where {S<:NonholonomicSystem, I, T}
+function find_multiplier(prob::prob{S, I, T}; sliding=false) where {S<:NonholonomicSystem, I, T}
     sys = prob.sys
-    ∇h(q) = sys.normal(q)
+    ∇h = sys.normal
     M(q) = sys.M(q)
     V(q) = sys.V(q)
     # Is the contraint matrix sliding or not?
     A(q) = sliding ? vcat(sys.A(q), ∇h(q)') : sys.A(q)
-    # The dimensions of the system
-    n = length(sol.x[end]) ÷ 2
-    k = size(A(sol.x[end][1:n]))[1]
-    println(M(rand(3)))
     # Create the vector field for ODE solving
     H(q,p) = 1/2*dot(p, M(q) \ p) + V(q)
     q_dot(q, p) = ForwardDiff.gradient(p -> H(q,p),p)
     p_dot(q, p) = ForwardDiff.gradient(q -> -H(q,p), q)
     # Work out the value of the k (or k+1) multipliers
     # Differentiate the constraint and solve for the multiplier
-    # I will do this one at a time, vectorize at a later time
-    A_dot(q, p) = ForwardDiff.derivative(ε -> A(q .+ ε*(M(q))*p), 0.0)
-    λ(q, p) = (A(q)*(M(q))*(A(q)')) * (-A_dot(q,p)*(M(q))*p + A(q)*(M(q))*p_dot(q,p))
-    #=
-    ρ(i, q) = A(q)[i,:]
-    dρ(i, q) = ForwardDiff.jacobian(q -> ρ(i, q), q)
-    λ(i, q, p) = 1/dot(A(q)[i,:], M(q) \ A(q)[i,:]) * ( -dot(ρ(i,q), p_dot(q,p)) - dot(dρ(i,q)*q_dot(q,p), p) )
-    λ(q, p) = [λ(i, q, p) for i∈1:k]
-    =#
+    A_dot(q, p) = ForwardDiff.derivative(ε -> A(q .+ ε*inv(M(q))*p), 0.0)
+    λ(q, p) = inv(A(q)*inv(M(q))*(A(q)')) * (-A_dot(q,p)*inv(M(q))*p + A(q)*inv(M(q))*p_dot(q,p))
+    # The version below works, but is slower.
     #=
     ρ(q, p) = A(q) * inv(M(q)) *  p
     dρₓ(q,p) = ForwardDiff.jacobian(q -> ρ(q,p), q) * q_dot(q, p)
@@ -223,6 +221,7 @@ function find_multiplier(prob::prob{S, I, T}, sol; sliding=false) where {S<:Nonh
     =#
     return λ
 end
+
 ##############################################################
 
 function solve(prob::prob{S, I, T};
@@ -249,12 +248,27 @@ function solve(prob::prob{S, I, T};
     q_dot(q, p) = ForwardDiff.gradient(p -> H(q,p),p)
     p_dot(q, p, λ, β) = ForwardDiff.gradient(q -> -H(q,p), q) .+ A(q)' * λ .+ β*∇h(q)
     # Combining these vector fields together
-    f_λ(q, p, λ, β) = [q_dot(q, p); p_dot(q, p, λ, β)]
+    f_λ(q, p, λ, β) = vec([q_dot(q, p); p_dot(q, p, λ, β)])
 
     _, t_end = prob.tspan           # Extract the terminal time of the problem
 
     Δt = dt_initial                 # Initialize current time step with user input
     iter = 0                        # Start iteration counter
+
+    # Make sure the initial conditions are compatable with the constraints
+    x₀ = sol.x[end]
+    n = length(x₀) ÷ 2
+    q₀, p₀ = x₀[1:n], x₀[n+1:end]
+    
+    # Orthogonal projection to distribution
+    B_Δ(q) = A(q) * inv(M(q))
+    # This ↓ functions don't work...
+    # P_Δ(q) = I - B_Δ(q)' * inv(B_Δ(q) * B_Δ(q)') * B_Δ(q) 
+    if norm( A(q₀) * (M(q₀) \ p₀) ) > tol
+        @warn "Initial conditions do not satisfy the constraint. Projecting to distribution."
+        p₀ = p₀ - B_Δ(q₀)' * inv(B_Δ(q₀) * B_Δ(q₀)') * B_Δ(q₀) * p₀
+        sol.x[end] = vcat(q₀, p₀)
+    end
 
     # Run sim until end of specified time span
     while sol.t[end] < t_end 
