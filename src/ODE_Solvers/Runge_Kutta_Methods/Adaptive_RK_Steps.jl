@@ -15,13 +15,15 @@ function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, xₖ, t�
     tf = prob.tspan[2] #terminal time
 
     #Take adaptive step (passes tf to prevent overshooting)
-    #Disable adaptive loop to get the true midpoint. Without it it would reset the loop and ruin or previous adaptivity
     ######
     ### WC: Why was adaptive=false here?
+    ###
+    ### DS: Not supposed to be, good catch. 
     ######
     x_predict, dt_used, dt_next = compute_step(solver, f, xₖ, Δt, tₖ, tf, sys, tol)
     # Get midpoint for quad guard check
     # For a half-step the local ceiling is just midpoint of time 
+    # Disable adaptive loop to get the true midpoint. Without it it would reset the loop and ruin or previous adaptivity
     x_mid, _, _ = compute_step(solver, f, xₖ, dt_used / 2.0, tₖ, tf, sys, tol; adaptive=false)
 
     if check
