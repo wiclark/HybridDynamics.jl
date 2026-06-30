@@ -9,7 +9,7 @@ struct EulerMaruyama <: STO end
 compute_step(::EulerMaruyama, f, g, x, Δt, t) = euler_maruyama_step(f, g, x, Δt, t)
 
 # Note sol is not used, we do this to make using the function easier.
-function take_step(solver::STO, prob::StochasticSystem, f, g, xₖ, tₖ, Δt, tol, sol; check=true, guard_direction = default_guard_direction(prob.sys))
+function take_step(solver::STO, prob::prob{S, I, T}, f, g, xₖ, tₖ, Δt, tol, sol; check=true, guard_direction = default_guard_direction(prob.sys)) where {S<:StochasticSystem, I, T}
     sys = prob.sys
     x_predict = compute_step(solver, f, g, xₖ, Δt, tₖ)
     x_mid     = compute_step(solver, f, g, xₖ, Δt/2.0, tₖ)
@@ -25,7 +25,7 @@ function take_step(solver::STO, prob::StochasticSystem, f, g, xₖ, tₖ, Δt, t
 
         return x_predict, eventtrigger, t_root, Δt, Δt
     else
-        return x_predict, NaN, NaN, NaN
+        return x_predict, false, NaN, Δt, Δt
     end
 end
 

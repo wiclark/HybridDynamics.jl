@@ -22,6 +22,7 @@ include("ODE_Solvers/Linear_Multistep_Methods/Adaptive_LMM_Steps.jl")
 include("ODE_Solvers/Linear_Multistep_Methods/Fixed_LMM_Steps.jl")
 include("ODE_Solvers/Runge_Kutta_Methods/Fixed_RK_Steps.jl")
 include("ODE_Solvers/Runge_Kutta_Methods/Adaptive_RK_Steps.jl")
+include("ODE_Solvers/Stochastic_Methods/Fixed_SDE_Steps.jl")
 include("ODE_Solvers/Bonus_Methods.jl")
 include("ODE_Solvers/Event_Locators.jl")
 
@@ -57,6 +58,9 @@ export GeneralSystem
 export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver, RichardsonExtrapolationm, ImplicitEuler
 #With Adaptive step size
 export RK23, RK45
+
+# Stochastic solver
+export EulerMaruyama
 
 #Fixed LMM
 export AdamsBashforth2, AdamsBashforth3, BDF2
