@@ -138,19 +138,24 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Δt,
         if guard_error(0.0) > 0
             F(z, t) = f_λ(z[1:n], z[n+1:end], 0.0)
             x_next, _, _, dt_used, dt_next = take_step(solver, prob, F, vcat(qₖ,pₖ), tₖ, Δt, tol, sol; check=false)
+            # Record the derivative
+            if dense_out
+                push!(sol.dx, F(x_next, tₖ+dt_used))
+            end
         else
             # We have the expression for the multiplier
             λ_constrained = find_multiplier(prob)
             F2(z, t) = f_λ(z[1:n], z[n+1:end], λ_constrained(z[1:n], z[n+1:end]))
             x_next, _, _, dt_used, dt_next = take_step(solver, prob, F2, vcat(qₖ,pₖ), tₖ, Δt, tol, sol; check=false)
+            # Record the derivative
+            if dense_out
+                push!(sol.dx, F2(x_next, tₖ+dt_used))
+            end
         end
         # Collect our results
         push!(sol.x, x_next)
         push!(sol.t, tₖ+dt_used)
         push!(sol.zeno, tₖ)
-        if dense_out
-            push!(sol.dx, F(x_next, tₖ+dt_used))
-        end
         return x_next, dt_used, dt_next, true
     else # No Zeno stuff is present
         f(z, t) = f_λ(z[1:n], z[n+1:end], 0.0)
@@ -191,7 +196,7 @@ function find_multiplier(prob::prob{S, I, T}) where {S<:MechanicalSystem, I, T}
     p_dot(q, p) = ForwardDiff.gradient(q -> -H(q,p), q)
     # Work on the multiplier
     # The function below needs to be treated as a vector
-    ρ(q) = length(q)>1 ? ∇h(q)' * M(q) : [∇h(q)' * M(q)]
+    ρ(q) = length(q)>1 ? ∇h(q)' * inv(M(q)) : [∇h(q)' * inv(M(q))]
     dρ(q) = ForwardDiff.jacobian(q->ρ(q), q)
     λ(q,p) = 1/dot(∇h(q), M(q)\∇h(q)) * ( -dot(ρ(q), p_dot(q,p)) - dot(dρ(q)*q_dot(q,p), p) )
     return λ

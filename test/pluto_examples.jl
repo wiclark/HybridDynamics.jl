@@ -76,7 +76,7 @@ begin
 end
 
 # ╔═╡ e405e5fb-703e-452a-a704-962a162f9751
-solF.s
+plt.plot(solF.s)
 
 # ╔═╡ 1959511b-8aa8-49d0-893c-b9b801a2bda0
 begin
@@ -84,6 +84,9 @@ begin
 	yf = getindex.(solF.x, 2)
 	xh = range(minimum(xf)-0.5, maximum(xf)+0.5, length=1_000)
 end
+
+# ╔═╡ 7198ae6b-a1d8-4525-94f3-0c6c37c2346b
+plt.plot(H.(solF.x))
 
 # ╔═╡ bbc202e7-fd8d-4eb1-9de2-93b09a73a425
 begin
@@ -129,7 +132,7 @@ end
 begin
 	sysM = HD.MechanicalSystem(M, V; guard=h, normal=∇h, e=r)
 	probM = HD.prob(sysM, [-0.95, 0.0, 0.2, -1.5], (0.0, 10.0))
-	solM = HD.solve(probM, solver=HD.RK4())
+	solM = HD.solve(probM, solver=HD.RK45())
 end
 
 # ╔═╡ 999c672e-fdff-4225-b6c8-80a7096432c8
@@ -183,24 +186,25 @@ begin
 end
 
 # ╔═╡ da267e54-7c2b-4a31-b429-077b47912814
-# ╠═╡ disabled = true
-#=╠═╡
 begin
 	sysNH = HD.NonholonomicSystem(M_sleigh, V_sleigh; A = A_sleigh, guard=h_sleigh, normal=∇h_sleigh, e=1)
 	probNH = HD.prob(sysNH, [0.0, 0.0, 0.0, 1.0, 0.0, 1.5], (0.0, 100.0))
 	solNH = HD.solve(probNH, solver=HD.RK4())
 end
-  ╠═╡ =#
+
+# ╔═╡ e4b47eb0-38f7-490f-ae6d-8f6d0ad278d8
+size([-0.0 1.0 0.0])[1]
+
+# ╔═╡ c181233d-d767-4cc6-a114-1f6ee16a2fec
+sysNH
 
 # ╔═╡ d8370b2e-077d-488f-afb2-ceffa00fc255
-#=╠═╡
 begin
 	xs = getindex.(solNH.x, 1)
 	ys = getindex.(solNH.x, 2)
 	plt.plot(xs, ys, label="Sleigh Trajectory", lw=2)
 	plt.plot!(cos.(θ), sin.(θ), label="", lc=:black, aspect_ratio=1)
 end
-  ╠═╡ =#
 
 # ╔═╡ eea32534-7258-478d-b96e-aee9bc212011
 md"""
@@ -291,6 +295,7 @@ solG.t
 # ╟─2880f5f2-fb01-4696-aba3-7faf4714c9d3
 # ╠═9da11b33-0def-4ac1-bd19-574ef1cceb98
 # ╠═0cf59ef8-d158-42dc-913a-7766ac4d2420
+# ╠═7198ae6b-a1d8-4525-94f3-0c6c37c2346b
 # ╠═e405e5fb-703e-452a-a704-962a162f9751
 # ╠═1959511b-8aa8-49d0-893c-b9b801a2bda0
 # ╠═e6bc3aba-7b99-4ca8-8657-12b8609cd427
@@ -307,6 +312,8 @@ solG.t
 # ╠═8e0f34ac-35ab-4808-a1ed-53525361c688
 # ╠═6d47f9d2-c604-46ba-af77-254478d19ab0
 # ╠═da267e54-7c2b-4a31-b429-077b47912814
+# ╠═e4b47eb0-38f7-490f-ae6d-8f6d0ad278d8
+# ╠═c181233d-d767-4cc6-a114-1f6ee16a2fec
 # ╠═d8370b2e-077d-488f-afb2-ceffa00fc255
 # ╟─eea32534-7258-478d-b96e-aee9bc212011
 # ╟─15b10a81-2909-4df8-8d1c-0fcd7af5d9ff

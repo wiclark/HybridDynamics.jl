@@ -18,31 +18,21 @@ struct FilippovSol{T, X, DX, S} <: AbstractHybridSolution
     s::S    # Time indices while sliding (this still needs added)
 end
 
-#=
-# Constructor for solution struct
-function FilippovSol(T, X, DX; S = NaN)
-    return FilippovSol(T, X, DX, S)
-end
-=#
-
 function FilippovSol(prob::prob{F, I, T}) where {F<:FilippovSystem, I, T}
     return FilippovSol([prob.tspan[1]],
         [prob.init],
         Vector{Vector{Float64}}(),
         Float64[])
 end
-#=
-# Initialize solution struct
-function initsol(prob::prob{<:FilippovSystem, I, T}) where {I, T}
-    return FilippovSol([prob.tspan[1]], [prob.init], Vector{Vector{Float64}}())
-end
-=#
 
 # INTERNAL
 # Returns a vector field function at state `x` for a Filippov system
+######
+### WC: I do not believe that there is any reason for 'atol'
+######
 function filippov_vector_field(sys, x;
         Ftol=1e-4,
-        atol=1e-4)
+        atol=0.0)
 
     F = sys.F
     G = sys.G
@@ -60,23 +50,21 @@ function filippov_vector_field(sys, x;
 
 # Near the guard
 
-    a = dot(N(x), F(x))
-    b = dot(N(x), G(x))
+    a(y) = dot(N(y), F(y))
+    b(y) = dot(N(y), G(y))
 
-    if a < -atol && b > atol
-        λ = a/(a-b)
-        return y -> (1-λ)*F(y) + λ*G(y), true
+    if (a(x) < -atol && b(x) > atol) || (a(x) > atol && b(x) < -atol)
+        λ(y) = a(y)/(a(y)-b(y))
+        return y -> (1-λ(y))*F(y) + λ(y)*G(y), true
 
-    elseif a > atol && b < -atol
-        λ = a/(a-b)
-        return y -> (1-λ)*F(y) + λ*G(y), true
 
-    elseif a > atol && b > atol
+    elseif a(x) > atol && b(x) > atol
         return F, false
 
-    elseif a < -atol && b < -atol
+    elseif a(x) < -atol && b(x) < -atol
         return G, false
     else
+        println([a(x), b(x)])
         error("Failed vector field determination")
     end
 end
@@ -93,7 +81,7 @@ end
 # Filippov-specific solve
 function solve(prob::prob{F,I,T}, solver::AbstractODESolver=RK45();
     dense_out = true,
-    dt_initial = 0.01, max_iter = 10^6, tol = 1e-6, 
+    dt_initial = 0.001, max_iter = 10^6, tol = 1e-6, 
     stepper::AbstractODESolver=RK4(), event_method::AbstractEventLocator=LinearLocator(),
     kwargs...) where {F<:FilippovSystem, I, T}
     
@@ -134,9 +122,9 @@ function solve(prob::prob{F,I,T}, solver::AbstractODESolver=RK45();
         vf_fun, sliding_now = filippov_vector_field(sys, xₖ)
 
         ## This doesn't quite work due to tolerances in the above function
-        # if sliding_now && !sliding_prev
-        #     @warn "Sliding mode entered at t = $(tₖ)"
-        # end
+        if sliding_now && !sliding_prev
+            @warn "Sliding mode entered at t = $(tₖ)"
+        end
 
         sliding_prev = sliding_now
         if sliding_now
