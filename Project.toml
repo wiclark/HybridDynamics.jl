@@ -1,6 +1,6 @@
 name = "HybridDynamics"
 uuid = "6b3332bd-f7e8-4dca-bbbd-4128c12b268e"
-version = "1.0.0-DEV"
+version = "0.2.0-DEV"
 authors = ["William Clark"]
 
 [deps]

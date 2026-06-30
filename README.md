@@ -5,10 +5,9 @@
 A Julia package for studying the dynamics of hybrid systems.
 
 ## Usage
+This package supports the following system types: "GeneralSystem", "MechanicalSystem", "NonholonomicSystem", "StochasticSystem", "FilippovSystem", and "Linear/AffineSystem".
 
-Define a hybrid system using one of the specified systems below. (then prob and solve)
-
-
+For a demonstration, see the Pluto notebooks: "bouncing_ball.jl" and "pluto_examples.jl".
 
 ## Systems
 
@@ -31,6 +30,26 @@ Define a hybrid system using one of the specified systems below. (then prob and 
     - $\Delta$: Reset map
     - $e$: Coefficient of restitution
 <br><br>
+
+- **NonholonomicSystem** 
+
+    Required inputs:
+    - $M$: Mass matrix
+    - $V$: Potential energy
+
+    Optional inputs:
+    - $A$: The Pfaffian constraint matrix
+    - $h$: Guard
+    - $\Delta$: Reset map
+    - $e$: Coefficient of restitution
+
+- **StochasticSystem** 
+
+    Required inputs:
+    - $f$: The drift dynamics
+    - $g$: The diffusion term
+    - $h$: Guard
+    - $\Delta$: Reset map
 
 - **LinearSystem** ($A, \lambda, C$)
 
