@@ -75,18 +75,12 @@ begin
 	solF = HD.solve(probF, HD.RK4())
 end
 
-# ╔═╡ e405e5fb-703e-452a-a704-962a162f9751
-plt.plot(solF.s)
-
 # ╔═╡ 1959511b-8aa8-49d0-893c-b9b801a2bda0
 begin
 	xf = getindex.(solF.x, 1)
 	yf = getindex.(solF.x, 2)
 	xh = range(minimum(xf)-0.5, maximum(xf)+0.5, length=1_000)
 end
-
-# ╔═╡ 7198ae6b-a1d8-4525-94f3-0c6c37c2346b
-plt.plot(H.(solF.x))
 
 # ╔═╡ bbc202e7-fd8d-4eb1-9de2-93b09a73a425
 begin
@@ -135,9 +129,6 @@ begin
 	solM = HD.solve(probM, solver=HD.RK45())
 end
 
-# ╔═╡ 999c672e-fdff-4225-b6c8-80a7096432c8
-solM(1.0)
-
 # ╔═╡ fb3eb7c9-3f93-4986-aa89-c2ca478429d3
 begin
 	xm = getindex.(solM.x, 1)
@@ -146,9 +137,6 @@ begin
 	θ = LinRange(0, 2π, 100)
 	plt.plot!(cos.(θ), sin.(θ), label="", lc=:black, aspect_ratio=1)
 end
-
-# ╔═╡ 5a82346d-c04c-4438-85b8-f6d66e8f32db
-plt.plot(solM.t, 1 .- (xm.^2 + ym.^2))
 
 # ╔═╡ 597d4dce-acf4-44a1-bc7a-9d7ec35de2f7
 md"""
@@ -191,12 +179,6 @@ begin
 	probNH = HD.prob(sysNH, [0.0, 0.0, 0.0, 1.0, 0.0, 1.5], (0.0, 100.0))
 	solNH = HD.solve(probNH, solver=HD.RK4())
 end
-
-# ╔═╡ e4b47eb0-38f7-490f-ae6d-8f6d0ad278d8
-size([-0.0 1.0 0.0])[1]
-
-# ╔═╡ c181233d-d767-4cc6-a114-1f6ee16a2fec
-sysNH
 
 # ╔═╡ d8370b2e-077d-488f-afb2-ceffa00fc255
 begin
@@ -250,43 +232,62 @@ begin
 	solG = HD.solve(probG)
 end
 
-# ╔═╡ 72a895f8-655e-4a0e-8025-90458f0f2819
-function get_rid_of_jump_lines(sol)
-    t = Float64[]
-    x1 = Float64[]
-    x2 = Float64[]
-
-    for i in 1:length(sol.x)
-        push!(t, sol.t[i])
-        push!(x1, sol.x[i][1])
-        push!(x2, sol.x[i][2])
-
-        # If next timestamp is identical (jump event), break the line
-        if i < length(sol.t) && sol.t[i] == sol.t[i+1]
-            push!(t, NaN)
-            push!(x1, NaN)
-            push!(x2, NaN)
-        end
-    end
-    return t, x1, x2
-end
-
-# ╔═╡ 5bb10f03-ebc5-4b86-a150-04c0eb12e404
+# ╔═╡ 7ca75d5b-b8a6-472f-b5a7-f746b581e67f
 begin
-	t_plot, x1_plot, x2_plot = get_rid_of_jump_lines(solG)
-	plt.plot(t_plot, x1_plot, label="Position", lw=2, lc=:blue)
-	plt.plot!(t_plot, x2_plot, label="Velocity", lw=2, color=:orange)
-	plt.plot!(title = "Nonlinear bouncing ball", xlabel = "Time", grid = true)
+	times, states = HD.split_jumps(solG)
+	plt.plot(times, getindex.(states, 1), label="Position", lw=2, lc=:blue)
+	plt.plot!(times, getindex.(states, 2), label="Velocity", lw=2, lc=:orange)
+	plt.plot!(title = "Bouncing ball", xlabel = "Time", grid = true)
 end
 
 # ╔═╡ 293d4ac4-bbb7-41ea-ae29-ae0844fd3992
 solG.jump_times
 
-# ╔═╡ a62b426b-cb7f-44f1-9371-9f446a494a59
-solG.x
+# ╔═╡ efe951a9-31d1-49e1-bf19-cdcd7a6a5f0e
+md"""
+## A Stochastic Example
+```math
+	\begin{cases}
+		dx = -(x-3)dt + 0.2 dW, & x < 2 \\
+		x^+ = x-1, & x = 2
+	\end{cases}
+```
+"""
 
-# ╔═╡ 67463097-3bb9-48a6-bb63-008eb7936427
-solG.t
+# ╔═╡ 8eae9c66-e573-4458-bab5-ac92e61f261a
+md"""
+!!! info "Stochastic Systems"
+	A stochastic system contains the data $(f, g, h, Δ; δ)$
+	```math
+		\begin{cases}
+			dx = f(x,t)dt + g(x,t)dW, & h(x) \ne 0, \\
+			x^+ = \Delta(x), & h(x) = 0
+		\end{cases}
+	```
+	Notice that $g$ must be given as a matrix.
+"""
+
+# ╔═╡ 7e2f7386-647e-4503-9343-2ce78cc2752f
+begin
+	f_st(x, t) = -(x .-3.)
+	g_st(x, t) = [0.2;;]
+	h_st(x) = x[1]-2
+	Δ_st(x) = x .- 1.0
+end
+
+# ╔═╡ 0a709e7a-f8a4-4b72-aa15-eb3fb92f517e
+begin
+	sysST = HD.StochasticSystem(f_st, g_st, h_st, Δ_st)
+	probST = HD.prob(sysST, [0.5], (0.0, 3.0))
+	solST = HD.solve(probST)
+end
+
+# ╔═╡ b31969a0-fac6-4e69-a9f1-391750214770
+begin
+	ts, ss = HD.split_jumps(solST)
+	plt.plot(ts, getindex.(ss, 1), label="", lw=2, lc=:blue)
+	plt.plot!(title = "Stochastic Bouncing ball", xlabel = "Time", grid = true)
+end
 
 # ╔═╡ 8e899a64-9654-4e7e-ac0f-2376b89aa913
 md"""
@@ -367,8 +368,6 @@ end
 # ╟─2880f5f2-fb01-4696-aba3-7faf4714c9d3
 # ╠═9da11b33-0def-4ac1-bd19-574ef1cceb98
 # ╠═0cf59ef8-d158-42dc-913a-7766ac4d2420
-# ╠═7198ae6b-a1d8-4525-94f3-0c6c37c2346b
-# ╠═e405e5fb-703e-452a-a704-962a162f9751
 # ╠═1959511b-8aa8-49d0-893c-b9b801a2bda0
 # ╠═e6bc3aba-7b99-4ca8-8657-12b8609cd427
 # ╠═bbc202e7-fd8d-4eb1-9de2-93b09a73a425
@@ -376,16 +375,12 @@ end
 # ╠═80034ca8-e254-4beb-8486-da9de404f503
 # ╠═49b430c8-ac20-4988-9c49-83a38111285f
 # ╠═c1a00790-005e-40ae-9e4c-20f8aac7b787
-# ╠═999c672e-fdff-4225-b6c8-80a7096432c8
 # ╠═a5cd41cd-b341-49c7-a052-bfd20f631b0c
 # ╠═fb3eb7c9-3f93-4986-aa89-c2ca478429d3
-# ╠═5a82346d-c04c-4438-85b8-f6d66e8f32db
 # ╟─597d4dce-acf4-44a1-bc7a-9d7ec35de2f7
 # ╠═8e0f34ac-35ab-4808-a1ed-53525361c688
 # ╠═6d47f9d2-c604-46ba-af77-254478d19ab0
 # ╠═da267e54-7c2b-4a31-b429-077b47912814
-# ╠═e4b47eb0-38f7-490f-ae6d-8f6d0ad278d8
-# ╠═c181233d-d767-4cc6-a114-1f6ee16a2fec
 # ╠═d8370b2e-077d-488f-afb2-ceffa00fc255
 # ╠═eea32534-7258-478d-b96e-aee9bc212011
 # ╟─15b10a81-2909-4df8-8d1c-0fcd7af5d9ff
@@ -393,8 +388,7 @@ end
 # ╠═6e9ae3eb-e2d2-42b2-bcfe-c42c6dd4be65
 # ╠═8702895d-c0ea-459b-814a-b67f4c193860
 # ╠═cb05396f-92a2-468c-af34-f64e25a93e16
-# ╟─72a895f8-655e-4a0e-8025-90458f0f2819
-# ╠═5bb10f03-ebc5-4b86-a150-04c0eb12e404
+# ╠═7ca75d5b-b8a6-472f-b5a7-f746b581e67f
 # ╠═293d4ac4-bbb7-41ea-ae29-ae0844fd3992
 # ╠═a62b426b-cb7f-44f1-9371-9f446a494a59
 # ╠═67463097-3bb9-48a6-bb63-008eb7936427

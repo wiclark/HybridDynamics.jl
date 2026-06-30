@@ -71,9 +71,9 @@ function specular_refl(x, M, A, ∇h, sys)
     # The denominator
     denom = dot(∇hq, Mq \ ∇hq) - dot(constraint_vector, sub_matrix \ constraint_vector)
     # The 'external' multiplier
-    ε = -(1+e) * dot(p, Mq \ ∇hq) / denom
+    ε = (1+e) * (dot(constraint_vector, sub_matrix \ (Aq * (Mq\p))) - dot(p, Mq \ ∇hq)) / denom
     # The 'intermal' multipliers
-    λ = -ε * sub_matrix \ constraint_vector
+    λ = -ε * inv(Aq * inv(Mq) * Aq') * Aq * inv(Mq) * ∇hq
     # The new momentum
     p_new = p + ε*∇hq + Aq'*λ
     return vcat(q, p_new)
@@ -120,8 +120,8 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Δt,
     end
     
     # The multipliers for both the free and sliding modes
-    λ_free = find_multiplier(prob, sol)
-    λ_dh   = find_multiplier(prob, sol; sliding=true)
+    λ_free = find_multiplier(prob)
+    λ_dh   = find_multiplier(prob; sliding=true)
 
     # Check to make sure we're on the correct side of the guard
     if h(qₖ) < ztol
@@ -152,10 +152,18 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Δt,
         if guard_error_nh(0.0) > 0
             F(z, t) = f_λ(z[1:n], z[n+1:end], λ_free(z[1:n], z[n+1:end]), 0.0)
             x_next, _, _, dt_used, dt_next = take_step(solver, prob, F, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false)
+            # Record the derivative
+            if dense_out
+                push!(sol.dx, F(x_next, tₖ+dt_used))
+            end
         else
             # We have the augmented multiplier
             F2(z, t) = f_λ(z[1:n], z[n+1:end], λ_free(z[1:n], z[n+1:end]), λ_dh(z[1:n], z[n+1:end])[end])
             x_next, _, _, dt_used, dt_next = take_step(solver, prob, F2, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false)
+            # Record the derivative
+            if dense_out
+                push!(sol.dx, F2(x_next, tₖ+dt_used))
+            end
         end
         # Collect our results
         push!(sol.x, x_next)
@@ -189,32 +197,22 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Δt,
 end
 
 
-function find_multiplier(prob::prob{S, I, T}, sol; sliding=false) where {S<:NonholonomicSystem, I, T}
+function find_multiplier(prob::prob{S, I, T}; sliding=false) where {S<:NonholonomicSystem, I, T}
     sys = prob.sys
-    ∇h(q) = sys.normal(q)
+    ∇h = sys.normal
     M(q) = sys.M(q)
     V(q) = sys.V(q)
     # Is the contraint matrix sliding or not?
     A(q) = sliding ? vcat(sys.A(q), ∇h(q)') : sys.A(q)
-    # The dimensions of the system
-    n = length(sol.x[end]) ÷ 2
-    k = size(A(sol.x[end][1:n]))[1]
-    println(M(rand(3)))
     # Create the vector field for ODE solving
     H(q,p) = 1/2*dot(p, M(q) \ p) + V(q)
     q_dot(q, p) = ForwardDiff.gradient(p -> H(q,p),p)
     p_dot(q, p) = ForwardDiff.gradient(q -> -H(q,p), q)
     # Work out the value of the k (or k+1) multipliers
     # Differentiate the constraint and solve for the multiplier
-    # I will do this one at a time, vectorize at a later time
-    A_dot(q, p) = ForwardDiff.derivative(ε -> A(q .+ ε*(M(q))*p), 0.0)
-    λ(q, p) = (A(q)*(M(q))*(A(q)')) * (-A_dot(q,p)*(M(q))*p + A(q)*(M(q))*p_dot(q,p))
-    #=
-    ρ(i, q) = A(q)[i,:]
-    dρ(i, q) = ForwardDiff.jacobian(q -> ρ(i, q), q)
-    λ(i, q, p) = 1/dot(A(q)[i,:], M(q) \ A(q)[i,:]) * ( -dot(ρ(i,q), p_dot(q,p)) - dot(dρ(i,q)*q_dot(q,p), p) )
-    λ(q, p) = [λ(i, q, p) for i∈1:k]
-    =#
+    A_dot(q, p) = ForwardDiff.derivative(ε -> A(q .+ ε*inv(M(q))*p), 0.0)
+    λ(q, p) = inv(A(q)*inv(M(q))*(A(q)')) * (-A_dot(q,p)*inv(M(q))*p + A(q)*inv(M(q))*p_dot(q,p))
+    # The version below works, but is slower.
     #=
     ρ(q, p) = A(q) * inv(M(q)) *  p
     dρₓ(q,p) = ForwardDiff.jacobian(q -> ρ(q,p), q) * q_dot(q, p)
@@ -223,6 +221,7 @@ function find_multiplier(prob::prob{S, I, T}, sol; sliding=false) where {S<:Nonh
     =#
     return λ
 end
+
 ##############################################################
 
 function solve(prob::prob{S, I, T};
@@ -249,12 +248,27 @@ function solve(prob::prob{S, I, T};
     q_dot(q, p) = ForwardDiff.gradient(p -> H(q,p),p)
     p_dot(q, p, λ, β) = ForwardDiff.gradient(q -> -H(q,p), q) .+ A(q)' * λ .+ β*∇h(q)
     # Combining these vector fields together
-    f_λ(q, p, λ, β) = [q_dot(q, p); p_dot(q, p, λ, β)]
+    f_λ(q, p, λ, β) = vec([q_dot(q, p); p_dot(q, p, λ, β)])
 
     _, t_end = prob.tspan           # Extract the terminal time of the problem
 
     Δt = dt_initial                 # Initialize current time step with user input
     iter = 0                        # Start iteration counter
+
+    # Make sure the initial conditions are compatable with the constraints
+    x₀ = sol.x[end]
+    n = length(x₀) ÷ 2
+    q₀, p₀ = x₀[1:n], x₀[n+1:end]
+    
+    # Orthogonal projection to distribution
+    B_Δ(q) = A(q) * inv(M(q))
+    # This ↓ functions don't work...
+    # P_Δ(q) = I - B_Δ(q)' * inv(B_Δ(q) * B_Δ(q)') * B_Δ(q) 
+    if norm( A(q₀) * (M(q₀) \ p₀) ) > tol
+        @warn "Initial conditions do not satisfy the constraint. Projecting to distribution."
+        p₀ = p₀ - B_Δ(q₀)' * inv(B_Δ(q₀) * B_Δ(q₀)') * B_Δ(q₀) * p₀
+        sol.x[end] = vcat(q₀, p₀)
+    end
 
     # Run sim until end of specified time span
     while sol.t[end] < t_end 
@@ -281,179 +295,3 @@ function solve(prob::prob{S, I, T};
 
     return sol
 end
-
-
-#=
-# Determine the nonholonomic integrator step
-# This will essentially be another dispatch of 'take_step'
-function take_nh_step(solver, prob, xₖ, tₖ, dt_step, tol, sol; Ah = nothing)
-    # Extract out the pertinent information
-    sys = prob.sys
-    M(q) = sys.M(q)
-    V(q) = sys.V(q)
-    # We have the option to overwrite the contraint matrix
-    A = isnothing(Ah) ? sys.A : Ah
-
-    # Extract out the state and momentum
-    n = length(xₖ) ÷ 2
-    qₖ, pₖ = xₖ[1:n], xₖ[n+1:end]
-    # Create the Hamiltonian
-    H(q, p) = 1/2*dot(p, M(q) \ p) + V(q)
-    # Create the vector field
-    q_dot(q, p) = ForwardDiff.gradient(p -> H(q,p), p)
-    p_dot(q, p, λ) = ForwardDiff.gradient(q -> -H(q,p), q) .+ A(q)'*λ
-    # We need to solve for λ such that the constraint is conserved, A(q)v=0
-    # A first-order analysis predicts that λ should be
-    λ₀ = (A(qₖ) * (M(qₖ)\A(qₖ)')) \ (A(qₖ) * (M(qₖ) \ (ForwardDiff.gradient(q -> V(q), qₖ) - 1/dt_step*pₖ)))
-    # Determine the constraint error as a function of λ
-    f_λ(q, p, λ) = [q_dot(q,p); p_dot(q,p,λ)]
-    function constraint_error(λ)
-        f(x, t) = f_λ(x[1:div(length(x), 2)], x[(div(length(x),2)+1):end], λ)
-        x_next, _, _ = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; check=false)
-        q_next, p_next = x_next[1:n], x_next[n+1:end]
-        return A(q_next) * (M(q_next) \ p_next)
-    end
-    # Let's be brave and solve this via Newton's method
-    jacobian_constraint_error(λ) = ForwardDiff.jacobian(constraint_error, λ)
-    for _ ∈ 1:10
-        λ₀ = λ₀ - jacobian_constraint_error(λ₀) \ constraint_error(λ₀)
-        if norm(constraint_error(λ₀)) < tol
-            break
-        end
-    end
-    if norm(constraint_error(λ₀)) > tol
-        @warn "Unable to solve for nonholonomic constraint multiplier"
-    end
-    # We have the multiplier. Let's use that to obtain the next step
-    f(x, t) = f_λ(x[1:div(length(x), 2)], x[(div(length(x),2)+1):end], λ₀)
-    x_next, _, _ = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; check=false)
-    return x_next
-end
-
-# Find the time of a crossing
-function locate_event_nonholonomic(solver, prob, xₖ, tₖ, Δt, tol, sol, h)
-    # We will implement a linear finder that triggered 'crossed_guard_nonholonomic'
-    t₀, t₁ = 0.0, Δt
-    # The event function as a function of time
-    E(t) = (t>0) ? h(take_nh_step(solver, prob, xₖ, tₖ, t, tol, sol)) : h(xₖ)
-
-    # Loop until convergence
-    for _ ∈ 1:100
-        t₂ = (t₀*E(t₁) - t₁*E(t₀)) / (E(t₁) - E(t₀))
-        # Keep the two points we like
-        if E(t₀)*E(t₂) > 0
-            t_old, t_new = t₁, t₂
-        else
-            t_old, t_new = t₀, t₂
-        end
-        t₀, t₁ = t_old, t_new
-        # Have we converged? The tolerence is currently hard coded.
-        if abs(E(t₁)) < 1e-3
-            break
-        end
-    end
-    # What if we have failed to converge?
-    if abs(E(t₁)) > 1e-3
-        @warn "Failed to converge to an event time"
-    end
-    # The predicted impact time
-    return t₁
-end
-
-# The solve function
-function solve(prob::prob{S, I, T};
-               solver::AbstractODESolver=RK4(),
-               event_method::AbstractEventLocator=LinearLocator(),
-               dense_out = true,
-               dt_initial = 0.01, max_iter = 10^5,
-               tol = 1e-6, ztol = 1e-4,
-               guard_direction = default_guard_direction(prob.sys),
-               kwargs...) where {S<:NonholonomicSystem, I, T}
-    
-    # Unpack pertinent information
-    sys = prob.sys
-    h = sys.guard
-    ∇h = sys.normal
-    Δ = sys.reset
-    M(q) = sys.M(q)
-    V(q) = sys.V(q)
-    A(q) = sys.A(q)
-
-    # Initialize the solution struct
-    sol = NonholonomicSol(prob)
-
-    # Time bounds
-    t_start, t_end = prob.tspan
-    Δt = dt_initial
-    iter = 0
-
-    # Make sure the initial conditions are compatable with the constraints
-    x₀ = sol.x[end]
-    n = length(x₀) ÷ 2
-    q₀, p₀ = x₀[1:n], x₀[n+1:end]
-    
-    # Orthogonal projection to distribution
-    B_Δ(q) = A(q) * inv(M(q))
-    # This ↓ functions don't work...
-    # P_Δ(q) = I - B_Δ(q)' * inv(B_Δ(q) * B_Δ(q)') * B_Δ(q) 
-    if norm( A(q₀) * (M(q₀) \ p₀) ) > tol
-        @warn "Initial conditions do not satisfy the constraint. Projecting to distribution."
-        p₀ = p₀ - B_Δ(q₀)' * inv(B_Δ(q₀) * B_Δ(q₀)') * B_Δ(q₀) * p₀
-        sol.x[end] = vcat(q₀, p₀)
-    end
-
-    # Run until end of specified time span
-    while sol.t[end] < t_end
-        # Safties
-        iter += 1
-        if iter > max_iter
-            @warn "Maximum Iteration Count ($max_iter) exceeded."
-            break
-        end
-        # Terminate if the remaining time is below machine precision
-        if t_end - sol.t[end] <= eps(t_end)
-            break
-        end
-
-        # Truncate the time step if we overshoot the final time
-        dt_step = (sol.t[end]+Δt > t_end) ? (t_end-sol.t[end]) : Δt
-
-        # Perform the step
-        tₖ, xₖ = sol.t[end], sol.x[end]
-        qₖ, pₖ = xₖ[1:div(length(xₖ), 2)], xₖ[div(length(xₖ),2)+1:end]
-        
-        # We want to allow for Zeno/post Zeno solutions
-        if (h(qₖ) < ztol && -ztol < dot(∇h(qₖ), M(qₖ) \ pₖ) < 0) || h(qₖ) < -ztol
-            # The sliding mode step, is the (holonomic) constraint satisfied?
-            # We can simply append the constraint ∇h⋅v = 0 to the matrix A(q)
-            A_h(q) = vcat(A(q), ∇h(q))
-            # And take the nonholonomic step with this new matrix
-            # But! we only want to apply this constraint unilaterally
-            # Not applying this constraint first
-            x_next = take_nh_step(solver, prob, xₖ, tₖ, dt_step, tol, sol)
-            q_next, p_next = x_next[1:div(length(x_next), 2)], x_next[(div(length(x_next), 2) + 1):end]
-            if dot(∇h(q_next), M(q_next) \ p_next) < 0 # <- So we actually do need a reaction force
-                x_next = take_nh_step(solver, prob, xₖ, tₖ, dt_step, tol, sol; Ah = A_h)
-            end
-        else
-            # The 'usual' hybrid step
-            x_proposed = take_nh_step(solver, prob, xₖ, tₖ, dt_step, tol, sol)
-            # Is there a crossing detected?
-            if crossed_guard_nonholonomic(h(qₖ), h(x_proposed[1:div(length(x_proposed), 2)]), 0.0, Δt)[1]
-                Δt_found = locate_event_nonholonomic(solver, prob, xₖ, tₖ, dt_step, tol, sol, h)
-                x_impact = take_nh_step(solver, prob, xₖ, tₖ, Δt_found, tol, sol)
-                x_post = Δ(x_impact, M, A, ∇h, sys)
-                x_next = take_nh_step(solver, prob, x_post, tₖ, dt_step-Δt_found, tol, sol)
-            else
-                x_next = x_proposed
-            end
-        end
-        # Record
-        push!(sol.t, dt_step+tₖ)
-        push!(sol.x, x_next)
-    end
-
-    return sol
-end
-
-=#

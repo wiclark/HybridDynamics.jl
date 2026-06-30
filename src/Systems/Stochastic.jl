@@ -1,9 +1,11 @@
-# General mechanical system
-struct StochasticSystem{F,H,N,D} <: AbstractHybridSystem
-    f::F          # Continuous dynamics
+# General stochastic system
+struct StochasticSystem{F,G,H,N,D} <: AbstractHybridSystem
+    f::F          # Drift dynamics
+    g::G          # Diffusion term
     h::H          # Guard/event function
     Δ::D          # Reset map
     normal::N     # Normal to the guard, ∇G
+    direction::Int # Direction of impacts on the guard
 end
 
 # EXTERNAL
@@ -12,7 +14,8 @@ end
 Stochastic System
  - f
 """
-function StochasticSystem(f, h, Δ; normal = nothing)
+function StochasticSystem(f, g, h, Δ; 
+    normal = nothing, direction=0)
 
     if isnothing(h) && !isnothing(normal)
         error("Normal to guard was provided, but a guard was not")
@@ -22,19 +25,18 @@ function StochasticSystem(f, h, Δ; normal = nothing)
         normal = q -> ForwardDiff.gradient(h, q)
     end
 
-    return StochasticSystem{typeof(f), typeof(h), typeof(Δ), typeof(normal)}(
-        f, h, Δ, normal
+    return StochasticSystem(
+        f, g, h, Δ, normal, direction
     )
 end
 
 # General solution struct for mechanical systems
-struct StochasticSol{T, X, DX, I, E, Z} <: AbstractHybridSolution
+struct StochasticSol{T, X, DX, I, E} <: AbstractHybridSolution
     t::T        # Time data
     x::X        # x, the state
     dx::DX      # f(x) Derivative at each state x - only filled when dense_out = true
     prob::I     # Remember the problem - to aid interpolation
-    event::E    # Times where an event has occurred 
-    zeno::Z     # Times of Zeno points
+    event::E    # Times where an event has occurred
 end
 
 # Function to initialize solution struct
@@ -43,27 +45,57 @@ function StochasticSol(prob)
         [prob.init],
         Vector{Vector{Float64}}(),      
         prob,
-        Float64[],
         Float64[])
 end
 
+#####################################################
+function take_step_stochastic!(solver, prob::prob{S, I, T}, Δt, 
+    tol, sol;
+    guard_direction=default_guard_direction(prob.sys)) where {S<:StochasticSystem, I, T}
+
+    # Extract out the state
+    xₖ, tₖ = sol.x[end], sol.t[end]
+    # Extract out the problem details
+    sys = prob.sys
+    h = sys.h
+    Δ = sys.Δ
+
+    f, g = sys.f, sys.g
+
+    # This is going to be quite naive
+    x_next, _, _, _, _ = take_step(solver, prob, f, g, xₖ, tₖ, Δt, tol, sol; check=false)
+
+    # Record information
+    push!(sol.x, x_next)
+    push!(sol.t, tₖ + Δt)
+    # Is there an impact?
+    valid_linear(h1, h2) = 
+        (guard_direction == 0 && h1 * h2 < 0) ||
+        (guard_direction == -1 && h1 > 0 && h2 < 0) ||
+        (guard_direction == 1 && h1 < 0 && h2 > 0)
+    if valid_linear(h(xₖ), h(x_next))
+        push!(sol.x, Δ(x_next))
+        push!(sol.t, tₖ+Δt)
+        push!(sol.event, tₖ+Δt)
+    end
+    return sol.x[end], Δt
+end
+#####################################################
 
 
 function solve(prob::prob{S, I, T};
-               solver::AbstractODESolver=RK4(),
-               event_method::AbstractEventLocator=LinearLocator(),
-               dense_out = true,
+               solver::AbstractODESolver=EulerMaruyama(),
+               dense_out = false,
                dt_initial = 0.01, max_iter = 10^5, 
-               tol = 1e-6, ztol = 1e-4,
+               tol = 1e-6, guard_direction=default_guard_direction(prob.sys),
                kwargs...) where {S<:StochasticSystem, I, T}
-    
-    sys = prob.sys
-    h = sys.h
-    ∇h = sys.normal
-    Δ = sys.Δ
 
     # Initialize solution struct
     sol = StochasticSol(prob)
+
+     _, t_end = prob.tspan           # Extract the terminal time of the problem
+    Δt = dt_initial
+    iter = 0
 
  # Run sim until end of specified time span
     while sol.t[end] < t_end 
@@ -83,20 +115,12 @@ function solve(prob::prob{S, I, T};
         end
 
         #Truncate time step if we overshoot the final sim time
-        dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
+        Δt = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
     # Actually solve now
 
+        take_step_stochastic!(solver, prob, Δt, tol, sol; guard_direction = guard_direction)
 
-
-
-
-     # Record
-        if dense_out
-            push!(sol.dx, f(xₖ, tₖ)) # hey, it works (usually)
-        end
-        push!(sol.t, Δt_found+tₖ)
-        push!(sol.x, x_next)
     end
 
     return sol
