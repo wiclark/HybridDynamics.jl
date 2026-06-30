@@ -31,13 +31,12 @@ function StochasticSystem(f, g, h, Δ;
 end
 
 # General solution struct for mechanical systems
-struct StochasticSol{T, X, DX, I, E, Z} <: AbstractHybridSolution
+struct StochasticSol{T, X, DX, I, E} <: AbstractHybridSolution
     t::T        # Time data
     x::X        # x, the state
     dx::DX      # f(x) Derivative at each state x - only filled when dense_out = true
     prob::I     # Remember the problem - to aid interpolation
-    event::E    # Times where an event has occurred 
-    zeno::Z     # Times of Zeno points
+    event::E    # Times where an event has occurred
 end
 
 # Function to initialize solution struct
@@ -46,20 +45,19 @@ function StochasticSol(prob)
         [prob.init],
         Vector{Vector{Float64}}(),      
         prob,
-        Float64[],
         Float64[])
 end
 
 #####################################################
 function take_step_stochastic!(solver, prob::prob{S, I, T}, Δt, 
-    tol, sol; stepper::AbstractODESolver=ModifiedMidpoint(), dense_out=false, event_method::AbstractEventLocator=LinearLocator(),
+    tol, sol;
     guard_direction=default_guard_direction(prob.sys)) where {S<:StochasticSystem, I, T}
 
     # Extract out the state
     xₖ, tₖ = sol.x[end], sol.t[end]
     # Extract out the problem details
     sys = prob.sys
-    h, ∇h = sys.h, sys.normal
+    h = sys.h
     Δ = sys.Δ
 
     f, g = sys.f, sys.g
@@ -78,6 +76,7 @@ function take_step_stochastic!(solver, prob::prob{S, I, T}, Δt,
     if valid_linear(h(xₖ), h(x_next))
         push!(sol.x, Δ(x_next))
         push!(sol.t, tₖ+Δt)
+        push!(sol.event, tₖ+Δt)
     end
     return sol.x[end], Δt
 end
@@ -86,16 +85,10 @@ end
 
 function solve(prob::prob{S, I, T};
                solver::AbstractODESolver=EulerMaruyama(),
-               event_method::AbstractEventLocator=LinearLocator(),
                dense_out = false,
                dt_initial = 0.01, max_iter = 10^5, 
                tol = 1e-6, guard_direction=default_guard_direction(prob.sys),
                kwargs...) where {S<:StochasticSystem, I, T}
-    
-    sys = prob.sys
-    h = sys.h
-    ∇h = sys.normal
-    Δ = sys.Δ
 
     # Initialize solution struct
     sol = StochasticSol(prob)
@@ -126,7 +119,7 @@ function solve(prob::prob{S, I, T};
 
     # Actually solve now
 
-        take_step_stochastic!(solver, prob, Δt, tol, sol; guard_direction = guard_direction, dense_out=false)
+        take_step_stochastic!(solver, prob, Δt, tol, sol; guard_direction = guard_direction)
 
     end
 

@@ -85,26 +85,16 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
                dense_out = true,
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
                tol = 1e-6,
-               zeno_ratio = 0.90, max_zeno_jumps = 10,
                stepper::AbstractODESolver=RK4(),
-               max_buffer_size=10,
-               max_instant_jumps = 5,
                guard_direction = prob.sys.direction,
                ) where {F<:GeneralSystem, I, T}
 
     sys = prob.sys
     f = sys.f
     sol = GeneralSol(prob)
-    t_start, t_end = prob.tspan
+    _, t_end = prob.tspan
     Δt = dt_initial
     iter = 0
-
-    # Pathology trackers
-    instant_jump_count = 0
-    zeno_count = 0
-    last_jump_time = t_start
-    last_intervals = Float64[]
-
 
     while sol.t[end] < t_end
         # Halt if we hit the iteration limit 
@@ -126,7 +116,7 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
 
         # Truncate time step if we overshoot
         Δt = (tₖ + Δt > t_end) ? (t_end - tₖ) : Δt
-        x_predict, eventtriggered, t_root, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction)
+        x_predict, eventtriggered, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction)
         
         if eventtriggered
             # An event has been found, time to locate it
@@ -169,57 +159,6 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
             end
         end
         Δt = dt_next
-
-        #=
-        #Discrete event logic
-        if eventtriggered
-            
-            t_star = t_root
-            τ = t_star - tₖ
-
-            x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ, tol, sol; guard_direction=guard_direction)
-
-            jump_interval = t_star - last_jump_time
-
-            status = check_general_pathology(
-                jump_interval,
-                last_intervals, t_star;
-                tol=tol, 
-                zeno_ratio=zeno_ratio,
-                max_zeno_jumps=max_zeno_jumps, 
-                max_buffer_size=max_buffer_size)
-
-            #Terminate sim if pathological behavior is confirmed
-            if status == :terminate
-                break
-            end
-            last_jump_time = t_star
-
-            #apply state jump (reset map)
-            x⁺ = apply_reset(sys, x_star)
-            h⁺ = guard(sys, x⁺)
-
-            #Record impact point and post reset state
-            push!(sol.t, t_star, t_star)
-            push!(sol.x, x_star, x⁺)
-
-            if hasproperty(sol, :jump_times)
-                push!(sol.jump_times, t_star)
-                push!(sol.jump_indices, length(sol.x))
-            end
-            #Reset step size to default after event
-            Δt = dt_initial
-        else
-            #Normal cont updated
-            if dense_out
-                #Added phys_x for Var Eq
-                phys_x = (xₖ isa AbstractMatrix) ? xₖ[:, 1] : xₖ
-                push!(sol.dx, f(phys_x, tₖ))
-            end
-            push!(sol.t, tₖ + dt_used)
-            push!(sol.x, x_predict)
-            Δt = dt_next
-        end =#
     end
     return sol
 end
