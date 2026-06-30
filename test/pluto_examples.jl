@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v1.0.1
+# v0.20.24
 
 using Markdown
 using InteractiveUtils
@@ -288,6 +288,78 @@ solG.x
 # ╔═╡ 67463097-3bb9-48a6-bb63-008eb7936427
 solG.t
 
+# ╔═╡ 8e899a64-9654-4e7e-ac0f-2376b89aa913
+md"""
+## Linear and Affine Systems
+!!! info "Linear and Affine Problems"
+	A Linear Hybrid System consists of the data $(A, λ, C)$ where 
+	```math
+		\mathcal{LH} = 
+		\begin{cases}
+			\dot x = Ax, & λx \neq 0, \\
+			x^+ = Cx, & λx = 0.
+		\end{cases}
+	```
+	An Affine Hybrid System consists of the data $(A, b, λ, a, C, κ)$ where
+	```math
+		\mathcal{AH} = 
+		\begin{cases}
+			\dot x = Ax + b, λx + a \neq 0, \\
+			x^+ = Cx + κ, λx + a = 0.
+		\end{cases}
+	```
+
+	1. .$A$ is the state matrix. 
+	2. .$b$ is the continuous affine vector ($\dot x = Ax + b$).
+	3. .$λ$ is the guard normal vector.
+	4. .$a$ is the guard affine vector ($λx + a = 0$).
+	5. .$C$ is the reset matrix
+	6. .$κ$ is the reset affine vector $(x^+ = Cx + κ)$.
+"""
+
+# ╔═╡ 154b65b0-f68b-4ec7-a035-b5d3ea78fb26
+begin
+	LA_type = "Linear" # Options: "Linear", "Affine"
+	LA_A = [0.0 -10.0; 10.0 -.1]
+	LA_λ = [1.0, 0.0]
+	LA_C = [1.5 1.0; 0.0 0.5]
+	LA_x0 = [1.0, 0.5]
+	LA_tspan = (0.0, 10.0)
+end
+
+# ╔═╡ 7259e7cc-e810-41c7-b57b-acedd5ed6691
+begin
+    if LA_type == "Affine"
+        LA_b = [2.0, 0.0]
+        LA_a = 0.2
+        LA_κ = [0.1, -0.2]
+        LA_sys = HD.AffineSystem(LA_A, LA_b, LA_λ, LA_a, LA_C, LA_κ)
+        LA_guard = -LA_a
+        LA_prob = HD.prob(LA_sys, LA_x0, LA_tspan)
+        LA_sol = HD.solve(LA_prob, HD.RK45())
+    else
+        LA_sys = HD.LinearSystem(LA_A, LA_λ, LA_C)
+        LA_guard = 0.0
+        LA_prob = HD.prob(LA_sys, LA_x0, LA_tspan)
+        LA_sol = HD.solve(LA_prob, HD.AdamsBashforth3())
+    end
+end
+
+# ╔═╡ 1e618fc0-28ab-4c28-9be5-8b1582a69cba
+LA_t_list, LA_x_list = HD.split_jumps(LA_sol)
+
+# ╔═╡ a77c28dc-8d08-42b6-8e51-1949ea04bb4a
+begin
+    p = plt.plot(title="$(LA_type) System Trajectory", xlabel="x1", ylabel="x2", 
+                 aspect_ratio=:equal, grid=true, legend=false)
+    
+    plt.vline!(p, [LA_guard], label="Guard", color=:black, alpha=0.3, lw=2)
+    
+    plt.plot!(p, getindex.(LA_x_list, 1), getindex.(LA_x_list, 2), 
+              color=:red, linestyle=:dash, lw=1.5, label="Trajectory")
+    p
+end
+
 # ╔═╡ Cell order:
 # ╠═6df38dc0-6787-11f1-a77e-9f1ff29a6e5b
 # ╠═5f758439-587b-4bbe-bd02-f2f9ce6cc8fb
@@ -301,7 +373,7 @@ solG.t
 # ╠═e6bc3aba-7b99-4ca8-8657-12b8609cd427
 # ╠═bbc202e7-fd8d-4eb1-9de2-93b09a73a425
 # ╟─7b9a3bb2-0b4f-48bf-9c7a-1824281ad707
-# ╟─80034ca8-e254-4beb-8486-da9de404f503
+# ╠═80034ca8-e254-4beb-8486-da9de404f503
 # ╠═49b430c8-ac20-4988-9c49-83a38111285f
 # ╠═c1a00790-005e-40ae-9e4c-20f8aac7b787
 # ╠═999c672e-fdff-4225-b6c8-80a7096432c8
@@ -315,7 +387,7 @@ solG.t
 # ╠═e4b47eb0-38f7-490f-ae6d-8f6d0ad278d8
 # ╠═c181233d-d767-4cc6-a114-1f6ee16a2fec
 # ╠═d8370b2e-077d-488f-afb2-ceffa00fc255
-# ╟─eea32534-7258-478d-b96e-aee9bc212011
+# ╠═eea32534-7258-478d-b96e-aee9bc212011
 # ╟─15b10a81-2909-4df8-8d1c-0fcd7af5d9ff
 # ╠═33b07ebd-6275-4aa5-a855-7a6b29b97de9
 # ╠═6e9ae3eb-e2d2-42b2-bcfe-c42c6dd4be65
@@ -326,3 +398,8 @@ solG.t
 # ╠═293d4ac4-bbb7-41ea-ae29-ae0844fd3992
 # ╠═a62b426b-cb7f-44f1-9371-9f446a494a59
 # ╠═67463097-3bb9-48a6-bb63-008eb7936427
+# ╟─8e899a64-9654-4e7e-ac0f-2376b89aa913
+# ╠═154b65b0-f68b-4ec7-a035-b5d3ea78fb26
+# ╠═7259e7cc-e810-41c7-b57b-acedd5ed6691
+# ╠═1e618fc0-28ab-4c28-9be5-8b1582a69cba
+# ╠═a77c28dc-8d08-42b6-8e51-1949ea04bb4a
