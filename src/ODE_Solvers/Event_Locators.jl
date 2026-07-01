@@ -136,26 +136,23 @@ function locate_event(::LinearLocator, prob, solver::AbstractODESolver, f, xₖ,
     τ_l, τ_r = 0.0, Δt
     h_l = h_now
 
-    if abs(h_now) < tol || h_now < 0
+    if abs(h_now) < tol 
         return tₖ, xₖ
     end
 
     #Get right side of boundary
     x_r, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_r, tol, sol, stepper)
     h_r = guard(sys, x_r)
+    
+    #If we ever get a step not bracketing a root we exit to avoid iterating garbage. 
+    if signbit(h_l) == signbit(h_r)
+        return tₖ + Δt, x_r
+    end
 
     τ_star = Δt
     x_star = x_r
 
     for _ in 1:100
-        #=
-        if abs(τ_r - τ_l) < tol || abs(h_r) < tol
-            τ_star = τ_r
-            x_star = x_r
-            break
-        end
-        =#
-
         #Linear Interp
         τ_m = τ_r - h_r * (τ_r - τ_l) / (h_r - h_l)
 
@@ -178,7 +175,6 @@ function locate_event(::LinearLocator, prob, solver::AbstractODESolver, f, xₖ,
         end
     end
     t_star = tₖ + τ_star
-    x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper)
     return t_star, x_star
 end
 
@@ -196,51 +192,85 @@ function locate_event(::QuadraticLocator, prob, solver::AbstractODESolver, f, x�
     x₂, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol, stepper)
     h₂ = guard(sys, x₂)
 
+    # Must actually bracket a root
+    if signbit(h₀) == signbit(h₂)
+        θ = -h₀ / (h₂ - h₀)
+        τ_star = clamp(θ * Δt, 0.0, Δt)
+
+        x_star, _, _, _, _ =
+            take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper)
+
+        return tₖ + τ_star, x_star
+    end
+
     #compute parabola coeffs
     c = h₀
     b = (-3.0 * h₀ + 4.0 * h₁ - h₂) / Δt
     a = 2.0 * (h₀ - 2.0 * h₁ + h₂) / (Δt ^ 2)
 
-    #root finding with Fallbacks
     if abs(a) < tol
-        #curve is basically zero, fallback to linear interp
         θ = -h₀ / (h₂ - h₀)
-        τ_star = θ * Δt
-    else 
-        discriminant = b^2 - 4.0 * a * c
-
-        if discriminant < 0
-            #fallback to linear interp
+        τ_star = clamp(θ * Δt, 0.0, Δt)
+    else
+        disc = b^2 - 4.0*a*c
+        if disc < 0
             θ = -h₀ / (h₂ - h₀)
-            τ_star = θ * Δt
+            τ_star = clamp(θ * Δt, 0.0, Δt)
         else
-            #stable quad root finding
-            q = -.5 * (b + sign(b) * sqrt(discriminant))
-            root_1 = q / a
-            root_2 = c / q
+            q = -0.5 * (b + sign(b)*sqrt(disc))
+            root1 = q/a
+            root2 = c/q
 
-            valid_1 = 0.0 <= root_1 < Δt
-            valid_2 = 0.0 <= root_2 < Δt
+            valid1 = isfinite(root1) && (0.0 <= root1 <= Δt)
+            valid2 = isfinite(root2) && (0.0 <= root2 <= Δt)
 
-            #select right root
-            if valid_1 && valid_2
-                #if parabola crosses twice we pick first one
-                τ_star = min(root_1, root_2)
-            elseif valid_1
-                τ_star = root_1
-            elseif valid_2
-                τ_star = root_2
-            else
-                #roots drifted to narnia? 
+            if valid1 && valid2
+                τ_star = min(root1, root2)
+            elseif valid1
+                τ_star = root1
+            elseif valid2
+                τ_star = root2
+            else 
                 θ = -h₀ / (h₂ - h₀)
-                τ_star = θ * Δt
+                τ_star = clamp(θ * Δt, 0.0, Δt)
             end
         end
     end
-    t_star = tₖ + τ_star
-    x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper)
 
-    return t_star, x_star
+    #Verify the quadratic prediction. We dont just trust it with our heart of hearts. 
+    x_test, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper)
+    h_test = guard(sys, x_test)
+
+    #IF prediction is worse than midpoint we abandon it and linear interp
+    if abs(h_test) > abs(h₁)
+        θ = -h₀ / (h₂ - h₀)
+        τ_star = clamp(θ * Δt, 0.0, Δt)
+
+        x_test, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper)
+        h_test = guard(sys, x_test)
+
+    end
+
+    if abs(h_test) > tol
+        τ_l = 0.0
+        τ_r = Δt
+        h_l = h₀
+        h_r = h₂
+        if signbit(h_l) != signbit(h_test)
+            τ_r = τ_star
+            h_r = h_test
+        else
+            τ_l = τ_star
+            h_l = h_test
+        end
+        τ_star = τ_r - h_r*(τ_r - τ_l)/(h_r - h_l)
+        τ_star = clamp(τ_star, 0.0, Δt)
+        x_test, _, _, _, _ =
+            take_step(solver, prob, f, xₖ, tₖ,
+                      τ_star, tol, sol, stepper)
+    end
+    t_star = tₖ + τ_star
+    return t_star, x_test
 end
 
 function locate_event(::NewtonLocator, prob, solver::AbstractODESolver, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())

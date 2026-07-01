@@ -55,7 +55,7 @@ export GeneralSystem
 
 ########
 #ODE Step solvers - Interpolation with Fixed Step size
-export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver, RichardsonExtrapolationm, ImplicitEuler
+export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver, RichardsonExtrapolationm, ImplicitEuler, RK4
 #With Adaptive step size
 export RK23, RK45
 
@@ -71,7 +71,7 @@ export AdaptiveABM2, AdaptiveABM3
 export MagnusLeapfrog
 
 #EventDetection locators
-export LinearLocator, BisectionLocator, QuadraticLocator
+export LinearLocator, BisectionLocator, QuadraticLocator, NewtonLocator
 
 #Linear/Affine additives
 export beating_and_blocking_sets, is_trivially_blocking
