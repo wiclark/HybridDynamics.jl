@@ -335,9 +335,8 @@ function solve(prob::prob{F, I, T},
         # Discrete event logic
         if eventtriggered 
 
-            h_now = guard(sys, xₖ)
-            
-            t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, h_now, tol, sol, stepper)
+            t_root = guard(sys, xₖ)
+            t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, t_root, tol, sol, stepper)
             
             # PATHOLOGY CHECK
             jump_interval = t_star - last_jump_time

@@ -116,7 +116,6 @@ end
 
 # Runge-Kutta 45
 function rk_45_step(f::Function, z::AbstractArray, Δt::AbstractFloat, t::AbstractFloat, tf::AbstractFloat, sys, tol; adaptive=true)
-    # As this is an adaptive step solver, h is the step size from the pervious step
     # As the step size is not of fixed size, we specify the terminal time, tf, of the problem
     dt = minimum([Δt, tf-t])
 
