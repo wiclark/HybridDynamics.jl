@@ -30,7 +30,6 @@ the step is delegated to the single-step stepper (default RK4).
 
 WHY I DID THINGS:
 We use Milne's device for error est because it is easy to compute. Since we already are performing an explicit prediction and an implicit correction, the difference serves as a solid estimate.
-
 """
 #user can specify if they want RK4 here
 function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::RK=RK4(); guard_direction=default_guard_direction(prob.sys))
@@ -61,7 +60,7 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
         x_next, LTE = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
 
         #Calc proposed next step size using helper from beginning 
-        Δt_new = updated_step(LTE, tol, Δt, k)
+        dt_next = updated_step(LTE, tol, Δt, k)
 
         if LTE < tol
             #step accepted
@@ -74,14 +73,14 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
 
             eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
 
-            return x_next, eventtrigger, t_root, Δt, Δt_new
+            return x_next, eventtrigger, t_root, Δt, dt_next
         else
             #Step rejected: shrink and try again 
-            Δt = Δt_new
+            Δt = dt_next
             if Δt < 1e-6
                 @warn "LMM Step size has decreased below 1e-6"
                 #Force break to avoid inf loops
-                return x_next, false, NaN, Δt, Δt_new
+                return x_next, false, NaN, Δt, dt_next
             end
         end
     end
