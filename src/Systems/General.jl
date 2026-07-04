@@ -15,12 +15,12 @@ struct GeneralSol{T, X, DX} <: AbstractHybridSolution
     t::T                        #Time points of sim
     x::X                        #State traj: T is generic to support varying state types
     dx::DX 
-    jump_times::Vector{Float64} #Explicit storage of timestamps where resets occurred
-    jump_indices::Vector{Int}   #Map of jump_times to indices in the x and t vectors
+    event_times::Vector{Float64} #Explicit storage of timestamps where resets occurred
+    event_indices::Vector{Int}   #Map of event_times to indices in the x and t vectors
 end
 
 #Internal - to initialize the solution struct
-function GeneralSol(prob::prob{F, I, T}) where {F<:GeneralSystem, I, T}
+function GeneralSol(prob::prob{S, I, T}) where {S<:GeneralSystem, I, T}
     return GeneralSol([prob.tspan[1]], 
         [prob.init], 
         Vector{Vector{Float64}}(),
@@ -41,8 +41,62 @@ function apply_reset(sys::GeneralSystem, x::AbstractArray)
     return sys.Δ(x)
 end
 
+function take_step_general!(solver, prob::prob{S,I,T}, f, Δt, tol, sol; dense_out=true, stepper::AbstractODESolver=RK4(), event_method::AbstractEventLocator=LinearLocator(), guard_direction=default_guard_direction(prob.sys)) where {S<:GeneralSystem, I, T}
+
+    xₖ = sol.x[end]
+    tₖ = sol.t[end]
+
+    sys = prob.sys
+
+    x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction)
+
+    if eventtrigger
+
+        t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, Δt, guard(sys, xₖ), tol, sol, stepper)
+
+        if abs(guard(sys, x_star)) > 1e-3
+            @warn "Event Location is not located on the guard."
+        end
+
+        x⁺ = apply_reset(sys, x_star)
+
+        if guard_direction == 0 && abs(guard(sys, x⁺)) > tol
+            @warn "An Instantaneous reset is detected. Possible beating/blocking/Zeno."
+            return x⁺, dt_used, dt_next, true
+        end
+
+        push!(sol.event_times, t_star)
+
+        push!(sol.t, t_star)
+        push!(sol.x, x_star)
+
+        push!(sol.event_indices, length(sol.t))
+
+        push!(sol.t, t_star)
+        push!(sol.x, x⁺)
+
+        if dense_out
+            push!(sol.dx, f(x_star, t_star))
+            push!(sol.dx, f(x⁺, t_star))
+        end
+
+        if length(sol.event_times) > 1 && sol.event_times[end]-sol.event_times[end-1] < 1e-3
+            @warn "Fast switching detected. Possible beating/blocking/Zeno."
+            return x⁺, dt_used, dt_next, true
+        end
+    else
+        push!(sol.t, tₖ+dt_used)
+        push!(sol.x, x_predict)
+
+        if dense_out
+            push!(sol.dx, f(x_predict, tₖ+dt_used))
+        end
+    end
+    return x_predict, dt_used, dt_next, false
+end
+
 """
-    solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45(); kwargs...) where {F<:GeneralSystem, I, T}
+    solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45(); kwargs...) where {S<:GeneralSystem, I, T}
 
 ARGUMENT KEY
 
@@ -63,31 +117,15 @@ ARGUMENT KEY
 * 'stepper' (AbstractODESolver. default 'RK4()'): The secondary ODE solver used internally by the event detection locator to pinpoint the impact state.
 * 'guard_direction' (Int, default 'default_guard_direction(prob.sys)'): 0 -> detects crossings in either direction. 1 -> detects increasing crossings. -1 -> detects decreating crossings.
 
-### Pathology Tuning
-* 'zeno_ratio' (Float64, default '.90'): The ratio threshold for Zeno detection. If consecutive jump intervals contract by this ratio (or faster) it triggers a Zeno classification. 
-* 'max_zeno_jumps' (Int, default '3'): The maximum number of consecutuve Zeno contractions allowed before terminating the simulation. 
-* 'max_instant_jumps' (Int, default '5'): The maximum number of instantaneous jumps allowed before classifying the system as blocked and terminating. 
-* 'max_buffer_size' (Int, default '5'): The number of previous jump intervals stored in memory to evaluate Zeno contractions.
-
-### Fine-Tuning Multipliers (scaled against 'tol')
-* 'min_zeno_history' (Int, default '2'): The minimum number of recorded jumps required before the solver will attempt to calculate a Zeno contraction ratio. 
-* 'zeno_floor_mult' (Float64, default '2.0'): Defines the numerical floor ('tol * zeno_floor_mult'). If a jump interval falls below this, it maintains a Zeno state to prevent
-machine precision drops into beating blocks.
-* 'zeno_time_threshold' (Float64, default '1e-2'): The absolute maximum duration a jump interval can be while still being eligible for Zeno contraction classification.
-* 'zeno_reset_mult' (Float64, default '100.0'): If a jump interval exceeds 'tol * zeno_reset_mult', the system is deemed safe and the Zeno counter is decremented.
-* 'beating_tol_mult' (Float64, default '1.0'): Defines the time window ('tol * beating_tol_mult'). Jumps occurring within this window are classifed as instantaneous jumps or 'beating'
-* 'adaptive_tol_mult' (Float64, defualt '100.0'): The boundary distance multiplier ('tol * adaptive_tol_mult'). When the system enters this distance from the guard, it shrinks step size to increase resolution.
-* 'sliding_tol_mult' (Float64, default '10.0'): If the post-impact guard value is within 'tol * sliding_tol_mult', the solver enters sliding mode to suppress immediate erroneous events. This helps us avoid strange chattering.  
-
 """
-function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
+function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                event_method::AbstractEventLocator=LinearLocator(),
                dense_out = true,
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
                tol = 1e-6,
                stepper::AbstractODESolver=RK4(),
                guard_direction = prob.sys.direction,
-               ) where {F<:GeneralSystem, I, T}
+               ) where {S<:GeneralSystem, I, T}
 
     sys = prob.sys
     f = sys.f
@@ -97,68 +135,27 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
     iter = 0
 
     while sol.t[end] < t_end
-        # Halt if we hit the iteration limit 
+        
         iter += 1
-        if iter > max_iter
+
+        if iter > max_iter 
             @info "Maximum iterations $max_iter reached."
             break
         end
 
-        # Terminate if time is below machine precision
         if t_end - sol.t[end] <= eps(t_end)
-            @info "Time step below minimum threshold $dt_min. Terminating."
+            @info "Time step below minimum threshold $dt_min. Terminating"
+            break 
+        end
+
+        Δt = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
+
+        _, _, Δt, terminate = take_step_general!(solver, prob, f, Δt, tol, sol; dense_out=dense_out, stepper=stepper, event_method=event_method, guard_direction=guard_direction)
+
+        if terminate
             break
         end
 
-        # The current state/time
-        xₖ = sol.x[end]
-        tₖ = sol.t[end]
-
-        # Truncate time step if we overshoot
-        Δt = (tₖ + Δt > t_end) ? (t_end - tₖ) : Δt
-        x_predict, eventtriggered, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction)
-        
-        if eventtriggered
-            # An event has been found, time to locate it
-            t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, Δt, guard(sys, xₖ), tol, sol, stepper)
-            # Record the impact information
-            if abs(guard(sys, x_star)) > 1e-3
-                @warn "Event location is not located on the guard."
-            end
-            x⁺ = apply_reset(sys, x_star)
-
-            # Perform a naive pathological check
-            if (guard_direction == 0) && (abs(guard(sys, x⁺)>tol))
-                @warn "An instantaneous reset is detected. Possible beating/blocking/Zeno. Terminating."
-                break
-            end
-            # Pre-reset
-            push!(sol.jump_times, t_star)
-            push!(sol.t, t_star)
-            push!(sol.x, x_star)
-            # Post-reset
-            push!(sol.t, t_star)
-            push!(sol.x, x⁺)
-            # println(x⁺)
-            if dense_out
-                push!(sol.dx, f(x_star, t_star))
-                push!(sol.dx, f(x⁺, t_star))
-            end
-            
-            # Check for fast switchings
-            if (length(sol.jump_times) > 2) && (sol.jump_times[end]-sol.jump_times[end-1]<1e-3)
-                @warn "Fast switching is detected. Possible beating/blocking/Zeno. Terminating"
-                break
-            end
-
-        else
-            push!(sol.t, tₖ+dt_used)
-            push!(sol.x, x_predict)
-            if dense_out
-                push!(sol.dx, f(x_predict, tₖ+dt_used))
-            end
-        end
-        Δt = dt_next
     end
     return sol
 end
