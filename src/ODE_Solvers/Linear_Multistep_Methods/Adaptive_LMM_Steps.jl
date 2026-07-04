@@ -38,7 +38,7 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
     Δt = minimum([Δt, tf - tₖ])
 
     #determine how many cont steps we have since last jump
-    history_len = isempty(sol.jump_indices) ? length(sol.x) : (length(sol.x) - sol.jump_indices[end] + 1)
+    history_len = isempty(sol.event_indices) ? length(sol.x) : (length(sol.x) - sol.event_indices[end] + 1)
 
     #Startup phase: IF we dont have history we use RK stepper
     if history_len < k

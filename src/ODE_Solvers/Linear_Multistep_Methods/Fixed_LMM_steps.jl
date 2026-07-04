@@ -13,7 +13,7 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
     k = lmm_order(solver)
 
     #Determine how many continuous steps we have since the last jump
-    history_len = isempty(sol.jump_indices) ? length(sol.x) : (length(sol.x) - sol.jump_indices[end] + 1)
+    history_len = isempty(sol.event_indices) ? length(sol.x) : (length(sol.x) - sol.event_indices[end] + 1)
 
     h_now = guard(sys, xₖ)
 
@@ -29,7 +29,7 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
         h_next = guard(sys, x_predict)
 
         eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_prev, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
-        
+
         if eventtrigger
             if (t_root - tₖ) < (1e-4 * Δt) # Add a small buffer
                 eventtrigger = false
