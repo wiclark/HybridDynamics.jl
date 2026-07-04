@@ -30,67 +30,76 @@ WHY I DID THINGS:
 We use Milne's device for error est because it is easy to compute. Since we already are performing an explicit prediction and an implicit correction, the difference serves as a solid estimate.
 """
 #user can specify if they want RK4 here
-function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::RK=RK4(); guard_direction=default_guard_direction(prob.sys))
+function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::RK=RK4(); check=true, guard_direction=default_guard_direction(prob.sys))
+    
+    # 1. Probing Override: If checking is disabled, LMM history assumptions are violated. Route to RK stepper.
+    if !check
+        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=false, guard_direction=guard_direction)
+    end
+
     sys = prob.sys
     k = lmm_order(solver)
     tf = prob.tspan[2]
 
     Δt = minimum([Δt, tf - tₖ])
 
-    #determine how many cont steps we have since last jump
+    # Determine how many cont steps we have since last jump
     history_len = isempty(sol.event_indices) ? length(sol.x) : (length(sol.x) - sol.event_indices[end])
 
-    #Startup phase: IF we dont have history we use RK stepper
+    # Startup phase: IF we dont have history we use RK stepper
     if history_len < k
-        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; guard_direction=guard_direction)
+        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
     end
 
-    #Extract history for LMM
+    # Extract history for LMM
     x_history = sol.x[end - k + 1 : end - 1]
     t_history = sol.t[end - k + 1 : end - 1]
 
-    h_now = guard(sys, xₖ)
-
-    #Adaptive step loop
+    # Adaptive step loop
     while true
-        #compute step and retrieve LTE 
-        x_next, LTE = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
+        # Compute step and retrieve LTE 
+        x_predict, LTE = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
 
-        #Calc proposed next step size using helper from beginning 
+        # Calc proposed next step size using helper from beginning 
         dt_next = updated_step(LTE, tol, Δt, k)
 
         if LTE < tol
-            #step accepted
-            h_next = guard(sys, x_next)
+            if check
+                h_now = guard(sys, xₖ)
+                h_next = guard(sys, x_predict)
 
-            #Guard eval looking back to prev step for the quad check 
-            if history_len > 1
-                idx = length(sol.x) - 1
-                t_prev = sol.t[idx]
-                h_prev = guard(sys, sol.x[idx])
-            else
-                t_prev = tₖ - Δt
-                h_prev = h_now
-            end
-            
-            eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
-
-            # Buffer
-            if eventtrigger
-                if (t_root - tₖ) < (1e-4 * Δt)
-                    eventtrigger = false
-                    t_root = tₖ + Δt
+                # Guard eval looking back to prev step for the quad check 
+                if history_len > 1
+                    idx = length(sol.x) - 1
+                    t_prev = sol.t[idx]
+                    h_prev = guard(sys, sol.x[idx])
+                else
+                    t_prev = tₖ - Δt
+                    h_prev = h_now
                 end
-            end
+                
+                eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
 
-            return x_next, eventtrigger, t_root, Δt, dt_next
+                # Buffer
+                if eventtrigger
+                    if (t_root - tₖ) < (1e-4 * Δt)
+                        eventtrigger = false
+                        t_root = tₖ + Δt
+                    end
+                end
+
+                return x_predict, eventtrigger, t_root, Δt, dt_next
+            else 
+                # Fallback (Structurally unreachable due to top delegation)
+                return x_predict, false, NaN, Δt, dt_next
+            end
         else
-            #Step rejected: shrink and try again 
+            # Step rejected: shrink and try again 
             Δt = dt_next
             if Δt < 1e-6
                 @warn "LMM Step size has decreased below 1e-6"
-                #Force break to avoid inf loops
-                return x_next, false, NaN, Δt, dt_next
+                # Force break to avoid inf loops
+                return x_predict, false, NaN, Δt, dt_next
             end
         end
     end

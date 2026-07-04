@@ -8,46 +8,31 @@ lmm_order(::AdamsBashforth2) = 2
 lmm_order(::AdamsBashforth3) = 3
 lmm_order(::BDF2) = 2
 
-function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = RK4();  guard_direction=default_guard_direction(prob.sys))
+function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = RK4(); check=true, guard_direction=default_guard_direction(prob.sys))
+
+    if !check
+        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=false, guard_direction=guard_direction)
+    end
+
     sys = prob.sys
     k = lmm_order(solver)
 
-    #Determine how many continuous steps we have since the last jump
+    # Determine how many continuous steps we have since the last jump
     history_len = isempty(sol.event_indices) ? length(sol.x) : (length(sol.x) - sol.event_indices[end])
 
-    h_now = guard(sys, xₖ)
-
     if history_len < k
-        # Startup phase: Use single step predictor
-        x_predict = compute_step(stepper, f, xₖ, Δt, tₖ)
-        h_next = guard(sys, x_predict)
+        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
+    end
 
-        if history_len > 1
-            idx = length(sol.x) - 1
-            t_prev = sol.t[idx]
-            h_prev = guard(sys, sol.x[idx])
-        else 
-            t_prev = tₖ - Δt
-            h_prev = h_now
-        end
+    # Multistep phase: We do have history so we extract prev states. 
+    x_history = sol.x[end - k + 1 : end - 1]
+    t_history = sol.t[end - k + 1 : end - 1]
 
-        eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
-
-        if eventtrigger
-            if (t_root - tₖ) < (1e-4 * Δt) # Add a small buffer
-                eventtrigger = false
-                t_root = tₖ + Δt # Reset t_root to end of step
-            end
-        end
-        return x_predict, eventtrigger, t_root, Δt, Δt
-    else
-        #Multistep phase: We do have history so we extract prev states. 
-        x_history = sol.x[end - k + 1 : end - 1]
-        t_history = sol.t[end - k + 1 : end - 1]
-
-        #pass history arrays forward
-        x_predict = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
-        
+    # Pass history arrays forward
+    x_predict = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
+    
+    if check 
+        h_now = guard(sys, xₖ)
         h_next = guard(sys, x_predict)
 
         if history_len > 1
@@ -66,8 +51,10 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
                 t_root = tₖ + Δt # Reset t_root to end of step
             end
         end
-
         return x_predict, eventtrigger, t_root, Δt, Δt
+    else
+        # Fallback (Structurally unreachable due to top delegation)
+        return x_predict, false, NaN, Δt, Δt
     end
 end
 
