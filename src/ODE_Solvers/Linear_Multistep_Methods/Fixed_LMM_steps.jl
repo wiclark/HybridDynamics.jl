@@ -19,14 +19,17 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
 
     if history_len < k
         # Startup phase: Use single step predictor
-        # using midpoint here to feed the quadratic guard check
         x_predict = compute_step(stepper, f, xₖ, Δt, tₖ)
-        x_mid     = compute_step(stepper, f, xₖ, Δt / 2.0, tₖ)
 
-        h_mid  = guard(sys, x_mid)
+        idx = max(1, length(sol.x) - 1)
+        t_prev = sol.t[idx]
+        x_prev = sol.x[idx]
+
+        h_prev  = guard(sys, x_prev)
         h_next = guard(sys, x_predict)
 
-        eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_mid, h_next, tₖ, tₖ + Δt / 2.0, tₖ + Δt; tol=tol, direction=guard_direction)
+        eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_prev, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
+        
         if eventtrigger
             if (t_root - tₖ) < (1e-4 * Δt) # Add a small buffer
                 eventtrigger = false
@@ -45,10 +48,10 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
         
         h_next = guard(sys, x_predict)
 
-        #Clark Fix: No calc of midpoint. 
         #Look back to the prev step evaluation to build quad guard
-        t_prev = sol.t[end-1]
-        x_prev = sol.x[end-1]
+        idx = max(1, length(sol.x) - 1)
+        t_prev = sol.t[idx]
+        x_prev = sol.x[idx]
         h_prev = guard(sys, x_prev)
 
         eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol = tol, direction=guard_direction)
@@ -89,28 +92,24 @@ function compute_lmm_step(::AdamsBashforth3, f, xₖ, tₖ, Δt, x_history, t_hi
     t_prev2 = t_history[end-1]
     
     fₖ = f(xₖ, tₖ)
-    f_prev1_val = f(x_prev1, t_prev1)
-    f_prev2_val = f(x_prev2, t_prev2)
+    f_prev1 = f(x_prev1, t_prev1)
+    f_prev2 = f(x_prev2, t_prev2)
     
-    # Currently using fixed-step coefficients. 
-    # To upgrade to full variable-step AB3 later, you would calculate the 
-    # ratios between (tₖ - t_prev1) and (t_prev1 - t_prev2) to dynamically adjust these weights.
-    #This will be done eventually but for now this is fine. 
-    return xₖ .+ Δt .* ( (23/12) .* fₖ .- (16/12) .* f_prev1_val .+ (5/12) .* f_prev2_val )
+    return xₖ .+ Δt .* ( (23/12) .* fₖ .- (16/12) .* f_prev1 .+ (5/12) .* f_prev2)
 end
 
 function compute_lmm_step(::BDF2, f, zₖ, tₖ, Δt, x_history, t_history)
     #retrieve state at previous time step.
-    z_prev = x_history[end]
+    x_prev = x_history[end]
     t_new = tₖ + Δt
 
     #doing some algebra to isolate the implicit part of BDF2 and "c" is the right side
-    c = (4.0 / 3.0) .* zₖ .- (1.0 / 3.0) .* z_prev
+    c = (4.0 / 3.0) .* xₖ .- (1.0 / 3.0) .* x_prev
     #coeff scaling step size 
     α = 2.0 / 3.0
 
     #Gen initial guess using Exp Euler to help the Newton Root finder
-    z_guess = zₖ .+ Δt .* f(zₖ, tₖ)
+    x_guess = xₖ .+ Δt .* f(xₖ, tₖ)
     #solve implicit system G(z) = 0 using Newtons
-    return implicit_newton_solve(f, z_guess, c, α, Δt, t_new)
+    return implicit_newton_solve(f, x_guess, c, α, Δt, t_new)
 end

@@ -18,8 +18,6 @@ Because predictor and corrector have known, and linked, error bounds, the differ
 
 If LTE is too high Δt is shrunk, and history is interpolated or reset, and we try to step again. If LTE is below our tolerance the step is accepted and solver calcs a slightly larger Δt for next step. 
 
-
-
 How it works:
 1) History Validation: The solver checks the length of continuous history since the last disc jump. If the history buffer is smaller than the order of the LMM 'k', 
 the step is delegated to the single-step stepper (default RK4).
@@ -73,6 +71,14 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
 
             eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
 
+            # Buffer
+            if eventtrigger
+                if (t_root - tₖ) < (1e-4 * Δt)
+                    eventtrigger = false
+                    t_root = tₖ + Δt
+                end
+            end
+
             return x_next, eventtrigger, t_root, Δt, dt_next
         else
             #Step rejected: shrink and try again 
@@ -115,12 +121,11 @@ end
 
 function compute_lmm_step(::AdaptiveABM3, f, xₖ, tₖ, Δt, x_history, t_history)
     #extract history
-    #x_history[2] is x_{k-1}, x_history[1] is x_{k-2}
-    x_prev1 = x_history[2]
-    t_prev1 = t_history[2]
+    x_prev1 = x_history[end]
+    t_prev1 = t_history[end]
 
-    x_prev2 = x_history[1]
-    t_prev2 = t_history[1]
+    x_prev2 = x_history[end - 1]
+    t_prev2 = t_history[end - 1]
 
     #Eval vf at past known coords
     fₖ      = f(xₖ, tₖ)
