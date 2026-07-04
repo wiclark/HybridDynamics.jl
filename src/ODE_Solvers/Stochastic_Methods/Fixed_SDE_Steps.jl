@@ -50,5 +50,5 @@ function euler_maruyama_step(f::Function, g::Function, xₖ::AbstractArray, Δt:
     noise = Normal(0, √(Δt))
     ΔW = rand(noise, size(gₖ)[2])
     # The update
-    return z .+ Δt*fₖ .+ gₖ*ΔW
+    return xₖ .+ Δt*fₖ .+ gₖ*ΔW
 end
