@@ -232,9 +232,7 @@ function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Δt, tol, sol;
     x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
 
     if eventtrigger
-        t_root = guard(sys, xₖ)
-
-        t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, t_root, tol, sol, stepper)
+        t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
 
         jump_interval = t_star - last_jump_time
 
@@ -254,14 +252,11 @@ function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Δt, tol, sol;
 
         x⁺ = apply_reset(sys, x_star)
 
-        push!(sol.t, t_star)
-        push!(sol.x, x_star)
+        push!(sol.t, t_star, t_star)
+        push!(sol.x, x_star, x⁺)
 
         push!(sol.event_times, t_star)
         push!(sol.event_indices, length(sol.t))
-
-        push!(sol.t, t_star)
-        push!(sol.x, x⁺)
 
         if dense_out
             push!(sol.dx, f(x_star, t_star))
@@ -275,7 +270,7 @@ function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Δt, tol, sol;
         t_next = tₖ + dt_used
 
         if dense_out
-            push!(sol.dx, f(x_predict, t_next))
+            push!(sol.dx, f(xₖ, tₖ))
         end
 
         push!(sol.t, t_next)

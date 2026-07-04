@@ -38,7 +38,7 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
     Δt = minimum([Δt, tf - tₖ])
 
     #determine how many cont steps we have since last jump
-    history_len = isempty(sol.event_indices) ? length(sol.x) : (length(sol.x) - sol.event_indices[end] + 1)
+    history_len = isempty(sol.event_indices) ? length(sol.x) : (length(sol.x) - sol.event_indices[end])
 
     #Startup phase: IF we dont have history we use RK stepper
     if history_len < k
@@ -52,7 +52,6 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
     h_now = guard(sys, xₖ)
 
     #Adaptive step loop
-    #Wanted to try using a max_iter variation here but that breaks things (for some reason idk)
     while true
         #compute step and retrieve LTE 
         x_next, LTE = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
@@ -65,10 +64,15 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
             h_next = guard(sys, x_next)
 
             #Guard eval looking back to prev step for the quad check 
-            idx = max(1, length(sol.x) - 1)
-            t_prev = sol.t[idx]
-            h_prev = guard(sys, sol.x[idx])
-
+            if history_len > 1
+                idx = length(sol.x) - 1
+                t_prev = sol.t[idx]
+                h_prev = guard(sys, sol.x[idx])
+            else
+                t_prev = tₖ - Δt
+                h_prev = h_now
+            end
+            
             eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
 
             # Buffer

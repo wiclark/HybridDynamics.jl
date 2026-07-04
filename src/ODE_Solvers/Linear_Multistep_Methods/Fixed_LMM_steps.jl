@@ -13,22 +13,25 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
     k = lmm_order(solver)
 
     #Determine how many continuous steps we have since the last jump
-    history_len = isempty(sol.event_indices) ? length(sol.x) : (length(sol.x) - sol.event_indices[end] + 1)
+    history_len = isempty(sol.event_indices) ? length(sol.x) : (length(sol.x) - sol.event_indices[end])
 
     h_now = guard(sys, xₖ)
 
     if history_len < k
         # Startup phase: Use single step predictor
         x_predict = compute_step(stepper, f, xₖ, Δt, tₖ)
-
-        idx = max(1, length(sol.x) - 1)
-        t_prev = sol.t[idx]
-        x_prev = sol.x[idx]
-
-        h_prev  = guard(sys, x_prev)
         h_next = guard(sys, x_predict)
 
-        eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_prev, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
+        if history_len > 1
+            idx = length(sol.x) - 1
+            t_prev = sol.t[idx]
+            h_prev = guard(sys, sol.x[idx])
+        else 
+            t_prev = tₖ - Δt
+            h_prev = h_now
+        end
+
+        eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
 
         if eventtrigger
             if (t_root - tₖ) < (1e-4 * Δt) # Add a small buffer
@@ -38,8 +41,7 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
         end
         return x_predict, eventtrigger, t_root, Δt, Δt
     else
-        #Multistep phase: We do have rich enough history. Extract past states
-        #If sol.x[end] is xₖ, then sol.x[end-1] is x_{k-1}
+        #Multistep phase: We do have history so we extract prev states. 
         x_history = sol.x[end - k + 1 : end - 1]
         t_history = sol.t[end - k + 1 : end - 1]
 
@@ -48,11 +50,14 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
         
         h_next = guard(sys, x_predict)
 
-        #Look back to the prev step evaluation to build quad guard
-        idx = max(1, length(sol.x) - 1)
-        t_prev = sol.t[idx]
-        x_prev = sol.x[idx]
-        h_prev = guard(sys, x_prev)
+        if history_len > 1
+            idx = length(sol.x) - 1
+            t_prev = sol.t[idx]
+            h_prev = guard(sys, sol.x[idx])
+        else
+            t_prev = tₖ - Δt
+            h_prev = h_now
+        end
 
         eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol = tol, direction=guard_direction)
         if eventtrigger
@@ -64,7 +69,6 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
 
         return x_predict, eventtrigger, t_root, Δt, Δt
     end
-    
 end
 
 function compute_lmm_step(::AdamsBashforth2, f, xₖ, tₖ, Δt, x_history, t_history)
