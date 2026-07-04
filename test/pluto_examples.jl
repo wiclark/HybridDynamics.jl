@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v1.0.1
+# v0.20.24
 
 using Markdown
 using InteractiveUtils
@@ -241,7 +241,7 @@ begin
 end
 
 # ╔═╡ 293d4ac4-bbb7-41ea-ae29-ae0844fd3992
-solG.jump_times
+solG.event_times
 
 # ╔═╡ efe951a9-31d1-49e1-bf19-cdcd7a6a5f0e
 md"""
