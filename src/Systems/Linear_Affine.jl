@@ -392,7 +392,7 @@ function solve(prob::prob{S, I, T},
         end
 
         # Truncate time step if we overshoot the final time
-        _, _, Δt, terminate, last_jump_time, last_intervals, zeno_count, instant_jump_count = take_step_linear_affine!(
+        _, _, Δt, terminate, last_jump_time, zeno_count, instant_jump_count = take_step_linear_affine!(
             solver, prob, f, Δt, tol, sol; dense_out=dense_out,
             stepper=stepper, event_method=event_method, guard_direction=guard_direction,
             last_jump_time=last_jump_time, last_intervals=last_intervals, zeno_count=zeno_count,

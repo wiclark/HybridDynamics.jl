@@ -241,53 +241,7 @@ begin
 end
 
 # ╔═╡ 293d4ac4-bbb7-41ea-ae29-ae0844fd3992
-solG.jump_times
-
-# ╔═╡ efe951a9-31d1-49e1-bf19-cdcd7a6a5f0e
-md"""
-## A Stochastic Example
-```math
-	\begin{cases}
-		dx = -(x-3)dt + 0.2 dW, & x < 2 \\
-		x^+ = x-1, & x = 2
-	\end{cases}
-```
-"""
-
-# ╔═╡ 8eae9c66-e573-4458-bab5-ac92e61f261a
-md"""
-!!! info "Stochastic Systems"
-	A stochastic system contains the data $(f, g, h, Δ; δ)$
-	```math
-		\begin{cases}
-			dx = f(x,t)dt + g(x,t)dW, & h(x) \ne 0, \\
-			x^+ = \Delta(x), & h(x) = 0
-		\end{cases}
-	```
-	Notice that $g$ must be given as a matrix.
-"""
-
-# ╔═╡ 7e2f7386-647e-4503-9343-2ce78cc2752f
-begin
-	f_st(x, t) = -(x .-3.)
-	g_st(x, t) = [0.2;;]
-	h_st(x) = x[1]-2
-	Δ_st(x) = x .- 1.0
-end
-
-# ╔═╡ 0a709e7a-f8a4-4b72-aa15-eb3fb92f517e
-begin
-	sysST = HD.StochasticSystem(f_st, g_st, h_st, Δ_st)
-	probST = HD.prob(sysST, [0.5], (0.0, 3.0))
-	solST = HD.solve(probST)
-end
-
-# ╔═╡ b31969a0-fac6-4e69-a9f1-391750214770
-begin
-	ts, ss = HD.split_jumps(solST)
-	plt.plot(ts, getindex.(ss, 1), label="", lw=2, lc=:blue)
-	plt.plot!(title = "Stochastic Bouncing ball", xlabel = "Time", grid = true)
-end
+solG.event_times
 
 # ╔═╡ 8e899a64-9654-4e7e-ac0f-2376b89aa913
 md"""
@@ -361,6 +315,52 @@ begin
     p
 end
 
+# ╔═╡ efe951a9-31d1-49e1-bf19-cdcd7a6a5f0e
+md"""
+## A Stochastic Example
+```math
+	\begin{cases}
+		dx = -(x-3)dt + 0.2 dW, & x < 2 \\
+		x^+ = x-1, & x = 2
+	\end{cases}
+```
+"""
+
+# ╔═╡ 8eae9c66-e573-4458-bab5-ac92e61f261a
+md"""
+!!! info "Stochastic Systems"
+	A stochastic system contains the data $(f, g, h, Δ; δ)$
+	```math
+		\begin{cases}
+			dx = f(x,t)dt + g(x,t)dW, & h(x) \ne 0, \\
+			x^+ = \Delta(x), & h(x) = 0
+		\end{cases}
+	```
+	Notice that $g$ must be given as a matrix.
+"""
+
+# ╔═╡ 7e2f7386-647e-4503-9343-2ce78cc2752f
+begin
+	f_st(x, t) = -(x .-3.)
+	g_st(x, t) = [0.2;;]
+	h_st(x) = x[1]-2
+	Δ_st(x) = x .- 1.0
+end
+
+# ╔═╡ 0a709e7a-f8a4-4b72-aa15-eb3fb92f517e
+begin
+	sysST = HD.StochasticSystem(f_st, g_st, h_st, Δ_st)
+	probST = HD.prob(sysST, [0.5], (0.0, 3.0))
+	solST = HD.solve(probST)
+end
+
+# ╔═╡ b31969a0-fac6-4e69-a9f1-391750214770
+begin
+	ts, ss = HD.split_jumps(solST)
+	plt.plot(ts, getindex.(ss, 1), label="", lw=2, lc=:blue)
+	plt.plot!(title = "Stochastic Bouncing ball", xlabel = "Time", grid = true)
+end
+
 # ╔═╡ Cell order:
 # ╠═6df38dc0-6787-11f1-a77e-9f1ff29a6e5b
 # ╠═5f758439-587b-4bbe-bd02-f2f9ce6cc8fb
@@ -390,10 +390,13 @@ end
 # ╠═cb05396f-92a2-468c-af34-f64e25a93e16
 # ╠═7ca75d5b-b8a6-472f-b5a7-f746b581e67f
 # ╠═293d4ac4-bbb7-41ea-ae29-ae0844fd3992
-# ╠═a62b426b-cb7f-44f1-9371-9f446a494a59
-# ╠═67463097-3bb9-48a6-bb63-008eb7936427
 # ╟─8e899a64-9654-4e7e-ac0f-2376b89aa913
 # ╠═154b65b0-f68b-4ec7-a035-b5d3ea78fb26
 # ╠═7259e7cc-e810-41c7-b57b-acedd5ed6691
 # ╠═1e618fc0-28ab-4c28-9be5-8b1582a69cba
 # ╠═a77c28dc-8d08-42b6-8e51-1949ea04bb4a
+# ╠═efe951a9-31d1-49e1-bf19-cdcd7a6a5f0e
+# ╠═8eae9c66-e573-4458-bab5-ac92e61f261a
+# ╠═7e2f7386-647e-4503-9343-2ce78cc2752f
+# ╠═0a709e7a-f8a4-4b72-aa15-eb3fb92f517e
+# ╠═b31969a0-fac6-4e69-a9f1-391750214770
