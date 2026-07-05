@@ -87,8 +87,8 @@ end
 #####################################################
 
 
-function solve(prob::prob{S, I, T};
-               solver::AbstractODESolver=EulerMaruyama(),
+function solve(prob::prob{S, I, T},
+               solver::AbstractODESolver=EulerMaruyama();
                dense_out = false,
                dt_initial = 0.01, max_iter = 10^5, 
                tol = 1e-6, guard_direction=default_guard_direction(prob.sys),

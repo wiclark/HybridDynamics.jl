@@ -118,7 +118,7 @@ ARGUMENT KEY
 * 'guard_direction' (Int, default 'default_guard_direction(prob.sys)'): 0 -> detects crossings in either direction. 1 -> detects increasing crossings. -1 -> detects decreating crossings.
 
 """
-function solve(prob::prob{S, I, T}; solver::AbstractODESolver=RK45(),
+function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                event_method::AbstractEventLocator=LinearLocator(),
                dense_out = true,
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,

@@ -79,7 +79,7 @@ end
 
 # EXTERNAL
 # Filippov-specific solve
-function solve(prob::prob{S,I,T}; solver::AbstractODESolver=RK45(),
+function solve(prob::prob{S,I,T}, solver::AbstractODESolver=RK45();
     dense_out = true,
     dt_initial = 0.001, max_iter = 10^6, tol = 1e-6, 
     stepper::AbstractODESolver=RK4(), event_method::AbstractEventLocator=LinearLocator(),
