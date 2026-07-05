@@ -48,8 +48,7 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
 
     # Startup phase: IF we dont have history we use RK stepper
     if history_len <= k
-        safe_dt = min(Δt, 1e-3)
-        return take_step(stepper, prob, f, xₖ, tₖ, safe_dt, tol, sol, stepper; check=check, guard_direction=guard_direction)
+        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
     end
 
     # Extract history for LMM
@@ -65,11 +64,20 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
     # Adaptive step loop
     while true
         # Compute step and retrieve LTE 
-        x_next, LTE = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
+        x_next, x_predict, LTE = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
+
+        h_now = guard(sys, xₖ)
+        h_corr = guard(sys, x_next)
 
         # Calc proposed next step size using helper from beginning 
-        dt_next = updated_step(LTE, tol, Δt, k) * 0.9
+        dt_next = 0.9*Δt*(tol/LTE)^(1/(k+1))
 
+        # Prevent violent changes in step size.
+        growth = 1.25
+        shrink = 0.8
+
+        dt_next = min(dt_next, growth*Δt)
+        dt_next = max(dt_next, shrink*Δt)
         if LTE < tol
             if check
                 h_now = guard(sys, xₖ)
@@ -86,7 +94,7 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
                 end
                 
                 eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
-
+                @show Δt dt_next LTE
                 return x_next, eventtrigger, t_root, Δt, dt_next
             else 
                 # Fallback (Structurally unreachable due to top delegation)
@@ -94,7 +102,7 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
             end
         else
             # Step rejected: shrink and try again 
-            Δt = max(.5*Δt, dt_next)
+            Δt = max(dt_next, 0.8*Δt)
             if Δt < 1e-6
                 @warn "LMM Step size has decreased below 1e-6"
                 # Force break to avoid inf loops
@@ -105,77 +113,66 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
 end
 
 function compute_lmm_step(::AdaptiveABM2, f, xₖ, tₖ, Δt, x_history, t_history)
-    #Extract history
-    x_prev = x_history[end]
-    t_prev = t_history[end]
 
-    #Calc previous step size
-    dt_prev = tₖ - t_prev
-    α = Δt / dt_prev
+    # history
+    xₖ₋₁ = x_history[end]
+    tₖ₋₁ = t_history[end]
 
-    fₖ = f(xₖ, tₖ)
-    f_prev = f(x_prev, t_prev)
+    # slopes
+    fₖ   = f(xₖ, tₖ)
+    fₖ₋₁ = f(xₖ₋₁, tₖ₋₁)
 
-    #Predictor for variable step AB2
-    x_predict = xₖ .+ Δt .* ((1.0 + 0.5 * α) .* fₖ .- (0.5 * α) .* f_prev)
+    ############################################
+    # 1. AB2 PREDICTOR (constant-step AB2)
+    ############################################
+    x_predict = xₖ .+ Δt .* ( (3/2).*fₖ .- (1/2).*fₖ₋₁ )
 
-    #Eval vector field at pred state
+    ############################################
+    # 2. AM2 CORRECTOR (trapezoidal)
+    ############################################
     f_predict = f(x_predict, tₖ + Δt)
 
-    #=
-    #Corrector: Implicit AM2 via predicted vf
-    t0 = Δt
-    t1 = dt_prev
+    x_correct = xₖ .+ (Δt/2) .* (f_predict .+ fₖ)
 
-    γ1 = t0*(t0+2t1)/(2*(t0+t1))
-    γ0 = t0^2/(2*(t0+t1))
+    ############################################
+    # 3. PECE refinement (stabilizes ABM form)
+    ############################################
+    f_correct = f(x_correct, tₖ + Δt)
 
-    x_correct = xₖ .+ γ1 .* f_predict .+ γ0 .* fₖ
-    =#
-    x_correct = xₖ .+ (Δt / 2.0) .* (f_predict .+ fₖ)
-    #Error est: Difference between corrector and predictor give local truncation error
-    LTE = norm(x_correct .- x_predict) / max(norm(x_correct), 1.0)
+    x_correct2 = xₖ .+ (Δt/2) .* (f_correct .+ fₖ)
 
-    return x_correct, LTE
+    ############################################
+    # 4. LTE estimate (Milne device)
+    ############################################
+    LTE = norm(x_correct2 .- x_predict) /
+          max(norm(x_correct2), 1.0)
+
+    return x_correct2, x_predict, LTE
 end
 
 function compute_lmm_step(::AdaptiveABM3, f, xₖ, tₖ, Δt, x_history, t_history)
-    #extract history
+
     x_prev1 = x_history[end]
     t_prev1 = t_history[end]
 
-    x_prev2 = x_history[end - 1]
-    t_prev2 = t_history[end - 1]
+    x_prev2 = x_history[end-1]
+    t_prev2 = t_history[end-1]
 
-    #Eval vf at past known coords
-    fₖ      = f(xₖ, tₖ)
-    f_prev1 = f(x_prev1, t_prev1)
-    f_prev2 = f(x_prev2, t_prev2)
+    fₖ      = f(xₖ,tₖ)
+    f_prev1 = f(x_prev1,t_prev1)
+    f_prev2 = f(x_prev2,t_prev2)
 
-    #Calc non uniform time grid ints
-    hk = Δt                     #Current proposed step size t_{k+1} - t_k
-    hk1 = tₖ - t_prev1           #Previous step size duration t_k - t_{k-1}
-    hk2 = t_prev1 - t_prev2      #Two steps back duraction t_{k-1} - t_{k-2}
+    x_predict = xₖ .+ Δt .* ((23/12).*fₖ .- (16/12).*f_prev1 .+  (5/12).*f_prev2)
 
-    #Predictor Step: Fully variable-step explicit AB3
-    β₀ = hk * (hk^2 / 3.0 + hk * (2.0 * hk1 + hk2) / 2.0 + hk1 * (hk1 + hk2)) / (hk1 * (hk1 + hk2))
-    β₁ = -hk^2 * (2.0 * hk + 3.0 * hk1 + 3.0 * hk2) / (6.0 * hk1 * hk2)
-    β₂ = hk^2 * (2.0 * hk + 3.0 * hk1) / (6.0 * hk2 * (hk1 + hk2))
+    f_predict = f(x_predict,tₖ+Δt)
 
-    x_predict = xₖ .+ (β₀ .* fₖ .+ β₁ .* f_prev1 .+ β₂ .* f_prev2)
+    x_correct = xₖ .+ Δt .* ((5/12).*f_predict.+ (8/12).*fₖ.- (1/12).*f_prev1)
 
-    #Eval vf at predicted state
-    f_predict = f(x_predict, tₖ + hk)
+    f_correct = f(x_correct,tₖ+Δt)
 
-    #Corrector step: Adams Moulton 3
-    c_β_p1 = hk * (hk / 3.0 + hk1 / 2.0) / (hk + hk1)
-    c_β₀   = hk * (hk + 3.0 * hk1) / (6.0 * hk1)
-    c_β_m1 = -hk^3 / (6.0 * hk1 * (hk + hk1))
-    
-    x_correct = xₖ .+ (c_β_p1 .* f_predict .+ c_β₀ .* fₖ .+ c_β_m1 .* f_prev1)
+    x_correct2 = xₖ .+ Δt .* ((5/12).*f_correct .+ (8/12).*fₖ .- (1/12).*f_prev1)
 
-    #ERROR EST
-    LTE = norm(x_correct .- x_predict) / max(norm(x_correct), 1.0)
+    LTE = norm(x_correct2 .- x_predict) / max(norm(x_correct2),1.0)
 
-    return x_correct, LTE
+    return x_correct2, x_predict, LTE
 end
