@@ -320,8 +320,8 @@ machine precision drops into beating blocks.
 * 'sliding_tol_mult' (Float64, default '10.0'): If the post-impact guard value is within 'tol * sliding_tol_mult', the solver enters sliding mode to suppress immediate erroneous events. This helps us avoid strange chattering.  
 
 """
-function solve(prob::prob{S, I, T}, 
-               solver::AbstractODESolver=RK45(); 
+function solve(prob::prob{S, I, T}; 
+               solver::AbstractODESolver=RK45(), 
                event_method::AbstractEventLocator=LinearLocator(),
                dense_out = true, 
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6, 
