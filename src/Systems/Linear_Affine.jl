@@ -122,7 +122,7 @@ Compute the discrete sequence of constraint matrices and offset vectors defining
 
 Returns:
 
-A unified "NamedTuple" *fancy*
+A unified "NamedTuple"
 - 'beating_sets::Vector{Matrix{Float64}}': Matrix constraints where rows represent normal vectors. Constraint matrix is the [λ^T ; λ^TC^{-1} ; ...]
 - 'beating_offsets::Vector{Vector{Float64}}': Vector offsets shifting the hyperplanes from the origin
 - 'blocking_set::Matrix{Float64}': Final blocking constraint matrix
@@ -290,7 +290,7 @@ end
 * 'dt_initial' (Float64, default '0.01'): The starting time step for the continuous solver.
 * 'dt_min' (Float64, default '1e-6'): The absolute minimum allowable time step. If the solver tries to go below this, the simulation terminates.
 * 'max_iter' (Int, default '10^6'): The maximum number of continuous integration steps allowed before forcing a timeout.
-'tol' (Float64, default '1e-6'): The baseline numerical tolerance used across the solver. Acts as the foundational unit for multipliers below.
+* 'tol' (Float64, default '1e-6'): The baseline numerical tolerance used across the solver. Acts as the foundational unit for multipliers below.
 
 ### Event Handling
 * 'event_method' (AbstractEventLocator, default 'LinearLocator()'): The algorithm used to pinpoint the exact time and state of a guard crossing.
