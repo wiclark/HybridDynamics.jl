@@ -47,26 +47,33 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
     history_len = isempty(sol.event_indices) ? length(sol.x) : (length(sol.x) - sol.event_indices[end])
 
     # Startup phase: IF we dont have history we use RK stepper
-    if history_len < k
-        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
+    if history_len <= k
+        safe_dt = min(Δt, 1e-3)
+        return take_step(stepper, prob, f, xₖ, tₖ, safe_dt, tol, sol, stepper; check=check, guard_direction=guard_direction)
     end
 
     # Extract history for LMM
     x_history = sol.x[end - k + 1 : end - 1]
     t_history = sol.t[end - k + 1 : end - 1]
 
+    time_diffs = diff(vcat(t_history, tₖ))
+
+    if any(time_diffs .<= 1e-12)
+        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
+    end
+
     # Adaptive step loop
     while true
         # Compute step and retrieve LTE 
-        x_predict, LTE = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
+        x_next, LTE = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
 
         # Calc proposed next step size using helper from beginning 
-        dt_next = updated_step(LTE, tol, Δt, k)
+        dt_next = updated_step(LTE, tol, Δt, k) * 0.9
 
         if LTE < tol
             if check
                 h_now = guard(sys, xₖ)
-                h_next = guard(sys, x_predict)
+                h_next = guard(sys, x_next)
 
                 # Guard eval looking back to prev step for the quad check 
                 if history_len > 1
@@ -80,26 +87,18 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
                 
                 eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
 
-                # Buffer
-                if eventtrigger
-                    if (t_root - tₖ) < (1e-4 * Δt)
-                        eventtrigger = false
-                        t_root = tₖ + Δt
-                    end
-                end
-
-                return x_predict, eventtrigger, t_root, Δt, dt_next
+                return x_next, eventtrigger, t_root, Δt, dt_next
             else 
                 # Fallback (Structurally unreachable due to top delegation)
-                return x_predict, false, NaN, Δt, dt_next
+                return x_next, false, NaN, Δt, dt_next
             end
         else
             # Step rejected: shrink and try again 
-            Δt = dt_next
+            Δt = max(.5*Δt, dt_next)
             if Δt < 1e-6
                 @warn "LMM Step size has decreased below 1e-6"
                 # Force break to avoid inf loops
-                return x_predict, false, NaN, Δt, dt_next
+                return x_next, false, NaN, Δt, dt_next
             end
         end
     end
@@ -123,11 +122,19 @@ function compute_lmm_step(::AdaptiveABM2, f, xₖ, tₖ, Δt, x_history, t_histo
     #Eval vector field at pred state
     f_predict = f(x_predict, tₖ + Δt)
 
+    #=
     #Corrector: Implicit AM2 via predicted vf
-    x_correct = xₖ .+ Δt .* (0.5 .* f_predict .+ 0.5 .* fₖ)
+    t0 = Δt
+    t1 = dt_prev
 
+    γ1 = t0*(t0+2t1)/(2*(t0+t1))
+    γ0 = t0^2/(2*(t0+t1))
+
+    x_correct = xₖ .+ γ1 .* f_predict .+ γ0 .* fₖ
+    =#
+    x_correct = xₖ .+ (Δt / 2.0) .* (f_predict .+ fₖ)
     #Error est: Difference between corrector and predictor give local truncation error
-    LTE = norm(x_correct .- x_predict)
+    LTE = norm(x_correct .- x_predict) / max(norm(x_correct), 1.0)
 
     return x_correct, LTE
 end
@@ -168,7 +175,7 @@ function compute_lmm_step(::AdaptiveABM3, f, xₖ, tₖ, Δt, x_history, t_histo
     x_correct = xₖ .+ (c_β_p1 .* f_predict .+ c_β₀ .* fₖ .+ c_β_m1 .* f_prev1)
 
     #ERROR EST
-    LTE = norm(x_correct .- x_predict)
+    LTE = norm(x_correct .- x_predict) / max(norm(x_correct), 1.0)
 
     return x_correct, LTE
 end

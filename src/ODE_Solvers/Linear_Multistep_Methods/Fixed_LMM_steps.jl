@@ -20,13 +20,19 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
     # Determine how many continuous steps we have since the last jump
     history_len = isempty(sol.event_indices) ? length(sol.x) : (length(sol.x) - sol.event_indices[end])
 
-    if history_len < k
+    if history_len <= k
         return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
     end
 
     # Multistep phase: We do have history so we extract prev states. 
     x_history = sol.x[end - k + 1 : end - 1]
     t_history = sol.t[end - k + 1 : end - 1]
+
+    time_diffs = diff(vcat(t_history, tₖ))
+
+    if any(time_diffs .<= 1e-12)
+        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
+    end
 
     # Pass history arrays forward
     x_predict = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
@@ -45,12 +51,7 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
         end
 
         eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol = tol, direction=guard_direction)
-        if eventtrigger
-            if (t_root - tₖ) < (1e-4 * Δt) # Add a small buffer
-                eventtrigger = false
-                t_root = tₖ + Δt # Reset t_root to end of step
-            end
-        end
+    
         return x_predict, eventtrigger, t_root, Δt, Δt
     else
         # Fallback (Structurally unreachable due to top delegation)
@@ -59,19 +60,19 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
 end
 
 function compute_lmm_step(::AdamsBashforth2, f, xₖ, tₖ, Δt, x_history, t_history)
-    #x_history[end] is x_{k-1}
     x_prev = x_history[end]
     t_prev = t_history[end]
 
-    #Calc previous step size
-    dt_previous = tₖ - t_prev
+    t0 = Δt
+    t1 = tₖ - t_prev
 
     fₖ = f(xₖ, tₖ)
-    f_prev_val = f(x_prev, t_prev)
+    f_minus1 = f(x_prev, t_prev)
 
-    #Variable step AB2 Formula
-    α = Δt / dt_previous
-    return xₖ .+ Δt .* ((1.0 + .5 * α) .* fₖ .- (.5 * α) .* f_prev_val)
+    β0 = t0*(2t1+t0)/(2t1)
+    β1 = -t0^2/(2t1)
+
+    return xₖ .+ β0 .* fₖ .+ β1 .* f_minus1
 end
 
 function compute_lmm_step(::AdamsBashforth3, f, xₖ, tₖ, Δt, x_history, t_history)

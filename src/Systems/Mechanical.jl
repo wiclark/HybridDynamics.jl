@@ -138,6 +138,9 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Δt,
         end
         # If ∇h(q)̇q>0 with λ=0, then we are escaping the guard (inwards) and are escaping the sliding mode
         if guard_error(0.0) > 0
+            if solver isa LMM
+                push!(sol.event_indices, length(sol.x))
+            end
             F(z, t) = f_λ(z[1:n], z[n+1:end], 0.0)
             x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F, vcat(qₖ,pₖ), tₖ, Δt, tol, sol; check=false)
             # Record the derivative
@@ -145,6 +148,9 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Δt,
                 push!(sol.dx, F(x_predict, tₖ+dt_used))
             end
         else
+            if solver isa LMM
+                push!(sol.event_indices, length(sol.x))
+            end
             # We have the expression for the multiplier
             λ_constrained = find_multiplier(prob)
             F2(z, t) = f_λ(z[1:n], z[n+1:end], λ_constrained(z[1:n], z[n+1:end]))
@@ -169,18 +175,16 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Δt,
 
             push!(sol.event_times, t_star)
 
-            push!(sol.x, x_star)
-            push!(sol.t, t_star)
-
-            push!(sol.event_indices, length(sol.t))
-
+            if solver isa LMM
+                push!(sol.event_indices, length(sol.x))
+            end
             push!(sol.t, t_star)
             push!(sol.x, x_predict)
 
             if dense_out
-                push!(sol.dx, f(x_star, t_star)) 
                 push!(sol.dx, f(x_predict, t_star))
             end
+
         else
             push!(sol.x, x_predict)
             push!(sol.t, tₖ+dt_used)
