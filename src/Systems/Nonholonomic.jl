@@ -81,6 +81,31 @@ function specular_refl(x, M, A, ∇h, sys)
     return vcat(q, p_new)
 end
 
+function find_multiplier(prob::prob{S, I, T}; sliding=false) where {S<:NonholonomicSystem, I, T}
+    sys = prob.sys
+    ∇h = sys.normal
+    M(q) = sys.M(q)
+    V(q) = sys.V(q)
+    # Is the contraint matrix sliding or not?
+    A(q) = sliding ? vcat(sys.A(q), ∇h(q)') : sys.A(q)
+    # Create the vector field for ODE solving
+    H(q,p) = 1/2*dot(p, M(q) \ p) + V(q)
+    q_dot(q, p) = ForwardDiff.gradient(p -> H(q,p),p)
+    p_dot(q, p) = ForwardDiff.gradient(q -> -H(q,p), q)
+    # Work out the value of the k (or k+1) multipliers
+    # Differentiate the constraint and solve for the multiplier
+    A_dot(q, p) = ForwardDiff.derivative(ε -> A(q .+ ε*inv(M(q))*p), 0.0)
+    λ(q, p) = inv(A(q)*inv(M(q))*(A(q)')) * (-A_dot(q,p)*inv(M(q))*p + A(q)*inv(M(q))*p_dot(q,p))
+    # The version below works, but is slower.
+    #=
+    ρ(q, p) = A(q) * inv(M(q)) *  p
+    dρₓ(q,p) = ForwardDiff.jacobian(q -> ρ(q,p), q) * q_dot(q, p)
+    dρₚ(q,p) = ForwardDiff.jacobian(p -> ρ(q,p), p) * p_dot(q, p)
+    λ(q, p) = -inv(A(q) * inv(M(q)) * A(q)') * (dρₓ(q, p) + dρₚ(q, p))
+    =#
+    return λ
+end
+
 # Internal
 function guard(sys::NonholonomicSystem, x::AbstractArray)
     x_phys = (x isa AbstractMatrix) ? x[:,1] : x
@@ -98,6 +123,8 @@ function crossed_guard_nonholonomic(h_now, h_next, t_now, t_next)
         return false, NaN
     end
 end
+
+##############################################################
 
 ##############################################################
 
@@ -202,34 +229,6 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Δt,
         return x_predict, dt_used, dt_next, false
     end
 end
-
-
-function find_multiplier(prob::prob{S, I, T}; sliding=false) where {S<:NonholonomicSystem, I, T}
-    sys = prob.sys
-    ∇h = sys.normal
-    M(q) = sys.M(q)
-    V(q) = sys.V(q)
-    # Is the contraint matrix sliding or not?
-    A(q) = sliding ? vcat(sys.A(q), ∇h(q)') : sys.A(q)
-    # Create the vector field for ODE solving
-    H(q,p) = 1/2*dot(p, M(q) \ p) + V(q)
-    q_dot(q, p) = ForwardDiff.gradient(p -> H(q,p),p)
-    p_dot(q, p) = ForwardDiff.gradient(q -> -H(q,p), q)
-    # Work out the value of the k (or k+1) multipliers
-    # Differentiate the constraint and solve for the multiplier
-    A_dot(q, p) = ForwardDiff.derivative(ε -> A(q .+ ε*inv(M(q))*p), 0.0)
-    λ(q, p) = inv(A(q)*inv(M(q))*(A(q)')) * (-A_dot(q,p)*inv(M(q))*p + A(q)*inv(M(q))*p_dot(q,p))
-    # The version below works, but is slower.
-    #=
-    ρ(q, p) = A(q) * inv(M(q)) *  p
-    dρₓ(q,p) = ForwardDiff.jacobian(q -> ρ(q,p), q) * q_dot(q, p)
-    dρₚ(q,p) = ForwardDiff.jacobian(p -> ρ(q,p), p) * p_dot(q, p)
-    λ(q, p) = -inv(A(q) * inv(M(q)) * A(q)') * (dρₓ(q, p) + dρₚ(q, p))
-    =#
-    return λ
-end
-
-##############################################################
 
 function solve(prob::prob{S, I, T};
                solver::AbstractODESolver=RK4(),

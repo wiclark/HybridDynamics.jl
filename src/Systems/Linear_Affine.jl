@@ -45,10 +45,40 @@ struct LinearAffineSol{T, DX} <: AbstractHybridSolution
     event_indices::Vector{Int}
 end 
 
-# CK: Is this ever used?
-function LinearAffineSol(prob::prob{S, I, T}, t::AbstractVector, x::AbstractVector,
-    event_times::AbstractVector, event_indices::AbstractVector) where {S <: Union{LinearSystem, AffineSystem}, I, T}
-    return LinearAffineSol(Float64.(t), Vector{I}(x), Vector{Vector{Float64}}(), Float64.(event_times), Vector{Int}(event_indices))
+#internal
+function LinearAffineSol(prob::prob{S, I, T}) where {S<:Union{LinearSystem, AffineSystem}, I, T}
+    return LinearAffineSol([prob.tspan[1]], [prob.init], Vector{Vector{Float64}}(), Float64[], Int[])
+end
+
+#Internal
+#Calc guard function for linear systems
+function guard(sys::LinearSystem, x::AbstractArray)
+    #if x is a matrix (usually for Variational equation) we isolate the first column to calc the guard
+    x_first_column = x isa AbstractMatrix ? x[:, 1] : x
+    return sys.λ' * x_first_column
+end
+#Internal
+#Calc guard for affine systems
+function guard(sys::AffineSystem, x::AbstractArray)
+    #if x is a matrix (usually for Variational equation) we isolate the first column to calc the guard
+    x_first_column = x isa AbstractMatrix ? x[:, 1] : x
+    return sys.λ' * x_first_column + sys.a 
+end
+#internal
+function apply_reset(sys::LinearSystem, x::AbstractArray)
+    return sys.C * x
+end
+#internal
+function apply_reset(sys::AffineSystem, x::AbstractArray)
+    #first linear transformation Cx
+    x_new = sys.C * x
+    # If matrix, κ only applies to the physical state (column 1)
+    if x isa AbstractMatrix
+        x_new[:, 1] .+= sys.κ
+    else
+        x_new .+= sys.κ
+    end
+    return x_new
 end
 
 #Exact Linear Flow (matrix exponential)
@@ -84,11 +114,6 @@ end
 #Solution Initialization
 #Goal is to setup the empty memory containers before solver starts running. 
 #pre-allocating the vectors with the exact starting conditions ensures that the solver loop is stable 
-
-#internal
-function LinearAffineSol(prob::prob{S, I, T}) where {S<:Union{LinearSystem, AffineSystem}, I, T}
-    return LinearAffineSol([prob.tspan[1]], [prob.init], Vector{Vector{Float64}}(), Float64[], Int[])
-end
 
 """
     beating_and_blocking_sets(sys::Union{LinearSystem, AffineSystem})
@@ -177,37 +202,6 @@ function is_trivially_blocking(sys::Union{LinearSystem, AffineSystem})
     return rank(analysis.blocking_set) == n && isapprox(norm(analysis.blocking_offsets))
 end
 
-#Internal
-#Calc guard function for linear systems
-function guard(sys::LinearSystem, x::AbstractArray)
-    #if x is a matrix (usually for Variational equation) we isolate the first column to calc the guard
-    x_first_column = x isa AbstractMatrix ? x[:, 1] : x
-    return sys.λ' * x_first_column
-end
-#Internal
-#Calc guard for affine systems
-function guard(sys::AffineSystem, x::AbstractArray)
-    #if x is a matrix (usually for Variational equation) we isolate the first column to calc the guard
-    x_first_column = x isa AbstractMatrix ? x[:, 1] : x
-    return sys.λ' * x_first_column + sys.a 
-end
-#internal
-function apply_reset(sys::LinearSystem, x::AbstractArray)
-    return sys.C * x
-end
-#internal
-function apply_reset(sys::AffineSystem, x::AbstractArray)
-    #first linear transformation Cx
-    x_new = sys.C * x
-    # If matrix, κ only applies to the physical state (column 1)
-    if x isa AbstractMatrix
-        x_new[:, 1] .+= sys.κ
-    else
-        x_new .+= sys.κ
-    end
-    return x_new
-end
-
 function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Δt, tol, sol; dense_out=true, stepper::AbstractODESolver=RK45(), event_method::AbstractEventLocator=LinearLocator(), guard_direction=prob.sys.direction,
     #Pathology
     last_jump_time, last_intervals, zeno_count,
@@ -229,7 +223,7 @@ function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Δt, tol, sol;
         dt_step = min(dt_step, dt_min * adaptive_dt_mult)
     end
 
-    x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
+    x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
 
     if eventtrigger
         t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)

@@ -122,28 +122,16 @@ function compute_lmm_step(::AdaptiveABM2, f, xₖ, tₖ, Δt, x_history, t_histo
     fₖ   = f(xₖ, tₖ)
     fₖ₋₁ = f(xₖ₋₁, tₖ₋₁)
 
-    ############################################
-    # 1. AB2 PREDICTOR (constant-step AB2)
-    ############################################
     x_predict = xₖ .+ Δt .* ( (3/2).*fₖ .- (1/2).*fₖ₋₁ )
 
-    ############################################
-    # 2. AM2 CORRECTOR (trapezoidal)
-    ############################################
     f_predict = f(x_predict, tₖ + Δt)
 
     x_correct = xₖ .+ (Δt/2) .* (f_predict .+ fₖ)
 
-    ############################################
-    # 3. PECE refinement (stabilizes ABM form)
-    ############################################
     f_correct = f(x_correct, tₖ + Δt)
 
     x_correct2 = xₖ .+ (Δt/2) .* (f_correct .+ fₖ)
 
-    ############################################
-    # 4. LTE estimate (Milne device)
-    ############################################
     LTE = norm(x_correct2 .- x_predict) /
           max(norm(x_correct2), 1.0)
 

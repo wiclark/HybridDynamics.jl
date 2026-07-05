@@ -85,6 +85,26 @@ function specular_refl(x, M, dh, sys)
     return vcat(q, pnew)
 end
 
+# We can solve for the multiplier directly (this does require differentiation)
+function find_multiplier(prob::prob{S, I, T}) where {S<:MechanicalSystem, I, T}
+    sys = prob.sys
+    ∇h = sys.normal
+    M(q) = sys.M(q)
+    V(q) = sys.V(q)
+    # Create vector field for ODE solving
+    H(q,p) = 1/2*dot(p, M(q) \ p) + V(q)
+    # Create the (unforced) vector fields
+    q_dot(q, p) = ForwardDiff.gradient(p -> H(q,p),p)
+    p_dot(q, p) = ForwardDiff.gradient(q -> -H(q,p), q)
+    # Work on the multiplier
+    # The function below needs to be treated as a vector
+    ρ(q) = length(q)>1 ? ∇h(q)' * inv(M(q)) : [∇h(q)' * inv(M(q))]
+    dρ(q) = ForwardDiff.jacobian(q->ρ(q), q)
+    λ(q,p) = 1/dot(∇h(q), M(q)\∇h(q)) * ( -dot(ρ(q), p_dot(q,p)) - dot(dρ(q)*q_dot(q,p), p) )
+    return λ
+end
+###############################################
+
 # Internal
 function guard(sys::MechanicalSystem, x::AbstractArray)
     x_phys = (x isa AbstractMatrix) ? x[:, 1] : x
@@ -195,26 +215,6 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Δt,
         return x_predict, dt_used, dt_next, false
     end
 end
-
-# We can solve for the multiplier directly (this does require differentiation)
-function find_multiplier(prob::prob{S, I, T}) where {S<:MechanicalSystem, I, T}
-    sys = prob.sys
-    ∇h = sys.normal
-    M(q) = sys.M(q)
-    V(q) = sys.V(q)
-    # Create vector field for ODE solving
-    H(q,p) = 1/2*dot(p, M(q) \ p) + V(q)
-    # Create the (unforced) vector fields
-    q_dot(q, p) = ForwardDiff.gradient(p -> H(q,p),p)
-    p_dot(q, p) = ForwardDiff.gradient(q -> -H(q,p), q)
-    # Work on the multiplier
-    # The function below needs to be treated as a vector
-    ρ(q) = length(q)>1 ? ∇h(q)' * inv(M(q)) : [∇h(q)' * inv(M(q))]
-    dρ(q) = ForwardDiff.jacobian(q->ρ(q), q)
-    λ(q,p) = 1/dot(∇h(q), M(q)\∇h(q)) * ( -dot(ρ(q), p_dot(q,p)) - dot(dρ(q)*q_dot(q,p), p) )
-    return λ
-end
-###############################################
 
 function solve(prob::prob{S, I, T};
                solver::AbstractODESolver=RK4(),
