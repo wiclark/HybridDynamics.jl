@@ -202,7 +202,7 @@ function is_trivially_blocking(sys::Union{LinearSystem, AffineSystem})
     return rank(analysis.blocking_set) == n && isapprox(norm(analysis.blocking_offsets))
 end
 
-function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Δt, tol, sol; dense_out=true, stepper::AbstractODESolver=RK45(), event_method::AbstractEventLocator=LinearLocator(), guard_direction=prob.sys.direction,
+function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Δt, tol, sol; dense_out=true, stepper::AbstractODESolver=RK45(), event_method::AbstractEventLocator=LinearLocator(), guard_direction=prob.sys.direction, event_before_flow=false,
     #Pathology
     last_jump_time, last_intervals, zeno_count,
     instant_jump_count, zeno_ratio,
@@ -215,6 +215,45 @@ function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Δt, tol, sol;
     tₖ = sol.t[end]
 
     sys = prob.sys
+
+    #Check for event before taking a cont step. Just inverted the usual solve method.
+    if event_before_flow
+        #State is on guard surface
+        if abs(guard(sys, xₖ)) <= tol
+
+            #apply reset 
+            x⁺ = apply_reset(sys, xₖ)
+            jump_interval = tₖ - last_jump_time
+
+            zeno_count, instant_jump_count, status = check_system_pathology(
+                jump_interval, last_intervals, zeno_count,
+                instant_jump_count, tₖ, tol, zeno_ratio,
+                max_zeno_jumps, max_instant_jumps, max_buffer_size;
+                min_zeno_history=min_zeno_history, zeno_floor_mult=zeno_floor_mult,
+                zeno_time_threshold=zeno_time_threshold, zeno_reset_mult=zeno_reset_mult,
+                beating_tol_mult=beating_tol_mult)
+
+            if status == :terminate
+                return xₖ, 0.0, Δt, true, last_jump_time, zeno_count, instant_jump_count
+            end
+
+            last_jump_time = tₖ
+
+            push!(sol.t, tₖ, tₖ)
+            push!(sol.x, xₖ, x⁺)
+            push!(sol.event_times, tₖ)
+            push!(sol.event_indices, length(sol.t))
+
+            if dense_out
+                push!(sol.dx, f(xₖ, tₖ))
+                push!(sol.dx, f(x⁺, tₖ))
+            end
+
+            Δt_next = min(dt_initial, jump_interval * .5)
+
+            return x⁺, 0.0, Δt_next, false, last_jump_time, zeno_count, instant_jump_count
+        end
+    end
 
     _, t_end = prob.tspan
     dt_step = (tₖ + Δt > t_end) ? (t_end - tₖ) : Δt
@@ -317,6 +356,7 @@ machine precision drops into beating blocks.
 function solve(prob::prob{S, I, T},
                solver::AbstractODESolver=RK45();
                event_method::AbstractEventLocator=LinearLocator(),
+               event_before_flow = false,
                dense_out = true, 
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6, 
                tol = 1e-6, 
@@ -366,6 +406,26 @@ function solve(prob::prob{S, I, T},
     last_jump_time = t_start      
     last_intervals = Float64[]     
 
+    #Check if we start on the guard. 
+    if abs(guard(sys, sol.x[end])) <= tol
+        x₀ = sol.x[end]
+        t₀ = sol.t[end]
+
+        x⁺ = apply_reset(sys, x₀)
+
+        push!(sol.t, t₀)
+        push!(sol.x, x⁺)
+        push!(sol.event_times, t₀)
+        push!(sol.event_indices, length(sol.t))
+
+        if dense_out
+            push!(sol.dx, f(x₀, t₀))
+            push!(sol.dx, f(x⁺, t₀))
+        end
+
+        @info "System started on the guard. Immediate jump applied at t = $t₀."
+    end
+
     # Run until end time or max iter
     while sol.t[end] < t_end
         iter += 1
@@ -384,6 +444,7 @@ function solve(prob::prob{S, I, T},
         _, _, Δt, terminate, last_jump_time, zeno_count, instant_jump_count = take_step_linear_affine!(
             solver, prob, f, Δt, tol, sol; dense_out=dense_out,
             stepper=stepper, event_method=event_method, guard_direction=guard_direction,
+            event_before_flow,
             last_jump_time=last_jump_time, last_intervals=last_intervals, zeno_count=zeno_count,
             instant_jump_count=instant_jump_count, zeno_ratio=zeno_ratio, max_zeno_jumps=max_zeno_jumps,
             max_instant_jumps=max_instant_jumps, max_buffer_size=max_buffer_size,

@@ -6,7 +6,7 @@ use_affine = true #CHANGE THIS FOR LINEAR VS AFFINE TEST
 A = [0.0 -10.0; 10.0 -.1]
 λ = [1.0, 0.0]
 C = [1.5 1.0; 0.0 0.5]
-x0 = [1.0, 0.5]
+x0 = [-.2, 3.0]
 tspan = (0.0, 10.0)
 
 #Use this if you want to readd the lines between jumps
@@ -33,7 +33,8 @@ if use_affine
     event_method = LinearLocator()
     #my_stepper = ForwardEuler()
 
-    sol_trap = solve(problem, my_solver; event_method)
+    #event_before_flow not really tested... Good Luck!
+    sol_trap = solve(problem, my_solver; event_method, event_before_flow=true)
 
     #println("You just used $(typeof(my_solver)) and $(typeof(my_stepper)) for this run.")
     println("You just used $(typeof(my_solver))")
