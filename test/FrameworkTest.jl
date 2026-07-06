@@ -9,6 +9,17 @@ C = [1.5 1.0; 0.0 0.5]
 x0 = [1.0, 0.5]
 tspan = (0.0, 10.0)
 
+#Use this if you want to readd the lines between jumps
+function plot_jumps!(p, sol::AbstractHybridSolution; kwargs...)
+    _, X_jumps = extract_jumps(sol)
+
+    if !isempty(X_jumps)
+        plot!(p, getindex.(X_jumps, 1), getindex.(X_jumps, 2); kwargs...)
+    end
+
+    return p
+end
+
 if use_affine
     b = [2., 0.0]
     a = .2
@@ -18,7 +29,7 @@ if use_affine
     problem = prob(sys, x0, tspan)
     plot_title = "Affine System Test"
 
-    my_solver = AdaptiveABM3()
+    my_solver = RK4()
     event_method = LinearLocator()
     #my_stepper = ForwardEuler()
 
@@ -33,6 +44,10 @@ if use_affine
 
     _, X_trap = split_jumps(sol_trap)
     plot!(p, getindex.(X_trap, 1), getindex.(X_trap, 2), color=:red, linestyle=:dash)
+
+    #= #Use this if you want to readd lines between pre and post reset states with colors
+    plot_jumps!(p, sol_trap, color=:green, linestyle=:dot, linewidth=2, label="Jumps")
+    =#
 
     display(p)
 else 
@@ -52,10 +67,10 @@ else
     
     _, X_trap = split_jumps(sol_trap)
     plot!(p, getindex.(X_trap, 1), getindex.(X_trap, 2), color=:red, linestyle=:dash)
-    
-    #=
-    _, X_exp = split_jumps(sol_exp)
-    plot!(p, X_exp[:, 1], X_exp[:, 2], label="Exponential", color=:blue, alpha=0.7)
+
+    #= #Use this if you want to readd lines between pre and post reset states with colors
+    plot_jumps!(p, sol_trap, color=:blue, linestyle=:dot, linewidth=2, label="Jumps")
     =#
+
     display(p)
 end
