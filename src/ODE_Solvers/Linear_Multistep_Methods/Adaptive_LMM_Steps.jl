@@ -94,7 +94,6 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
                 end
                 
                 eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
-                @show Δt dt_next LTE
                 return x_next, eventtrigger, t_root, Δt, dt_next
             else 
                 # Fallback (Structurally unreachable due to top delegation)
