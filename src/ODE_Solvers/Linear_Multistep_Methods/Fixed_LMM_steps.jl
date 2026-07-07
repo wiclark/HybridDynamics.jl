@@ -90,7 +90,7 @@ function compute_lmm_step(::AdamsBashforth3, f, xₖ, tₖ, Δt, x_history, t_hi
     return xₖ .+ Δt .* ( (23/12) .* fₖ .- (16/12) .* f_prev1 .+ (5/12) .* f_prev2)
 end
 
-function compute_lmm_step(::BDF2, f, zₖ, tₖ, Δt, x_history, t_history)
+function compute_lmm_step(::BDF2, f, xₖ, tₖ, Δt, x_history, t_history)
     #retrieve state at previous time step.
     x_prev = x_history[end]
     t_new = tₖ + Δt
