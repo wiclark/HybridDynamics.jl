@@ -13,9 +13,15 @@ end
 # EXTERNAL
 # Make the the guard, reset map, and coefficient of restitution optional; default to fully elastic specular reflection
 """
-Mechanical System
- - M(q): mass matrix
- - V(q): potential energy
+    MechanicalSystem(M, V; guard=nothing, normal=nothing, reset=specular_refl,
+                     e=1.0, direction=-1)
+
+Create a mechanical hybrid system of the form:
+```math
+M(q) ddot{q} + \nabla V(q) = 0.
+```
+
+
 """
 function MechanicalSystem(M, V;
                 guard = nothing,
@@ -202,7 +208,11 @@ function find_multiplier(prob::prob{S, I, T}) where {S<:MechanicalSystem, I, T}
     return λ
 end
 ###############################################
+"""
+    solve(prob; kwargs...)
 
+
+"""
 function solve(prob::prob{S, I, T};
                solver::AbstractODESolver=RK4(),
                event_method::AbstractEventLocator=LinearLocator(),

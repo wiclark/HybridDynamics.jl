@@ -86,7 +86,7 @@ function solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45();
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
                tol = 1e-6,
                stepper::AbstractODESolver=RK4(),
-               guard_direction = prob.sys.direction,
+               guard_direction = prob.sys.direction
                ) where {F<:GeneralSystem, I, T}
 
     sys = prob.sys

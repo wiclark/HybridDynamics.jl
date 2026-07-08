@@ -26,3 +26,24 @@ struct prob{F <: AbstractHybridSystem, I  <: AbstractArray{Float64}, T <: Tuple{
     tspan::T
 end
 
+"""
+    solve(prob; kwargs...)
+
+Solve a hybrid dynamical system.
+
+The available keyword arguments depend on the type of system stored in
+`prob.sys`. See the method-specific documentation for details.
+
+Supported systems include:
+
+- `GeneralSystem`
+- `MechanicalSystem`
+- `FilippovSys`
+- ...
+
+Examples
+--------
+solve(prob, RK4())
+solve(prob, RK4(); dense_output=true)
+"""
+function solve end
