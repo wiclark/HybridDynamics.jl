@@ -125,7 +125,7 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                tol = 1e-6,
                stepper::AbstractODESolver=RK4(),
                guard_direction = prob.sys.direction
-               ) where {F<:GeneralSystem, I, T}
+               ) where {S<:GeneralSystem, I, T}
 
     sys = prob.sys
     f = sys.f
