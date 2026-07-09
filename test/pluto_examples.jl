@@ -279,7 +279,7 @@ begin
 	LA_λ = [1.0, 0.0]
 	LA_C = [0.8 0.0; 0.0 0.8]
 	LA_x0 = [1.0, 0.5]
-	LA_tspan = (0.0, 10.0)
+	LA_tspan = (0.0, 2.0)
 end
 
 # ╔═╡ 7259e7cc-e810-41c7-b57b-acedd5ed6691
@@ -296,7 +296,7 @@ begin
         LA_sys = HD.LinearSystem(LA_A, LA_λ, LA_C)
         LA_guard = 0.0
         LA_prob = HD.prob(LA_sys, LA_x0, LA_tspan)
-        LA_sol = HD.solve(LA_prob, HD.AdamsBashforth3())
+        LA_sol = HD.solve(LA_prob, HD.RK4())
     end
 end
 
