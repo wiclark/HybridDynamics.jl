@@ -7,6 +7,13 @@ struct FilippovSystem{F, G, H, N} <: AbstractHybridSystem
 end
 
 # Default to auto diff to find ∇H
+"""
+    FilippovSystem(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
+
+Construct a Filippov system of the form:
+
+
+"""
 function FilippovSystem(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
     return FilippovSystem(F, G, H, N)
 end

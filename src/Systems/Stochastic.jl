@@ -11,8 +11,11 @@ end
 # EXTERNAL
 # Make the the guard, reset map, and coefficient of restitution optional
 """
-Stochastic System
- - f
+    StochasticSystem(f, g, h, Δ; 
+    normal = nothing, direction=0)
+
+Construct a stochastic system of the form:
+
 """
 function StochasticSystem(f, g, h, Δ; 
     normal = nothing, direction=0)
@@ -86,7 +89,17 @@ function take_step_stochastic!(solver, prob::prob{S, I, T}, Δt,
 end
 #####################################################
 
+"""
+    solve(prob::prob{S, I, T},
+               solver::AbstractODESolver=EulerMaruyama();
+               dense_out = false,
+               dt_initial = 0.01, max_iter = 10^5, 
+               tol = 1e-6, guard_direction=default_guard_direction(prob.sys),
+               kwargs...) where {S<:StochasticSystem, I, T}
 
+Solve a stochastic hybrid system.
+
+"""
 function solve(prob::prob{S, I, T},
                solver::AbstractODESolver=EulerMaruyama();
                dense_out = false,

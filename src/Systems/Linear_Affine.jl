@@ -12,6 +12,12 @@ end
 
 #External
 #external constructor to help user see data types 
+"""
+    LinearSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix; direction::Int=0)
+
+Construct a linear hybrid system of the form:
+
+"""
 function LinearSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix; direction::Int=0)
     return LinearSystem(Float64.(A), Float64.(λ), Float64.(C), direction)
 end
@@ -31,6 +37,12 @@ end
 
 #External
 # external constructor to help user see data types
+"""
+    AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector; direction::Int=0)
+
+Construct an affine hybrid system of the form:
+
+"""
 function AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector; direction::Int=0)
     return AffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ), direction)
 end
@@ -118,7 +130,7 @@ end
 """
     beating_and_blocking_sets(sys::Union{LinearSystem, AffineSystem})
 
-Compute the discrete sequence of constraint matrices and offset vectors defining the beating sets and the final blocking set for both linear and affine systems
+Compute the discrete sequence of constraint matrices and offset vectors defining the beating sets and the final blocking set either linear or affine systems.
 
 Returns:
 
@@ -189,9 +201,9 @@ end
 """
     is_trivially_blocking(sys::Union{LinearSystem, AffineSystem})
 
-    Determine if the system's blocking set collapses strictly to the origin (Σ_∞ = {0}).
-    For both linear and affine systems, this requires the final constraint matrix to 
-    have full rank and the final offset vector to be (basically) zero.
+Determine if the system's blocking set collapses strictly to the origin (Σ_∞ = {0}).
+For both linear and affine systems, this requires the final constraint matrix to 
+have full rank and the final offset vector to be (basically) zero.
 
 """
 function is_trivially_blocking(sys::Union{LinearSystem, AffineSystem})
@@ -320,13 +332,13 @@ end
 
 ## Required
 
-* `prob``: The problem definition containing the system dynamics 'sys', initial state, and time span.
-* `solver``: The numerical integration method used for continous steps. Defaults to RK45().
+* `prob`: The problem definition containing the system dynamics 'sys', initial state, and time span.
+* `solver`: The numerical integration method used for continous steps. Defaults to RK45().
 
 ## Optional
 
 ### Simulation and Step Controls:
-* `dt_initial`` (Float64, default '0.01'): The starting time step for the continuous solver.
+* `dt_initial` (Float64, default '0.01'): The starting time step for the continuous solver.
 * `dt_min` (Float64, default '1e-6'): The absolute minimum allowable time step. If the solver tries to go below this, the simulation terminates.
 * `max_iter` (Int, default '10^6'): The maximum number of continuous integration steps allowed before forcing a timeout.
 * `tol` (Float64, default '1e-6'): The baseline numerical tolerance used across the solver. Acts as the foundational unit for multipliers below.

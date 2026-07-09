@@ -7,6 +7,13 @@ struct GeneralSystem <: AbstractHybridSystem
 end
 
 #Constructor for above
+"""
+    GeneralSystem(f, h, Δ; direction::Int=0)
+
+Construct a general hybrid system of the form:
+
+
+"""
 function GeneralSystem(f, h, Δ; direction::Int=0)
     return GeneralSystem(f, h, Δ, direction)
 end
@@ -98,11 +105,12 @@ end
 """
     solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45(); kwargs...) where {S<:GeneralSystem, I, T}
 
-ARGUMENT KEY
+Solve a general hybrid system.
 
+# Arguments
 ## Required:
-'prob': The problem definition containing the system dynamics 'sys', initial state, and time span.
-'solver': The numerical integration method used for continous steps. Defaults to RK45().
+- 'prob': The problem definition containing the system dynamics 'sys', initial state, and time span.
+- 'solver': The numerical integration method used for continous steps. Defaults to RK45().
 
 ## Optional:
 
@@ -110,12 +118,12 @@ ARGUMENT KEY
 * 'dt_initial' (Float64, default '0.01'): The starting time step for the continuous solver.
 * 'dt_min' (Float64, default '1e-6'): The absolute minimum allowable time step. If the solver tries to go below this, the simulation terminates.
 * 'max_iter' (Int, default '10^6'): The maximum number of continuous integration steps allowed before forcing a timeout.
-'tol' (Float64, default '1e-6'): The baseline numerical tolerance used across the solver. Acts as the foundational unit for multipliers below.
+- 'tol' (Float64, default '1e-6'): The baseline numerical tolerance used across the solver. Acts as the foundational unit for multipliers below.
 
 ### Event Handling
 * 'event_method' (AbstractEventLocator, default 'LinearLocator()'): The algorithm used to pinpoint the exact time and state of a guard crossing.
 * 'stepper' (AbstractODESolver. default 'RK4()'): The secondary ODE solver used internally by the event detection locator to pinpoint the impact state.
-* 'guard_direction' (Int, default 'default_guard_direction(prob.sys)'): 0 -> detects crossings in either direction. 1 -> detects increasing crossings. -1 -> detects decreating crossings.
+* 'guard\\_direction' (Int, default 'default\\_guard\\_direction(prob.sys)'): 0 -> detects crossings in either direction. 1 -> detects increasing crossings. -1 -> detects decreating crossings.
 
 """
 function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
@@ -124,7 +132,7 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
                tol = 1e-6,
                stepper::AbstractODESolver=RK4(),
-               guard_direction = prob.sys.direction,
+               guard_direction = prob.sys.direction
                ) where {S<:GeneralSystem, I, T}
 
     sys = prob.sys
