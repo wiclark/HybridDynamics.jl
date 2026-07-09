@@ -38,12 +38,13 @@ function MechanicalSystem(M, V;
 end
 
 # General solution struct for mechanical systems
-struct MechanicalSol{T, X, DX, I, E, Z} <: AbstractHybridSolution
+struct MechanicalSol{T, X, DX, I, E, EI, Z} <: AbstractHybridSolution
     t::T        # Time data
     x::X        # x = (q,p), the state and momentum
     dx::DX      # f(x) Derivative at each state x - only filled when dense_out = true
     prob::I     # Remember the problem - to aid interpolation
-    event::E    # Times where an event has occurred 
+    event_times::E    # Times where an event has occurred 
+    event_indices::EI #Indices of where an event occurred
     zeno::Z     # Times of Zeno points
 end
 
@@ -54,6 +55,7 @@ function MechanicalSol(prob)
         Vector{Vector{Float64}}(),      
         prob,
         Float64[],
+        Int[],
         Float64[])
 end
 
@@ -82,6 +84,26 @@ function specular_refl(x, M, dh, sys)
 
     return vcat(q, pnew)
 end
+
+# We can solve for the multiplier directly (this does require differentiation)
+function find_multiplier(prob::prob{S, I, T}) where {S<:MechanicalSystem, I, T}
+    sys = prob.sys
+    ∇h = sys.normal
+    M(q) = sys.M(q)
+    V(q) = sys.V(q)
+    # Create vector field for ODE solving
+    H(q,p) = 1/2*dot(p, M(q) \ p) + V(q)
+    # Create the (unforced) vector fields
+    q_dot(q, p) = ForwardDiff.gradient(p -> H(q,p),p)
+    p_dot(q, p) = ForwardDiff.gradient(q -> -H(q,p), q)
+    # Work on the multiplier
+    # The function below needs to be treated as a vector
+    ρ(q) = length(q)>1 ? ∇h(q)' * inv(M(q)) : [∇h(q)' * inv(M(q))]
+    dρ(q) = ForwardDiff.jacobian(q->ρ(q), q)
+    λ(q,p) = 1/dot(∇h(q), M(q)\∇h(q)) * ( -dot(ρ(q), p_dot(q,p)) - dot(dρ(q)*q_dot(q,p), p) )
+    return λ
+end
+###############################################
 
 # Internal
 function guard(sys::MechanicalSystem, x::AbstractArray)
@@ -136,75 +158,66 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Δt,
         end
         # If ∇h(q)̇q>0 with λ=0, then we are escaping the guard (inwards) and are escaping the sliding mode
         if guard_error(0.0) > 0
+            if solver isa LMM
+                push!(sol.event_indices, length(sol.x))
+            end
             F(z, t) = f_λ(z[1:n], z[n+1:end], 0.0)
-            x_next, _, _, dt_used, dt_next = take_step(solver, prob, F, vcat(qₖ,pₖ), tₖ, Δt, tol, sol; check=false)
+            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F, vcat(qₖ,pₖ), tₖ, Δt, tol, sol; check=false)
             # Record the derivative
             if dense_out
-                push!(sol.dx, F(x_next, tₖ+dt_used))
+                push!(sol.dx, F(x_predict, tₖ+dt_used))
             end
         else
+            if solver isa LMM
+                push!(sol.event_indices, length(sol.x))
+            end
             # We have the expression for the multiplier
             λ_constrained = find_multiplier(prob)
             F2(z, t) = f_λ(z[1:n], z[n+1:end], λ_constrained(z[1:n], z[n+1:end]))
-            x_next, _, _, dt_used, dt_next = take_step(solver, prob, F2, vcat(qₖ,pₖ), tₖ, Δt, tol, sol; check=false)
+            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F2, vcat(qₖ,pₖ), tₖ, Δt, tol, sol; check=false)
             # Record the derivative
             if dense_out
-                push!(sol.dx, F2(x_next, tₖ+dt_used))
+                push!(sol.dx, F2(x_predict, tₖ+dt_used))
             end
         end
         # Collect our results
-        push!(sol.x, x_next)
+        push!(sol.x, x_predict)
         push!(sol.t, tₖ+dt_used)
         push!(sol.zeno, tₖ)
-        return x_next, dt_used, dt_next, true
+        return x_predict, dt_used, dt_next, true
     else # No Zeno stuff is present
         f(z, t) = f_λ(z[1:n], z[n+1:end], 0.0)
-        x_next, eventtriggered, t_root, dt_used, dt_next = take_step(solver, prob, f, vcat(qₖ, pₖ), tₖ, Δt, tol, sol)
+        x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(solver, prob, f, vcat(qₖ, pₖ), tₖ, Δt, tol, sol)
         # Was there an impact?
-        if eventtriggered
+        if eventtrigger
             t_star, x_star = locate_event(event_method, prob, solver, f, vcat(qₖ, pₖ), tₖ, Δt, guard(sys, xₖ), tol, sol, stepper)
-            x_next = Δ(x_star, M, ∇h, sys)
-            push!(sol.x, x_star)
-            push!(sol.x, x_next)
-            push!(sol.t, t_star)
-            push!(sol.t, t_star)
-            if dense_out
-                push!(sol.dx, f(x_star, t_star))
-                push!(sol.dx, f(x_next, t_star))
+            x_predict = Δ(x_star, M, ∇h, sys)
+
+            push!(sol.event_times, t_star)
+
+            if solver isa LMM
+                push!(sol.event_indices, length(sol.x))
             end
+            push!(sol.t, t_star)
+            push!(sol.x, x_predict)
+
+            if dense_out
+                push!(sol.dx, f(x_predict, t_star))
+            end
+
         else
-            push!(sol.x, x_next)
+            push!(sol.x, x_predict)
             push!(sol.t, tₖ+dt_used)
             if dense_out
-                push!(sol.dx, f(x_next, tₖ+dt_used))
+                push!(sol.dx, f(x_predict, tₖ+dt_used))
             end
         end
-        return x_next, dt_used, dt_next, false
+        return x_predict, dt_used, dt_next, false
     end
 end
 
-# We can solve for the multiplier directly (this does require differentiation)
-function find_multiplier(prob::prob{S, I, T}) where {S<:MechanicalSystem, I, T}
-    sys = prob.sys
-    ∇h = sys.normal
-    M(q) = sys.M(q)
-    V(q) = sys.V(q)
-    # Create vector field for ODE solving
-    H(q,p) = 1/2*dot(p, M(q) \ p) + V(q)
-    # Create the (unforced) vector fields
-    q_dot(q, p) = ForwardDiff.gradient(p -> H(q,p),p)
-    p_dot(q, p) = ForwardDiff.gradient(q -> -H(q,p), q)
-    # Work on the multiplier
-    # The function below needs to be treated as a vector
-    ρ(q) = length(q)>1 ? ∇h(q)' * inv(M(q)) : [∇h(q)' * inv(M(q))]
-    dρ(q) = ForwardDiff.jacobian(q->ρ(q), q)
-    λ(q,p) = 1/dot(∇h(q), M(q)\∇h(q)) * ( -dot(ρ(q), p_dot(q,p)) - dot(dρ(q)*q_dot(q,p), p) )
-    return λ
-end
-###############################################
-
-function solve(prob::prob{S, I, T};
-               solver::AbstractODESolver=RK4(),
+function solve(prob::prob{S, I, T},
+               solver::AbstractODESolver=RK4();
                event_method::AbstractEventLocator=LinearLocator(),
                dense_out = true,
                dt_initial = 0.01, max_iter = 10^6, 

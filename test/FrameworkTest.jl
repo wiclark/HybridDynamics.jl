@@ -6,8 +6,19 @@ use_affine = true #CHANGE THIS FOR LINEAR VS AFFINE TEST
 A = [0.0 -10.0; 10.0 -.1]
 λ = [1.0, 0.0]
 C = [1.5 1.0; 0.0 0.5]
-x0 = [1.0, 0.5]
+x0 = [-.2, 3.0]
 tspan = (0.0, 10.0)
+
+#Use this if you want to readd the lines between jumps
+function plot_jumps!(p, sol::AbstractHybridSolution; kwargs...)
+    _, X_jumps = extract_jumps(sol)
+
+    if !isempty(X_jumps)
+        plot!(p, getindex.(X_jumps, 1), getindex.(X_jumps, 2); kwargs...)
+    end
+
+    return p
+end
 
 if use_affine
     b = [2., 0.0]
@@ -18,11 +29,12 @@ if use_affine
     problem = prob(sys, x0, tspan)
     plot_title = "Affine System Test"
 
-    my_solver = RK45()
+    my_solver = RK4()
     event_method = LinearLocator()
     #my_stepper = ForwardEuler()
 
-    sol_trap = solve(problem, my_solver; event_method)
+    #event_before_flow not really tested... Good Luck!
+    sol_trap = solve(problem, my_solver; event_method, event_before_flow=true)
 
     #println("You just used $(typeof(my_solver)) and $(typeof(my_stepper)) for this run.")
     println("You just used $(typeof(my_solver))")
@@ -33,6 +45,10 @@ if use_affine
 
     _, X_trap = split_jumps(sol_trap)
     plot!(p, getindex.(X_trap, 1), getindex.(X_trap, 2), color=:red, linestyle=:dash)
+
+    #= #Use this if you want to readd lines between pre and post reset states with colors
+    plot_jumps!(p, sol_trap, color=:green, linestyle=:dot, linewidth=2, label="Jumps")
+    =#
 
     display(p)
 else 
@@ -52,10 +68,10 @@ else
     
     _, X_trap = split_jumps(sol_trap)
     plot!(p, getindex.(X_trap, 1), getindex.(X_trap, 2), color=:red, linestyle=:dash)
-    
-    #=
-    _, X_exp = split_jumps(sol_exp)
-    plot!(p, X_exp[:, 1], X_exp[:, 2], label="Exponential", color=:blue, alpha=0.7)
+
+    #= #Use this if you want to readd lines between pre and post reset states with colors
+    plot_jumps!(p, sol_trap, color=:blue, linestyle=:dot, linewidth=2, label="Jumps")
     =#
+
     display(p)
 end

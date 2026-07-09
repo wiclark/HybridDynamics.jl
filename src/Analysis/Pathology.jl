@@ -35,7 +35,6 @@ How it works:
 
 """
 #External
-
 function check_system_pathology(
     jump_interval, last_intervals, 
     zeno_count, instant_jump_count,
@@ -96,75 +95,4 @@ function check_system_pathology(
     #Continuous movement
     instant_jump_count = 0
     return zeno_count, instant_jump_count, :continue
-end
-
-######
-### WC: This function is far too complicated.
-### (Additionally, it does not work. It incorrectly identifies the NL bouncing ball as Zeno quite prematurely.)
-######
-function check_general_pathology(
-    jump_interval,
-    last_intervals,
-    t_star;
-    tol = 1e-6,
-    zeno_ratio = 0.90,
-    max_zeno_jumps = 8, 
-    max_buffer_size = 10
-    )
-    #Adds current time between events to buffer
-    push!(last_intervals, jump_interval)
-
-    #keeps buffer at fixed size to ensure we only analyze revent stuff to avoid memeory overload. 
-    if length(last_intervals) > max_buffer_size
-        popfirst!(last_intervals)
-    end
-
-    #This rarely triggers but I think its good to have just in case of numerical evil
-    if jump_interval < tol
-        @warn "Micro jumps detected at t = $t_star. Terminating."
-        return :terminate
-    end
-
-    len = length(last_intervals)
-    if len >= max_zeno_jumps
-        #We only perform analysis once we have enough data
-        recent = last_intervals[end-max_zeno_jumps+1:end]
-        n = length(recent)
-        
-        #Calc mean duration of recent jumps
-        μ = sum(recent) / n
-
-        #Part of the vairiance calc
-        sum_sq_diff = 0.0
-        for val in recent
-            sum_sq_diff += (val - μ)^2
-        end
-        #standard deviation, representing how much jump intervals flucutate. The logic here seems to work but definitely double check my work - DS
-        σ = sqrt(sum_sq_diff / n)
-
-        #This detects beating or blocking. mu < 1e-3 for small jumps (I will add tols here later)
-        #σ/μ coeff of variation less than 5%.
-        #This means intervals are not shrinking, they get stuck at a fixed tiny values. hence beating/blocking. 
-        if μ < 1e-3 && (μ > 0 ? σ/μ < 0.05 : σ < 0.05)
-            @warn "Exceptional Pathology Detected at t = $t_star. Beating and Blocking suspected. Terminating."
-            return :terminate
-        end
-
-        #Calc ratios of consecutive jump intervals. 
-        #In Zeno this is < 1 (so its contracting)
-        sum_ratios = 0.0
-        for i in 2:n
-            sum_ratios += recent[i] / recent[i-1]
-        end
-        #Avg rate of decary of intervals
-        avg_ratio = sum_ratios / (n - 1)
-        
-        #IF avg decay is faster than the threshold we confirm Zeno. 
-        if avg_ratio < zeno_ratio
-            @warn "Zeno Detected at t = $t_star. Terminating."
-            return :terminate
-        end
-    end
-    
-    return :continue
 end

@@ -241,7 +241,79 @@ begin
 end
 
 # ╔═╡ 293d4ac4-bbb7-41ea-ae29-ae0844fd3992
-solG.jump_times
+solG.event_times
+
+# ╔═╡ 8e899a64-9654-4e7e-ac0f-2376b89aa913
+md"""
+## Linear and Affine Systems
+!!! info "Linear and Affine Problems"
+	A Linear Hybrid System consists of the data $(A, λ, C)$ where 
+	```math
+		\mathcal{LH} = 
+		\begin{cases}
+			\dot x = Ax, & λx \neq 0, \\
+			x^+ = Cx, & λx = 0.
+		\end{cases}
+	```
+	An Affine Hybrid System consists of the data $(A, b, λ, a, C, κ)$ where
+	```math
+		\mathcal{AH} = 
+		\begin{cases}
+			\dot x = Ax + b, λx + a \neq 0, \\
+			x^+ = Cx + κ, λx + a = 0.
+		\end{cases}
+	```
+
+	1. .$A$ is the state matrix. 
+	2. .$b$ is the continuous affine vector ($\dot x = Ax + b$).
+	3. .$λ$ is the guard normal vector.
+	4. .$a$ is the guard affine vector ($λx + a = 0$).
+	5. .$C$ is the reset matrix
+	6. .$κ$ is the reset affine vector $(x^+ = Cx + κ)$.
+"""
+
+# ╔═╡ 154b65b0-f68b-4ec7-a035-b5d3ea78fb26
+begin
+	LA_type = "Linear" # Options: "Linear", "Affine"
+	LA_A = [0.0 -10.0; 10.0 -.1]
+	LA_λ = [1.0, 0.0]
+	LA_C = [1.5 1.0; 0.0 0.5]
+	LA_x0 = [1.0, 0.5]
+	LA_tspan = (0.0, 10.0)
+end
+
+# ╔═╡ 7259e7cc-e810-41c7-b57b-acedd5ed6691
+begin
+    if LA_type == "Affine"
+        LA_b = [2.0, 0.0]
+        LA_a = 0.2
+        LA_κ = [0.1, -0.2]
+        LA_sys = HD.AffineSystem(LA_A, LA_b, LA_λ, LA_a, LA_C, LA_κ)
+        LA_guard = -LA_a
+        LA_prob = HD.prob(LA_sys, LA_x0, LA_tspan)
+        LA_sol = HD.solve(LA_prob, HD.RK45())
+    else
+        LA_sys = HD.LinearSystem(LA_A, LA_λ, LA_C)
+        LA_guard = 0.0
+        LA_prob = HD.prob(LA_sys, LA_x0, LA_tspan)
+        LA_sol = HD.solve(LA_prob, HD.AdamsBashforth3())
+    end
+end
+
+# ╔═╡ 1e618fc0-28ab-4c28-9be5-8b1582a69cba
+LA_t_list, LA_x_list = HD.split_jumps(LA_sol)
+
+# ╔═╡ a77c28dc-8d08-42b6-8e51-1949ea04bb4a
+begin
+    p = plt.plot(title="$(LA_type) System Trajectory", xlabel="x1", ylabel="x2", 
+                 aspect_ratio=:equal, grid=true, legend=false)
+    
+    plt.vline!(p, [LA_guard], label="Guard", color=:black, alpha=0.3, lw=2)
+    
+    plt.plot!(p, getindex.(LA_x_list, 1), getindex.(LA_x_list, 2), 
+              color=:red, linestyle=:dash, lw=1.5, label="Trajectory")
+    p
+end
 
 # ╔═╡ efe951a9-31d1-49e1-bf19-cdcd7a6a5f0e
 md"""
@@ -390,10 +462,13 @@ end
 # ╠═cb05396f-92a2-468c-af34-f64e25a93e16
 # ╠═7ca75d5b-b8a6-472f-b5a7-f746b581e67f
 # ╠═293d4ac4-bbb7-41ea-ae29-ae0844fd3992
-# ╠═a62b426b-cb7f-44f1-9371-9f446a494a59
-# ╠═67463097-3bb9-48a6-bb63-008eb7936427
 # ╟─8e899a64-9654-4e7e-ac0f-2376b89aa913
 # ╠═154b65b0-f68b-4ec7-a035-b5d3ea78fb26
 # ╠═7259e7cc-e810-41c7-b57b-acedd5ed6691
 # ╠═1e618fc0-28ab-4c28-9be5-8b1582a69cba
 # ╠═a77c28dc-8d08-42b6-8e51-1949ea04bb4a
+# ╠═efe951a9-31d1-49e1-bf19-cdcd7a6a5f0e
+# ╠═8eae9c66-e573-4458-bab5-ac92e61f261a
+# ╠═7e2f7386-647e-4503-9343-2ce78cc2752f
+# ╠═0a709e7a-f8a4-4b72-aa15-eb3fb92f517e
+# ╠═b31969a0-fac6-4e69-a9f1-391750214770

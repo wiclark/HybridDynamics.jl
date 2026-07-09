@@ -114,7 +114,7 @@ function locate_event(::BisectionLocator, prob, solver::AbstractODESolver, f, x�
         #test midpoint
         τ_m = (τ_l + τ_r) / 2.0
 
-        x_m, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_m, tol, sol, stepper)
+        x_m, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_m, tol, sol, stepper; check=false)
         h_m = guard(sys, x_m)
     
         if signbit(h_l) != signbit(h_m)
@@ -126,7 +126,7 @@ function locate_event(::BisectionLocator, prob, solver::AbstractODESolver, f, x�
     end
     
     t_star = tₖ + τ_l
-    x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_l, tol, sol, stepper)
+    x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_l, tol, sol, stepper; check=false)
     return t_star, x_star
 end
 #Linear Interpolation
@@ -145,7 +145,7 @@ function locate_event(::LinearLocator, prob, solver::AbstractODESolver, f, xₖ,
     end
 
     # Get right side of boundary
-    x_r, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_r, tol, sol, stepper)
+    x_r, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_r, tol, sol, stepper; check=false)
     # Eval guard at this new right side state
     h_r = guard(sys, x_r)
     
@@ -165,7 +165,7 @@ function locate_event(::LinearLocator, prob, solver::AbstractODESolver, f, xₖ,
         τ_m = τ_r - h_r * (τ_r - τ_l) / (h_r - h_l)
 
         # Step ODE solver forward by time offset τ_m
-        x_m, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_m, tol, sol, stepper)
+        x_m, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_m, tol, sol, stepper; check=false)
         # Eval guard at this new state
         h_m = guard(sys, x_m)
 
@@ -204,11 +204,11 @@ function locate_event(::QuadraticLocator, prob, solver::AbstractODESolver, f, x�
     h₀ = h_now
 
     # middle point. We just take a half step instead of going one before the start point. I think itll be more stable. 
-    x₁, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt / 2.0, tol, sol, stepper)
+    x₁, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt / 2.0, tol, sol, stepper; check=false)
     h₁ = guard(sys, x₁)
 
     # endpoint
-    x₂, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol, stepper)
+    x₂, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=false)
     h₂ = guard(sys, x₂)
 
     # Must actually bracket a root
@@ -220,7 +220,7 @@ function locate_event(::QuadraticLocator, prob, solver::AbstractODESolver, f, x�
         τ_star = clamp(θ * Δt, 0.0, Δt)
 
         # Step solver to time we got above. 
-        x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper)
+        x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper; check=false)
 
         # Return time and state bypassing the quadratic logic.
         return tₖ + τ_star, x_star
@@ -282,7 +282,7 @@ function locate_event(::QuadraticLocator, prob, solver::AbstractODESolver, f, x�
     end
 
     # Verify the quadratic prediction. We dont just trust it with our heart of hearts. 
-    x_test, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper)
+    x_test, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper; check=false)
     h_test = guard(sys, x_test)
 
     # If prediction is worse than midpoint we abandon it and linear interp. Just a failsafe.
@@ -290,7 +290,7 @@ function locate_event(::QuadraticLocator, prob, solver::AbstractODESolver, f, x�
         θ = -h₀ / (h₂ - h₀)
         τ_star = clamp(θ * Δt, 0.0, Δt)
 
-        x_test, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper)
+        x_test, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper; check=false)
         h_test = guard(sys, x_test)
 
     end
@@ -321,7 +321,7 @@ function locate_event(::QuadraticLocator, prob, solver::AbstractODESolver, f, x�
         # ensure final pred is within clamped bounds
         τ_star = clamp(τ_star, 0.0, Δt)
         # Step solver to this final refined time
-        x_test, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper)
+        x_test, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper; check=false)
     end
     # Calc the absolute time of the verified event
     t_star = tₖ + τ_star
@@ -336,7 +336,7 @@ function locate_event(::NewtonLocator, prob, solver::AbstractODESolver, f, xₖ,
     h_prev = h_now
 
     τ_curr = Δt
-    x_curr, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_curr, tol, sol, stepper)
+    x_curr, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_curr, tol, sol, stepper; check=false)
     h_curr = guard(sys, x_curr)
 
     for _ in 1:100
@@ -363,7 +363,7 @@ function locate_event(::NewtonLocator, prob, solver::AbstractODESolver, f, xₖ,
         h_prev = h_curr
 
         τ_curr = τ_next
-        x_curr, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_curr, tol, sol, stepper)
+        x_curr, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_curr, tol, sol, stepper; check=false)
         h_curr = guard(sys, x_curr)
     end
     t_star = tₖ + τ_curr

@@ -37,18 +37,48 @@ end
 
 #SOLUTION STRUCTS AND HELPERS. 
 #Goal to provide standard date for simulation outputs. Keeps cont trajectories and discrete events organized. Currently affine and linear are the samem but kept separate to allow specific plotting later?
-struct HybridSolution{T, DX} <: AbstractHybridSolution
+struct LinearAffineSol{T, DX} <: AbstractHybridSolution
     t::Vector{Float64}
     x::Vector{T}
     dx::DX 
-    jump_times::Vector{Float64}
-    jump_indices::Vector{Int}
+    event_times::Vector{Float64}
+    event_indices::Vector{Int}
 end 
 
-# CK: Is this ever used?
-function CreateSolution(prob::prob{S, I, T}, t::AbstractVector, x::AbstractVector,
-    jump_times::AbstractVector, jump_indices::AbstractVector) where {S <: Union{LinearSystem, AffineSystem}, I, T}
-    return HybridSolution(Float64.(t), Vector{I}(x), Vector{Vector{Float64}}(), Float64.(jump_times), Vector{Int}(jump_indices))
+#internal
+function LinearAffineSol(prob::prob{S, I, T}) where {S<:Union{LinearSystem, AffineSystem}, I, T}
+    return LinearAffineSol([prob.tspan[1]], [prob.init], Vector{Vector{Float64}}(), Float64[], Int[])
+end
+
+#Internal
+#Calc guard function for linear systems
+function guard(sys::LinearSystem, x::AbstractArray)
+    #if x is a matrix (usually for Variational equation) we isolate the first column to calc the guard
+    x_first_column = x isa AbstractMatrix ? x[:, 1] : x
+    return sys.λ' * x_first_column
+end
+#Internal
+#Calc guard for affine systems
+function guard(sys::AffineSystem, x::AbstractArray)
+    #if x is a matrix (usually for Variational equation) we isolate the first column to calc the guard
+    x_first_column = x isa AbstractMatrix ? x[:, 1] : x
+    return sys.λ' * x_first_column + sys.a 
+end
+#internal
+function apply_reset(sys::LinearSystem, x::AbstractArray)
+    return sys.C * x
+end
+#internal
+function apply_reset(sys::AffineSystem, x::AbstractArray)
+    #first linear transformation Cx
+    x_new = sys.C * x
+    # If matrix, κ only applies to the physical state (column 1)
+    if x isa AbstractMatrix
+        x_new[:, 1] .+= sys.κ
+    else
+        x_new .+= sys.κ
+    end
+    return x_new
 end
 
 #Exact Linear Flow (matrix exponential)
@@ -85,11 +115,6 @@ end
 #Goal is to setup the empty memory containers before solver starts running. 
 #pre-allocating the vectors with the exact starting conditions ensures that the solver loop is stable 
 
-#internal
-function init_solution(prob::prob{S, I, T}) where {S<:Union{LinearSystem, AffineSystem}, I, T}
-    return HybridSolution([prob.tspan[1]], [prob.init], Vector{Vector{Float64}}(), Float64[], Int[])
-end
-
 """
     beating_and_blocking_sets(sys::Union{LinearSystem, AffineSystem})
 
@@ -97,7 +122,7 @@ Compute the discrete sequence of constraint matrices and offset vectors defining
 
 Returns:
 
-A unified "NamedTuple" *fancy*
+A unified "NamedTuple"
 - 'beating_sets::Vector{Matrix{Float64}}': Matrix constraints where rows represent normal vectors. Constraint matrix is the [λ^T ; λ^TC^{-1} ; ...]
 - 'beating_offsets::Vector{Vector{Float64}}': Vector offsets shifting the hyperplanes from the origin
 - 'blocking_set::Matrix{Float64}': Final blocking constraint matrix
@@ -177,39 +202,116 @@ function is_trivially_blocking(sys::Union{LinearSystem, AffineSystem})
     return rank(analysis.blocking_set) == n && isapprox(norm(analysis.blocking_offsets))
 end
 
-#Internal
-#Calc guard function for linear systems
-function guard(sys::LinearSystem, x::AbstractArray)
-    #if x is a matrix (usually for Variational equation) we isolate the first column to calc the guard
-    x_first_column = x isa AbstractMatrix ? x[:, 1] : x
-    return sys.λ' * x_first_column
-end
-#Internal
-#Calc guard for affine systems
-function guard(sys::AffineSystem, x::AbstractArray)
-    #if x is a matrix (usually for Variational equation) we isolate the first column to calc the guard
-    x_first_column = x isa AbstractMatrix ? x[:, 1] : x
-    return sys.λ' * x_first_column + sys.a 
-end
-#internal
-function apply_reset(sys::LinearSystem, x::AbstractArray)
-    return sys.C * x
-end
-#internal
-function apply_reset(sys::AffineSystem, x::AbstractArray)
-    #first linear transformation Cx
-    x_new = sys.C * x
-    # If matrix, κ only applies to the physical state (column 1)
-    if x isa AbstractMatrix
-        x_new[:, 1] .+= sys.κ
-    else
-        x_new .+= sys.κ
-    end
-    return x_new
-end
+function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Δt, tol, sol; dense_out=true, stepper::AbstractODESolver=RK45(), event_method::AbstractEventLocator=LinearLocator(), guard_direction=prob.sys.direction, event_before_flow=false,
+    #Pathology
+    last_jump_time, last_intervals, zeno_count,
+    instant_jump_count, zeno_ratio,
+    max_zeno_jumps, max_instant_jumps, max_buffer_size, min_zeno_history,
+    zeno_floor_mult, zeno_time_threshold, zeno_reset_mult,
+    beating_tol_mult, adaptive_tol_mult, adaptive_dt_mult,
+    dt_initial, dt_min) where {S<:Union{LinearSystem, AffineSystem}, I, T}
 
-#SOLVER
-#Very External
+    xₖ = sol.x[end]
+    tₖ = sol.t[end]
+
+    sys = prob.sys
+
+    #Check for event before taking a cont step. Just inverted the usual solve method.
+    if event_before_flow
+        #State is on guard surface
+        if abs(guard(sys, xₖ)) <= tol
+
+            #apply reset 
+            x⁺ = apply_reset(sys, xₖ)
+            jump_interval = tₖ - last_jump_time
+
+            zeno_count, instant_jump_count, status = check_system_pathology(
+                jump_interval, last_intervals, zeno_count,
+                instant_jump_count, tₖ, tol, zeno_ratio,
+                max_zeno_jumps, max_instant_jumps, max_buffer_size;
+                min_zeno_history=min_zeno_history, zeno_floor_mult=zeno_floor_mult,
+                zeno_time_threshold=zeno_time_threshold, zeno_reset_mult=zeno_reset_mult,
+                beating_tol_mult=beating_tol_mult)
+
+            if status == :terminate
+                return xₖ, 0.0, Δt, true, last_jump_time, zeno_count, instant_jump_count
+            end
+
+            last_jump_time = tₖ
+
+            push!(sol.t, tₖ, tₖ)
+            push!(sol.x, xₖ, x⁺)
+            push!(sol.event_times, tₖ)
+            push!(sol.event_indices, length(sol.t))
+
+            if dense_out
+                push!(sol.dx, f(xₖ, tₖ))
+                push!(sol.dx, f(x⁺, tₖ))
+            end
+
+            Δt_next = min(dt_initial, jump_interval * .5)
+
+            return x⁺, 0.0, Δt_next, false, last_jump_time, zeno_count, instant_jump_count
+        end
+    end
+
+    _, t_end = prob.tspan
+    dt_step = (tₖ + Δt > t_end) ? (t_end - tₖ) : Δt
+
+    if abs(guard(sys, xₖ)) < tol * adaptive_tol_mult
+        dt_step = min(dt_step, dt_min * adaptive_dt_mult)
+    end
+
+    x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
+
+    if eventtrigger
+        t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
+
+        jump_interval = t_star - last_jump_time
+
+        zeno_count, instant_jump_count, status = check_system_pathology(
+                jump_interval, last_intervals, zeno_count,
+                instant_jump_count, t_star, tol, zeno_ratio,
+                max_zeno_jumps, max_instant_jumps, max_buffer_size;
+                min_zeno_history=min_zeno_history, zeno_floor_mult=zeno_floor_mult,
+                zeno_time_threshold=zeno_time_threshold, zeno_reset_mult=zeno_reset_mult,
+                beating_tol_mult=beating_tol_mult)
+
+        if status == :terminate
+            return xₖ, dt_used, dt_next, true, last_jump_time, zeno_count, instant_jump_count
+        end
+
+        last_jump_time = t_star
+
+        x⁺ = apply_reset(sys, x_star)
+
+        push!(sol.t, t_star, t_star)
+        push!(sol.x, x_star, x⁺)
+
+        push!(sol.event_times, t_star)
+        push!(sol.event_indices, length(sol.t))
+
+        if dense_out
+            push!(sol.dx, f(x_star, t_star))
+            push!(sol.dx, f(x⁺, t_star))
+        end
+
+        Δt = min(dt_initial, jump_interval * 0.5)
+
+        return x⁺, dt_used, Δt, false, last_jump_time, zeno_count, instant_jump_count
+    else
+        t_next = tₖ + dt_used
+
+        if dense_out
+            push!(sol.dx, f(xₖ, tₖ))
+        end
+
+        push!(sol.t, t_next)
+        push!(sol.x, x_predict)
+
+        return x_predict, dt_used, dt_next, false, last_jump_time, zeno_count, instant_jump_count
+    end
+end
 
 """
     solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45(); kwargs...) where {F<:Union{LinearSystem, AffineSystem}, I, T<:Tuple{Float64, Float64}}
@@ -218,42 +320,46 @@ end
 
 ## Required
 
-* 'prob': The problem definition containing the system dynamics 'sys', initial state, and time span.
-* 'solver': The numerical integration method used for continous steps. Defaults to RK45().
+* `prob``: The problem definition containing the system dynamics 'sys', initial state, and time span.
+* `solver``: The numerical integration method used for continous steps. Defaults to RK45().
 
 ## Optional
 
 ### Simulation and Step Controls:
-* 'dt_initial' (Float64, default '0.01'): The starting time step for the continuous solver.
-* 'dt_min' (Float64, default '1e-6'): The absolute minimum allowable time step. If the solver tries to go below this, the simulation terminates.
-* 'max_iter' (Int, default '10^6'): The maximum number of continuous integration steps allowed before forcing a timeout.
-'tol' (Float64, default '1e-6'): The baseline numerical tolerance used across the solver. Acts as the foundational unit for multipliers below.
+* `dt_initial`` (Float64, default '0.01'): The starting time step for the continuous solver.
+* `dt_min` (Float64, default '1e-6'): The absolute minimum allowable time step. If the solver tries to go below this, the simulation terminates.
+* `max_iter` (Int, default '10^6'): The maximum number of continuous integration steps allowed before forcing a timeout.
+* `tol` (Float64, default '1e-6'): The baseline numerical tolerance used across the solver. Acts as the foundational unit for multipliers below.
 
 ### Event Handling
-* 'event_method' (AbstractEventLocator, default 'LinearLocator()'): The algorithm used to pinpoint the exact time and state of a guard crossing.
-* 'stepper' (AbstractODESolver. default 'RK4()'): The secondary ODE solver used internally by the event detection locator to pinpoint the impact state.
-* 'guard_direction' (Symbol, default 'default_guard_direction(prob.sys)'): Dictates which zero-crossing direction triggers an event (e.g., positive-to-negative).
+* `event_method` (AbstractEventLocator, default 'LinearLocator()'): The algorithm used to pinpoint the exact time and state of a guard crossing.
+* `stepper` (AbstractODESolver. default 'RK4()'): The secondary ODE solver used internally by the event detection locator to pinpoint the impact state.
+* `guard_direction` (Symbol, default 'default_guard_direction(prob.sys)'): Dictates which zero-crossing direction triggers an event (e.g., positive-to-negative).
 
 ### Pathology Tuning
-* 'zeno_ratio' (Float64, default '.90'): The ratio threshold for Zeno detection. If consecutive jump intervals contract by this ratio (or faster) it triggers a Zeno classification. 
-* 'max_zeno_jumps' (Int, default '5'): The maximum number of consecutuve Zeno contractions allowed before terminating the simulation. 
-* 'max_instant_jumps' (Int, default '5'): The maximum number of instantaneous jumps allowed before classifying the system as blocked and terminating. 
-* 'max_buffer_size' (Int, default '5'): The number of previous jump intervals stored in memory to evaluate Zeno contractions.
+* `zeno_ratio` (Float64, default '.90'): The ratio threshold for Zeno detection. If consecutive jump intervals contract by this ratio (or faster) it triggers a Zeno classification. 
+* `max_zeno_jumps` (Int, default '5'): The maximum number of consecutuve Zeno contractions allowed before terminating the simulation. 
+* `max_instant_jumps` (Int, default '5'): The maximum number of instantaneous jumps allowed before classifying the system as blocked and terminating. 
+* `max_buffer_size` (Int, default '5'): The number of previous jump intervals stored in memory to evaluate Zeno contractions.
 
 ### Fine-Tuning Multipliers (scaled against 'tol')
-* 'min_zeno_history' (Int, default '2'): The minimum number of recorded jumps required before the solver will attempt to calculate a Zeno contraction ratio. 
-* 'zeno_floor_mult' (Float64, default '2.0'): Defines the numerical floor ('tol * zeno_floor_mult'). If a jump interval falls below this, it maintains a Zeno state to prevent
+* `min_zeno_history` (Int, default '2'): The minimum number of recorded jumps required before the solver will attempt to calculate a Zeno contraction ratio. 
+* `zeno_floor_mult` (Float64, default '2.0'): Defines the numerical floor ('tol * zeno_floor_mult'). If a jump interval falls below this, it maintains a Zeno state to prevent
 machine precision drops into beating blocks.
-* 'zeno_time_threshold' (Float64, default '1e-2'): The absolute maximum duration a jump interval can be while still being eligible for Zeno contraction classification.
-* 'zeno_reset_mult' (Float64, default '100.0'): If a jump interval exceeds 'tol * zeno_reset_mult', the system is deemed safe and the Zeno counter is decremented.
-* 'beating_tol_mult' (Float64, default '1.0'): Defines the time window ('tol * beating_tol_mult'). Jumps occurring within this window are classifed as instantaneous jumps or 'beating'
-* 'adaptive_tol_mult' (Float64, defualt '100.0'): The boundary distance multiplier ('tol * adaptive_tol_mult'). When the system enters this distance from the guard, it shrinks step size to increase resolution.
-* 'sliding_tol_mult' (Float64, default '10.0'): If the post-impact guard value is within 'tol * sliding_tol_mult', the solver enters sliding mode to suppress immediate erroneous events. This helps us avoid strange chattering.  
+* `zeno_time_threshold` (Float64, default '1e-2'): The absolute maximum duration a jump interval can be while still being eligible for Zeno contraction classification.
+* `zeno_reset_mult` (Float64, default '100.0'): If a jump interval exceeds 'tol * zeno_reset_mult', the system is deemed safe and the Zeno counter is decremented.
+* `beating_tol_mult` (Float64, default '1.0'): Defines the time window ('tol * beating_tol_mult'). Jumps occurring within this window are classifed as instantaneous jumps or 'beating'
+* `adaptive_tol_mult` (Float64, defualt '100.0'): The boundary distance multiplier ('tol * adaptive_tol_mult'). When the system enters this distance from the guard, it shrinks step size to increase resolution.
+* `sliding_tol_mult` (Float64, default '10.0'): If the post-impact guard value is within 'tol * sliding_tol_mult', the solver enters sliding mode to suppress immediate erroneous events. This helps us avoid strange chattering.  
+
+### Added Functionality
+* `event_before_flow` This simply allows the user to specify the order the solver executes. Either detect events first then flow, or flow and then detect events. Per request of Dan/Liam. 
 
 """
-function solve(prob::prob{F, I, T}, 
-               solver::AbstractODESolver=RK45(); 
+function solve(prob::prob{S, I, T},
+               solver::AbstractODESolver=RK45();
                event_method::AbstractEventLocator=LinearLocator(),
+               event_before_flow = false,
                dense_out = true, 
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6, 
                tol = 1e-6, 
@@ -269,13 +375,12 @@ function solve(prob::prob{F, I, T},
                zeno_reset_mult = 100.0,
                beating_tol_mult = 1.0,
                adaptive_tol_mult = 100.0,
-               adaptive_dt_mult = 10.0,
-               sliding_tol_mult = 10.0) where {F<:Union{LinearSystem, AffineSystem}, I, T<:Tuple{Float64, Float64}}
+               adaptive_dt_mult = 10.0) where {S<:Union{LinearSystem, AffineSystem}, I, T<:Tuple{Float64, Float64}}
     
     sys = prob.sys
 
     # Initialize solution based on linear/affine
-    sol = init_solution(prob)
+    sol = LinearAffineSol(prob)
 
     function f(x, t)
         dx = sys.A * x
@@ -304,7 +409,25 @@ function solve(prob::prob{F, I, T},
     last_jump_time = t_start      
     last_intervals = Float64[]     
 
-    in_sliding_mode = false
+    #Check if we start on the guard. 
+    if abs(guard(sys, sol.x[end])) <= tol
+        x₀ = sol.x[end]
+        t₀ = sol.t[end]
+
+        x⁺ = apply_reset(sys, x₀)
+
+        push!(sol.t, t₀)
+        push!(sol.x, x⁺)
+        push!(sol.event_times, t₀)
+        push!(sol.event_indices, length(sol.t))
+
+        if dense_out
+            push!(sol.dx, f(x₀, t₀))
+            push!(sol.dx, f(x⁺, t₀))
+        end
+
+        @info "System started on the guard. Immediate jump applied at t = $t₀."
+    end
 
     # Run until end time or max iter
     while sol.t[end] < t_end
@@ -321,67 +444,20 @@ function solve(prob::prob{F, I, T},
         end
 
         # Truncate time step if we overshoot the final time
-        dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
+        _, _, Δt, terminate, last_jump_time, zeno_count, instant_jump_count = take_step_linear_affine!(
+            solver, prob, f, Δt, tol, sol; dense_out=dense_out,
+            stepper=stepper, event_method=event_method, guard_direction=guard_direction,
+            event_before_flow,
+            last_jump_time=last_jump_time, last_intervals=last_intervals, zeno_count=zeno_count,
+            instant_jump_count=instant_jump_count, zeno_ratio=zeno_ratio, max_zeno_jumps=max_zeno_jumps,
+            max_instant_jumps=max_instant_jumps, max_buffer_size=max_buffer_size,
+            min_zeno_history=min_zeno_history, zeno_floor_mult=zeno_floor_mult, zeno_time_threshold=zeno_time_threshold,
+            zeno_reset_mult=zeno_reset_mult, beating_tol_mult=beating_tol_mult,
+            adaptive_tol_mult=adaptive_tol_mult, adaptive_dt_mult=adaptive_dt_mult,
+            dt_initial=dt_initial, dt_min=dt_min)
 
-        if abs(guard(sys, sol.x[end])) < tol * adaptive_tol_mult
-            dt_step = min(dt_step, dt_min * adaptive_dt_mult)
-        end
-
-        xₖ = sol.x[end]
-        tₖ = sol.t[end]
-
-        x_predict, eventtriggered, t_root, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
-
-        # Discrete event logic
-        if eventtriggered 
-
-            t_root = guard(sys, xₖ)
-            t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, t_root, tol, sol, stepper)
-            
-            # PATHOLOGY CHECK
-            jump_interval = t_star - last_jump_time
-            zeno_count, instant_jump_count, status = check_system_pathology(
-                jump_interval, last_intervals, 
-                zeno_count, instant_jump_count,
-                t_star, tol, zeno_ratio, max_zeno_jumps, max_instant_jumps,
-                max_buffer_size;
-                min_zeno_history=min_zeno_history,
-                zeno_floor_mult=zeno_floor_mult,
-                zeno_time_threshold=zeno_time_threshold,
-                zeno_reset_mult=zeno_reset_mult,
-                beating_tol_mult=beating_tol_mult
-            )
-
-            if status == :terminate
-                break
-            end
-            
-            last_jump_time = t_star
-
-            # Apply Reset
-            x⁺ = apply_reset(sys, x_star)
-
-            push!(sol.t, t_star, t_star)
-            push!(sol.x, x_star, x⁺)
-
-            if hasproperty(sol, :jump_times)
-                push!(sol.jump_times, t_star)
-                push!(sol.jump_indices, length(sol.x))
-            end
-
-            # Shrink min step size to avoid overshooting
-            Δt = min(dt_initial, jump_interval * 0.5)
-
-        else
-            t_next = tₖ + dt_used
-            if dense_out
-                push!(sol.dx, f(xₖ, tₖ)) # hey, it works (usually)
-            end
-            push!(sol.t, t_next)
-            push!(sol.x, x_predict)
-
-            # Reset step size
-            Δt = dt_next
+        if terminate
+            break
         end
     end
     return sol
