@@ -275,9 +275,9 @@ md"""
 # ╔═╡ 154b65b0-f68b-4ec7-a035-b5d3ea78fb26
 begin
 	LA_type = "Linear" # Options: "Linear", "Affine"
-	LA_A = [0.0 -10.0; 10.0 -.1]
+	LA_A = [-0.5 -10.0; 10.0 -0.5]
 	LA_λ = [1.0, 0.0]
-	LA_C = [1.5 1.0; 0.0 0.5]
+	LA_C = [0.8 0.0; 0.0 0.8]
 	LA_x0 = [1.0, 0.5]
 	LA_tspan = (0.0, 10.0)
 end
