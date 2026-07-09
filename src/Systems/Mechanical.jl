@@ -230,8 +230,8 @@ end
 
 Solve a mechanical hybrid system.
 """
-function solve(prob::prob{S, I, T};
-               solver::AbstractODESolver=RK4(),
+function solve(prob::prob{S, I, T},
+               solver::AbstractODESolver=RK4();
                event_method::AbstractEventLocator=LinearLocator(),
                dense_out = true,
                dt_initial = 0.01, max_iter = 10^6, 
