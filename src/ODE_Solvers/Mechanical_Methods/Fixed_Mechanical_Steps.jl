@@ -4,23 +4,35 @@ abstract type FixHam <: ME end
 
 struct SymplecticEuler <: FixHam end
 
-compute_step(::SymplecticEuler, f, g, q, p, Δt, t) = symplectic_euler_step(f, g, q, p, Δt, t)
+compute_step(::SymplecticEuler, f, g, qₖ, pₖ, Δt, t) = symplectic_euler_step(f, g, qₖ, pₖ, Δt, t)
 
-function take_step(solver::FixHam, prob::MechanicalSystem, f, g, qₖ, pₖ, tₖ, Δt, sol; check-true, guard_direction = default_guard_direction(prob.sys))
+function take_step(solver::FixHam, prob::MechanicalSystem, f, g, qₖ, pₖ, tₖ, Δt, tol, sol; check=true, guard_direction = default_guard_direction(prob.sys))
     sys = prob.sys
+    #Compute predicted position and momentum for the next time step
     q_predict, p_predict = compute_step(solver, f, g, qₖ, pₖ, Δt, tₖ)
-    q_mid, _             = compute_step(solver, f, g, qₖ, pₖ, Δt/2.0, tₖ)
     # Check whether or not there is an impact. Notice that h is only a function of q, rather than (q,p)
     if check
         # Evaluate guards
         h_now  = guard(sys, qₖ)
-        h_mid  = guard(sys, q_mid)
         h_next = guard(sys, q_predict)
+
+        idx = max(1, length(sol.q) - 1)
+        t_prev = sol.t[idx]
+        q_prev = sol.q[idx]
+        h_prev = guard(sys, q_prev)
         # Use cross guard check
-        eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_mid, h_next, tₖ, tₖ+Δt/2.0, tₖ+Δt; tol=tol, direction=guard_direction)
+        eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ+Δt; tol=tol, direction=guard_direction)
+
+        if eventtrigger
+            if (t_root - tₖ) < (1e-4 * Δt)
+                eventtrigger = false
+                t_root = tₖ + Δt
+            end
+        end
+
         return q_predict, p_predict, eventtrigger, t_root, Δt, Δt
     else
-        return q_predict, p_predict, NaN, NaN, NaN
+        return q_predict, p_predict, false, NaN, Δt, Δt
     end
 end
 

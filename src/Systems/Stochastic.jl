@@ -11,8 +11,11 @@ end
 # EXTERNAL
 # Make the the guard, reset map, and coefficient of restitution optional
 """
-Stochastic System
- - f
+    StochasticSystem(f, g, h, Δ; 
+    normal = nothing, direction=0)
+
+Construct a stochastic system of the form:
+
 """
 function StochasticSystem(f, g, h, Δ; 
     normal = nothing, direction=0)
@@ -31,12 +34,13 @@ function StochasticSystem(f, g, h, Δ;
 end
 
 # General solution struct for mechanical systems
-struct StochasticSol{T, X, DX, I, E} <: AbstractHybridSolution
+struct StochasticSol{T, X, DX, I, E, EI} <: AbstractHybridSolution
     t::T        # Time data
     x::X        # x, the state
     dx::DX      # f(x) Derivative at each state x - only filled when dense_out = true
     prob::I     # Remember the problem - to aid interpolation
-    event::E    # Times where an event has occurred
+    event_times::E    # Times where an event has occurred
+    event_indices::EI #Indices where an event has occurred
 end
 
 # Function to initialize solution struct
@@ -45,7 +49,8 @@ function StochasticSol(prob)
         [prob.init],
         Vector{Vector{Float64}}(),      
         prob,
-        Float64[])
+        Float64[],
+        Int[])
 end
 
 #####################################################
@@ -63,28 +68,40 @@ function take_step_stochastic!(solver, prob::prob{S, I, T}, Δt,
     f, g = sys.f, sys.g
 
     # This is going to be quite naive
-    x_next, _, _, _, _ = take_step(solver, prob, f, g, xₖ, tₖ, Δt, tol, sol; check=false)
+    x_predict, _, _, _, _ = take_step(solver, prob, f, g, xₖ, tₖ, Δt, tol, sol; check=false)
 
     # Record information
-    push!(sol.x, x_next)
+    push!(sol.x, x_predict)
     push!(sol.t, tₖ + Δt)
     # Is there an impact?
     valid_linear(h1, h2) = 
         (guard_direction == 0 && h1 * h2 < 0) ||
         (guard_direction == -1 && h1 > 0 && h2 < 0) ||
         (guard_direction == 1 && h1 < 0 && h2 > 0)
-    if valid_linear(h(xₖ), h(x_next))
-        push!(sol.x, Δ(x_next))
-        push!(sol.t, tₖ+Δt)
-        push!(sol.event, tₖ+Δt)
+    if valid_linear(h(xₖ), h(x_predict))
+        x⁺ = Δ(x_predict)
+        push!(sol.x, x⁺)
+        push!(sol.t, tₖ + Δt)
+        push!(sol.event_times, tₖ + Δt)
+        push!(sol.event_indices, length(sol.t))
     end
     return sol.x[end], Δt
 end
 #####################################################
 
+"""
+    solve(prob::prob{S, I, T},
+               solver::AbstractODESolver=EulerMaruyama();
+               dense_out = false,
+               dt_initial = 0.01, max_iter = 10^5, 
+               tol = 1e-6, guard_direction=default_guard_direction(prob.sys),
+               kwargs...) where {S<:StochasticSystem, I, T}
 
-function solve(prob::prob{S, I, T};
-               solver::AbstractODESolver=EulerMaruyama(),
+Solve a stochastic hybrid system.
+
+"""
+function solve(prob::prob{S, I, T},
+               solver::AbstractODESolver=EulerMaruyama();
                dense_out = false,
                dt_initial = 0.01, max_iter = 10^5, 
                tol = 1e-6, guard_direction=default_guard_direction(prob.sys),
