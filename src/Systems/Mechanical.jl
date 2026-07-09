@@ -18,9 +18,11 @@ end
 
 Create a mechanical hybrid system of the form:
 ```math
-M(q) ddot{q} + \nabla V(q) = 0.
+\\begin{cases}
+M(q) \\ddot{q} + \\nabla V(q) = 0, \\quad & h(q) \\neq 0 \\
+\\text{reset}, & h(q) = 0
+\\end{cases}
 ```
-
 
 """
 function MechanicalSystem(M, V;
@@ -226,7 +228,7 @@ end
 """
     solve(prob; kwargs...)
 
-
+Solve a mechanical hybrid system.
 """
 function solve(prob::prob{S, I, T};
                solver::AbstractODESolver=RK4(),

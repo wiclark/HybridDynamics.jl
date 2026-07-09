@@ -37,13 +37,15 @@ The available keyword arguments depend on the type of system stored in
 Supported systems include:
 
 - `GeneralSystem`
+- `LinearSystem`
+- `AffineSystem`
 - `MechanicalSystem`
-- `FilippovSys`
-- ...
+- `NonholonomicSystem`
+- `StochasticSystem`
+- `FilippovSystem`
 
 Examples
 --------
-solve(prob, RK4())
-solve(prob, RK4(); dense_output=true)
+    solve(prob, RK4())
 """
 function solve end

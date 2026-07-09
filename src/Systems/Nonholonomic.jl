@@ -16,6 +16,18 @@ struct NonholonomicSystem{M, V, A, G, N, R, E} <: AbstractHybridSystem
 end
 
 # Create the system
+"""
+    NonholonomicSystem(M, V;
+                        A = nothing,
+                        guard = nothing,
+                        normal = nothing,
+                        reset = (x, Mfun, Afun, ∇h, sys::NonholonomicSystem) -> specular_refl(x, Mfun, Afun, ∇h, sys),
+                        e = 1,
+                        direction = -1)
+
+Construct a nonholonomic hybrid system of the form:
+
+"""
 function NonholonomicSystem(M, V;
                         A = nothing,
                         guard = nothing,
@@ -230,6 +242,21 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Δt,
     end
 end
 
+
+
+"""
+    solve(prob::prob{S, I, T},
+               solver::AbstractODESolver=RK4();
+               event_method::AbstractEventLocator=LinearLocator(),
+               dense_out = true,
+               dt_initial = 0.01, max_iter = 10^6, 
+               tol = 1e-6, ztol = 1e-3,
+               guard_direction = default_guard_direction(prob.sys),
+               kwargs...) where {S<:NonholonomicSystem, I, T}
+
+Solve a nonholonomic hybrid system.
+
+"""
 function solve(prob::prob{S, I, T},
                solver::AbstractODESolver=RK4();
                event_method::AbstractEventLocator=LinearLocator(),

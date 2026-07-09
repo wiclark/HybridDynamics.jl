@@ -7,6 +7,13 @@ struct FilippovSystem{F, G, H, N} <: AbstractHybridSystem
 end
 
 # Default to auto diff to find ∇H
+"""
+    FilippovSystem(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
+
+Construct a Filippov system of the form:
+
+
+"""
 function FilippovSystem(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
     return FilippovSystem(F, G, H, N)
 end
@@ -79,6 +86,16 @@ end
 
 # EXTERNAL
 # Filippov-specific solve
+"""
+    solve(prob::prob{S,I,T}, solver::AbstractODESolver=RK45();
+    dense_out = true,
+    dt_initial = 0.001, max_iter = 10^6, tol = 1e-6, 
+    stepper::AbstractODESolver=RK4(), event_method::AbstractEventLocator=LinearLocator(),
+    kwargs...) where {S<:FilippovSystem, I, T}
+
+Solve a Filippov system.
+
+"""
 function solve(prob::prob{S,I,T}, solver::AbstractODESolver=RK45();
     dense_out = true,
     dt_initial = 0.001, max_iter = 10^6, tol = 1e-6, 

@@ -12,6 +12,12 @@ Modules = [HybridDynamics]
 Pages = ["Systems/General.jl"]
 ```
 
+### Linear/Affine
+```@autodocs
+Modules = [HybridDynamics]
+Pages = ["Systems/Linear_Affine.jl"]
+```
+
 ### Mechanical
 ```@autodocs
 Modules = [HybridDynamics]
@@ -28,12 +34,6 @@ Pages = ["Systems/Nonholonomic.jl"]
 ```@autodocs
 Modules = [HybridDynamics]
 Pages = ["Systems/Stochastic.jl"]
-```
-
-### Linear/Affine
-```@autodocs
-Modules = [HybridDynamics]
-Pages = ["Systems/Linear_Affine.jl"]
 ```
 
 ### Filippov

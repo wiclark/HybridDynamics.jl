@@ -1,7 +1,7 @@
 using Documenter
 using HybridDynamics
 
-# Automatically populate index.md
+# Automatically populate index.md with the git readme
 write(joinpath(@__DIR__, "src", "index.md"),
       read(joinpath(".", "README.md"), String))
 
