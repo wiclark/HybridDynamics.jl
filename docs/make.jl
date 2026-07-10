@@ -15,8 +15,8 @@ makedocs(
     pages = [
         "Home" => "index.md",
         "Examples" => Any[
-            "Examples/exampleexample.md",
-            "Examples/otherexamp.md"
+            "Examples/filippov.md",
+            "Examples/nonholonomic.md"
         ],
         "API Reference" => "api.md",
         "Change Log" => "changelog.md"

@@ -1,6 +1,6 @@
 # Filippov Example
 
-This is an example example. These examples could probably somehow be automatically populated & updated from the Pluto example file.
+
 
 ```@example
 import HybridDynamics as HD
