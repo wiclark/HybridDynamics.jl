@@ -159,6 +159,19 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Δt, tol, sol;
     return x_predict, dt_used, dt_next, false, sliding_now
 end
 
+"""
+    solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
+               event_method::AbstractEventLocator=LinearLocator(),
+               dense_out = true,
+               dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
+               tol = 1e-6, boundary_tol = 10,
+               stepper::AbstractODESolver=RK4(),
+               guard_direction = 0, 
+               ) where {S<:FilippovSystem, I, T}
+
+Solve a Filippov system.
+
+"""
 function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                event_method::AbstractEventLocator=LinearLocator(),
                dense_out = true,

@@ -1,4 +1,10 @@
 #Plotting Lines Expelled!
+"""
+    split_jumps(sol::AbstractHybridSolution)
+
+Inserts NaNs to separate jumps in plots
+
+"""
 function split_jumps(sol::AbstractHybridSolution) 
     states = sol.x
     

@@ -4,7 +4,17 @@
 HybridDynamics.solve
 ```
 
-# Systems
+```@autodocs
+Modules = [HybridDynamics]
+Pages = ["Analysis/Utilities.jl"]
+```
+
+```@autodocs
+Modules = [HybridDynamics]
+Pages = ["Analysis/Pathology.jl"]
+```
+---
+## Systems
 
 ### General
 ```@autodocs

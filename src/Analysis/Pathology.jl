@@ -34,7 +34,6 @@ How it works:
 - `status::Symbol`: Returns `:continue` to proceed, or `:terminate` if a pathology limit is reached.
 
 """
-#External
 function check_system_pathology(
     jump_interval, last_intervals, 
     zeno_count, instant_jump_count,
