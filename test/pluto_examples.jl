@@ -126,7 +126,7 @@ end
 begin
 	sysM = HD.MechanicalSystem(M, V; guard=h, normal=∇h, e=r)
 	probM = HD.prob(sysM, [-0.95, 0.0, 0.2, -1.5], (0.0, 10.0))
-	solM = HD.solve(probM, solver=HD.RK45())
+	solM = HD.solve(probM, HD.RK45())
 end
 
 # ╔═╡ fb3eb7c9-3f93-4986-aa89-c2ca478429d3
@@ -177,7 +177,7 @@ end
 begin
 	sysNH = HD.NonholonomicSystem(M_sleigh, V_sleigh; A = A_sleigh, guard=h_sleigh, normal=∇h_sleigh, e=1)
 	probNH = HD.prob(sysNH, [0.0, 0.0, 0.0, 1.0, 0.0, 1.5], (0.0, 100.0))
-	solNH = HD.solve(probNH, solver=HD.RK4())
+	solNH = HD.solve(probNH, HD.RK4())
 end
 
 # ╔═╡ d8370b2e-077d-488f-afb2-ceffa00fc255
