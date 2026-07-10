@@ -46,6 +46,10 @@ function MechanicalSystem(M, V;
 end
 
 # General solution struct for mechanical systems
+"""
+
+Solution object for mechanical systems.
+"""
 struct MechanicalSol{T, X, DX, I, E, EI, Z} <: AbstractHybridSolution
     t::T        # Time data
     x::X        # x = (q,p), the state and momentum

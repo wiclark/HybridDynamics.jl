@@ -5,8 +5,7 @@
 # end
 
 
-
-# Cubic Hermite interpolant for dense output: still needs to be integrated into solve dispatches
+# Cubic Hermite interpolant for dense output
 function (sol::AbstractHybridSolution)(t::Real)
 
     # Safties to make sure it usually works
