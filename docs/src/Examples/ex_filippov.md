@@ -2,7 +2,7 @@
 
 
 
-```@example
+```@example fili
 import HybridDynamics as HD
 import Plots as plt
 using LaTeXStrings
@@ -15,7 +15,9 @@ N(x) = [-cos(x[1]), 1]
 sysF = HD.FilippovSystem(F, G, H, N)
 probF = HD.prob(sysF, [0.0, 1.0], (0.0, 10.0))
 solF = HD.solve(probF, HD.RK4())
+```
 
+```@example fili
 xf = getindex.(solF.x, 1)
 yf = getindex.(solF.x, 2)
 xh = range(minimum(xf)-0.5, maximum(xf)+0.5, length=1_000)

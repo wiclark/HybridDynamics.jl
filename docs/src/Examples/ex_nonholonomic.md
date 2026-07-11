@@ -16,7 +16,7 @@
 	h(x,y) = 1 - (x^2+y^2) \geq 0.
 ```
 
-```@example
+```@example noholo
 import HybridDynamics as HD
 import Plots as plt
 using LaTeXStrings
@@ -34,11 +34,12 @@ h_sleigh(q) = 1 - (q[1]^2+q[2]^2)
 sysNH = HD.NonholonomicSystem(M_sleigh, V_sleigh; A = A_sleigh, guard=h_sleigh, normal=∇h_sleigh, e=1)
 probNH = HD.prob(sysNH, [0.0, 0.0, 0.0, 1.0, 0.0, 1.5], (0.0, 100.0))
 solNH = HD.solve(probNH, solver=HD.RK4())
+```
 
+```@example noholo
 θ = LinRange(0, 2π, 100)
 xs = getindex.(solNH.x, 1)
 ys = getindex.(solNH.x, 2)
 plt.plot(xs, ys, label="Sleigh Trajectory", lw=2)
 plt.plot!(cos.(θ), sin.(θ), label="", lc=:black, aspect_ratio=1)
-
 ```
