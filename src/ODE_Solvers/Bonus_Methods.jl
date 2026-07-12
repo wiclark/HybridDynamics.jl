@@ -67,7 +67,7 @@ function implicit_newton_solve(f::Function, x_guess::Vector, c::Vector, α::Abst
 end
 
 
-compute_step(::ImplicitEuler, f, xₖ, Δt, t) = implicit_euler_step(f, xₖ, Δt, t)
+compute_step(::BackwardEuler, f, xₖ, Δt, t) = implicit_euler_step(f, xₖ, Δt, t)
 function implicit_euler_step(f::Function, xₖ::AbstractArray, h::AbstractFloat, t::AbstractFloat)
     t_new = t + h
     #Initial Guess via exp Euler

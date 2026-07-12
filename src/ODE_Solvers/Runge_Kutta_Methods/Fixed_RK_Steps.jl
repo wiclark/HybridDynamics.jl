@@ -5,7 +5,7 @@ struct ModifiedTrap <: FixedRK end
 struct ModifiedMidpoint <: FixedRK end
 struct RichardsonExtrapolation <: FixedRK end
 struct RK4 <: FixedRK end
-struct ImplicitEuler <: FixedRK end
+struct BackwardEuler <: FixedRK end
 
 #Single take_step for RK methods
 #Fixed step methods 
