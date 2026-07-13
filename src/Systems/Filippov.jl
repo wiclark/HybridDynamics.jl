@@ -79,7 +79,7 @@ end
 
 function take_step_filippov!(solver, prob::prob{S,I,T}, Δt, tol, sol; 
     dense_out=true, stepper::AbstractODESolver=RK4(), 
-    event_method::AbstractEventLocator=LinearLocator(), guard_direction=0, boundary_tol) where {S<:FilippovSystem, I, T}
+    event_method::AbstractEventLocator=LinearLocator(), guard_direction=0, boundary_tol, track_sliding) where {S<:FilippovSystem, I, T}
 
     # Extract current sim state and time
     xₖ = sol.x[end]
@@ -178,7 +178,8 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
                tol = 1e-6, boundary_tol = 10,
                stepper::AbstractODESolver=RK4(),
-               guard_direction = 0, 
+               guard_direction = 0,
+               track_sliding=:enter 
                ) where {S<:FilippovSystem, I, T}
     sys = prob.sys
     sol = FilippovSol(prob)
@@ -186,6 +187,10 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
     Δt = dt_initial
     iter = 0
     sliding_prev = false
+
+    if !(track_sliding in (:both, :enter, :exit, :none))
+        throw(ArgumentError("track_sliding must be :both, :enter, :exit, or :none"))
+    end
 
     while sol.t[end] < t_end
         iter += 1
@@ -201,11 +206,21 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
 
         Δt = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
-        _, _, Δt, terminate, sliding_now = take_step_filippov!(solver, prob, Δt, tol, sol; dense_out=dense_out, stepper=stepper, event_method=event_method, guard_direction=guard_direction, boundary_tol)
+        _, _, Δt, terminate, sliding_now = take_step_filippov!(solver, prob, Δt, tol, sol; dense_out=dense_out, stepper=stepper, event_method=event_method, guard_direction=guard_direction, boundary_tol=boundary_tol, track_sliding=track_sliding)
 
         #handle sliding tracking 
         if sliding_now && !sliding_prev
-            @info "Sliding mode entered at t = $(sol.t[end])"
+            if track_sliding in (:both, :enter)
+                @info "Sliding mode entered at t = $(sol.t[end])"
+                push!(sol.event_times, sol.t[end])
+                push!(sol.event_indices, length(sol.t))
+            end
+        elseif !sliding_now && sliding_prev
+            if track_sliding in (:both, :exit)
+                @info "Sliding mode exited at t = $(sol.t[end])"
+                push!(sol.event_times, sol.t[end])
+                push!(sol.event_indices, length(sol.t))
+            end
         end
 
         if sliding_now
