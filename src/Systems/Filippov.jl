@@ -61,18 +61,23 @@ function filippov_vector_field(sys::FilippovSystem, x; Ftol=1e-7, atol=1e-7)
     # Near the guard (Sliding mode check)
     a(y) = dot(N_val(y), F(y))
     b(y) = dot(N_val(y), G(y))
+    
+    # Evaluate at current state x for routing logic
+    a_x = a(x)
+    b_x = b(x)
 
-    if a(x) < -atol && b(x) > atol
+    if a_x < -atol && b_x > atol
         λ(y) = a(y) / (a(y) - b(y))
         return y -> (1 - λ(y)) * F(y) + λ(y) * G(y), true
-    elseif a(x) < -atol && b(x) < -atol
+    elseif a_x < atol && b_x < atol
+        # Both point down (or one is tangent), enter H < 0 safely
         return y -> G(y), false
-    elseif a(x) > atol && b(x) > atol
+    elseif a_x > -atol && b_x > -atol
+        # Both point up (or one is tangent), enter H > 0 safely
         return y -> F(y), false
-    elseif a(x) > atol && b(x) < -atol
-        return h_val >= 0.0 ? (y -> F(y), false) : (y -> G(y), false)
     else
-        return y -> F(y), false
+        # Repulsive boundary fallback
+        return h_val >= 0.0 ? (y -> F(y), false) : (y -> G(y), false)
     end
 end
 
@@ -126,6 +131,10 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Δt, tol, sol;
         t_root = NaN
     end
 
+    # sliding exit detection
+    sliding_exit_trigger = false
+    exit_guard_fun = nothing
+
     # Drifting occurs when our solver pulls the state of the switching surface (H(x) = 0).
     # We use Newton projection step along the surface normal sys.N to snap the state
     # back onto the manifold, preventing the solver from leaking out the sliding mode. 
@@ -135,6 +144,23 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Δt, tol, sol;
             n_vec = sys.N(x_predict)
             # Apply correction
             x_predict = x_predict .- (h_err / dot(n_vec, n_vec)) .* n_vec
+        end
+
+        #check if we crossed an exit boundary during this sliding step
+        a_k = dot(sys.N(xₖ), sys.F(xₖ))
+        b_k = dot(sys.N(xₖ), sys.G(xₖ))
+
+        a_p = dot(sys.N(x_predict), sys.F(x_predict))
+        b_p = dot(sys.N(x_predict), sys.G(x_predict))
+
+        #exit implies a(x) goes to 0 or b(x) goes to 0
+        exit_a = (a_k < -guard_tol) && (a_p >= -guard_tol)
+        exit_b = (b_k > guard_tol) && (b_p <= guard_tol)
+
+        sliding_exit_trigger = exit_a || exit_b
+        if sliding_exit_trigger
+            #set guard for the locator to whicher vector field decoupled
+            exit_guard_fun = exit_a ? (x -> dot(sys.N(x), sys.F(x))) : (x -> dot(sys.N(x), sys.G(x)))
         end
     end
     
@@ -151,12 +177,42 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Δt, tol, sol;
         push!(sol.x, x_star)
         push!(sol.event_indices, length(sol.t))
         if dense_out; push!(sol.dx, vf(x_star, t_star)); end
-    else 
+    elseif sliding_exit_trigger
+        # create dummy system targeting the sliding exit condition 
+        exit_sys = FilippovSystem(sys.F, sys.G, exit_guard_fun, sys.N)
+        exit_prob = HybridDynamics.prob(exit_sys, prob.init, prob.tspan)
+
+        # locate exit
+        t_star, x_star = locate_event(event_method, exit_prob, solver, vf, xₖ, tₖ, dt_used, exit_guard_fun(xₖ), tol, sol, stepper)
+
+        # Re-project to main switch surface 
+        h_err_star = guard(sys, x_star)
+        if !isnothing(h_err_star)
+            n_vec_star = sys.N(x_star)
+            x_star = x_star .- (h_err_star / dot(n_vec_star, n_vec_star)) .* n_vec_star
+        end
+
+        # ADD THESE LINES: Register the sliding exit as an official event
+        push!(sol.event_times, t_star)
+
+        # push sol array 
+        push!(sol.t, t_star)
+        push!(sol.x, x_star)
+        
+        # Track the index
+        push!(sol.event_indices, length(sol.t))
+
+        if dense_out; push!(sol.dx, vf(x_star, t_star)); end
+        dt_used = t_star - tₖ
+        x_predict = x_star
+    else
         push!(sol.t, tₖ + dt_used)
         push!(sol.x, x_predict)
         if dense_out; push!(sol.dx, vf(x_predict, tₖ + dt_used)); end
     end
-    return x_predict, dt_used, dt_next, false, sliding_now
+    final_sliding_state = sliding_exit_trigger ? false : sliding_now
+    
+    return x_predict, dt_used, dt_next, false, final_sliding_state
 end
 
 """
@@ -212,14 +268,10 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
         if sliding_now && !sliding_prev
             if track_sliding in (:both, :enter)
                 @info "Sliding mode entered at t = $(sol.t[end])"
-                push!(sol.event_times, sol.t[end])
-                push!(sol.event_indices, length(sol.t))
             end
         elseif !sliding_now && sliding_prev
             if track_sliding in (:both, :exit)
                 @info "Sliding mode exited at t = $(sol.t[end])"
-                push!(sol.event_times, sol.t[end])
-                push!(sol.event_indices, length(sol.t))
             end
         end
 
