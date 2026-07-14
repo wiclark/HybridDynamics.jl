@@ -55,8 +55,10 @@ end
 
 #####################################################
 function take_step_stochastic!(solver, prob::prob{S, I, T}, Δt, 
-    tol, sol;
+    tol, sol, event_method;
     guard_direction=default_guard_direction(prob.sys)) where {S<:StochasticSystem, I, T}
+
+    @assert event_method isa LinearLocator "Stochastic systems only support LinearLocator."
 
     # Extract out the state
     xₖ, tₖ = sol.x[end], sol.t[end]
@@ -102,6 +104,7 @@ Solve a stochastic hybrid system.
 """
 function solve(prob::prob{S, I, T},
                solver::AbstractODESolver=EulerMaruyama();
+               event_method=LinearLocator(),
                dense_out = false,
                dt_initial = 0.01, max_iter = 10^5, 
                tol = 1e-6, guard_direction=default_guard_direction(prob.sys),
@@ -136,7 +139,7 @@ function solve(prob::prob{S, I, T},
 
     # Actually solve now
 
-        take_step_stochastic!(solver, prob, Δt, tol, sol; guard_direction = guard_direction)
+        take_step_stochastic!(solver, prob, Δt, tol, sol, event_method; guard_direction = guard_direction)
 
     end
 
