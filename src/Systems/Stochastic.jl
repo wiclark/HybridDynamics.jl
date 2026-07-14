@@ -28,8 +28,20 @@ function StochasticSystem(f, g, h, Δ;
         normal = q -> ForwardDiff.gradient(h, q)
     end
 
+    # Wrap g to ensure its output is strictly a matrix
+    g_safe = (args...) -> begin
+        res = g(args...)
+        if res isa Number
+            return [res;;] # Convert scalar to 1x1 matrix
+        elseif res isa AbstractVector
+            return reshape(res, length(res), 1) # Convert 1D Vector to Nx1 Matrix
+        else
+            return res # Already a matrix, pass it through
+        end
+    end
+
     return StochasticSystem(
-        f, g, h, Δ, normal, direction
+        f, g_safe, h, Δ, normal, direction
     )
 end
 
