@@ -7,22 +7,38 @@ struct FilippovSystem{F, G, H, N} <: AbstractHybridSystem
 end
 
 # Default to auto diff to find ∇H
+"""
+    FilippovSystem(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
+
+Construct a Filippov system of the form:
+
+
+"""
 function FilippovSystem(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
     return FilippovSystem(F, G, H, N)
 end
 
-struct FilippovSol{T, X, DX, S} <: AbstractHybridSolution
-    t::T    # Time data
-    x::X    # Position data
-    dx::DX  # f(x) Derivative at each state x - only filled when dense_out = true
-    s::S    # Time indices while sliding (this still needs added)
+struct FilippovSol{T, X, DX, S, E, EI} <: AbstractHybridSolution
+    t::T                # Time data
+    x::X                # Position data
+    dx::DX              # f(x) Derivative at each state x - only filled when dense_out = true
+    s::S                # Time indices while sliding (this still needs added)
+    event_times::E      # Times of where events take place
+    event_indices::EI   # Indices of times where events take place
 end
 
-function FilippovSol(prob::prob{F, I, T}) where {F<:FilippovSystem, I, T}
+function FilippovSol(prob::prob{S, I, T}) where {S<:FilippovSystem, I, T}
     return FilippovSol([prob.tspan[1]],
         [prob.init],
         Vector{Vector{Float64}}(),
-        Float64[])
+        Float64[],
+        Float64[],
+        Int64[])
+end
+
+function guard(sys::FilippovSystem, x::AbstractArray)
+    x_phys = (x isa AbstractMatrix) ? x[:, 1] : x
+    return isnothing(sys.h) ? nothing : sys.h(x_phys)
 end
 
 # INTERNAL
@@ -30,121 +46,242 @@ end
 ######
 ### WC: I do not believe that there is any reason for 'atol'
 ######
-function filippov_vector_field(sys, x;
-        Ftol=1e-4,
-        atol=0.0)
-
+function filippov_vector_field(sys::FilippovSystem, x; Ftol=1e-7, atol=1e-7)
     F = sys.F
     G = sys.G
-    H = sys.h
-    N = sys.N
+    h_val = sys.h(x)
+    N_val = sys.N
 
-    h = H(x)
-
-# Away from the guard
-    if h > Ftol
-        return F, false
-    elseif h < -Ftol
-        return G, false
+    if h_val > Ftol
+        return y -> F(y), false
+    elseif h_val < -Ftol
+        return y -> G(y), false
     end
 
-# Near the guard
-
-    a(y) = dot(N(y), F(y))
-    b(y) = dot(N(y), G(y))
-
-    if (a(x) < -atol && b(x) > atol) || (a(x) > atol && b(x) < -atol)
-        λ(y) = a(y)/(a(y)-b(y))
-        return y -> (1-λ(y))*F(y) + λ(y)*G(y), true
-
-
-    elseif a(x) > atol && b(x) > atol
-        return F, false
-
-    elseif a(x) < -atol && b(x) < -atol
-        return G, false
-    else
-        println([a(x), b(x)])
-        error("Failed vector field determination")
-    end
-end
-
-function guard(sys::FilippovSystem, x)
-    if isnothing(sys.h)
-        return nothing
-    else
-        return sys.h(x)
-    end
-end
-
-# EXTERNAL
-# Filippov-specific solve
-function solve(prob::prob{F,I,T}, solver::AbstractODESolver=RK45();
-    dense_out = true,
-    dt_initial = 0.001, max_iter = 10^6, tol = 1e-6, 
-    stepper::AbstractODESolver=RK4(), event_method::AbstractEventLocator=LinearLocator(),
-    kwargs...) where {F<:FilippovSystem, I, T}
+    # Near the guard (Sliding mode check)
+    a(y) = dot(N_val(y), F(y))
+    b(y) = dot(N_val(y), G(y))
     
+    # Evaluate at current state x for routing logic
+    a_x = a(x)
+    b_x = b(x)
+
+    if a_x < -atol && b_x > atol
+        λ(y) = a(y) / (a(y) - b(y))
+        return y -> (1 - λ(y)) * F(y) + λ(y) * G(y), true
+    elseif a_x < atol && b_x < atol
+        # Both point down (or one is tangent), enter H < 0 safely
+        return y -> G(y), false
+    elseif a_x > -atol && b_x > -atol
+        # Both point up (or one is tangent), enter H > 0 safely
+        return y -> F(y), false
+    else
+        # Repulsive boundary fallback
+        return h_val >= 0.0 ? (y -> F(y), false) : (y -> G(y), false)
+    end
+end
+
+
+function take_step_filippov!(solver, prob::prob{S,I,T}, Δt, tol, sol; 
+    dense_out=true, stepper::AbstractODESolver=RK4(), 
+    event_method::AbstractEventLocator=LinearLocator(), guard_direction=0, boundary_tol, track_sliding) where {S<:FilippovSystem, I, T}
+
+    # Extract current sim state and time
+    xₖ = sol.x[end]
+    tₖ = sol.t[end]
+    # Acces the system def from the problem
+    sys = prob.sys
+
+    # Define tolerances. guard_tol is for precise logic, boundary_layer for sliding stuff. I am sure we can add more fine tuning here but it works fine now
+    guard_tol = max(tol * 10, 1e-7)
+    boundary_layer = guard_tol * boundary_tol
+
+    # Retrieve the active Filippov vector field and determine if we are sliding or not
+    vf_fun, sliding_now = filippov_vector_field(sys, xₖ; Ftol=boundary_layer, atol=guard_tol)
+    # Wrap the vector field for use in ODE solvers
+    vf(x, t) = vf_fun(x)
+
+    # Determine if we are currently on the switching surface (guard)
+    h_val = guard(sys, xₖ)
+    is_on_guard = !isnothing(h_val) && abs(h_val) <= guard_tol
+
+    # When sliding or on guard, we mask the guard logic to prevent the ODE solvers from triggering events
+    # due to minor numerical bugs around H(x) = 0
+    if sliding_now || is_on_guard
+        # Create a dummy system where the guard is effectively invisible.
+        dummy_sys = FilippovSystem(sys.F, sys.G, x -> 1.0, sys.N)
+        active_prob = HybridDynamics.prob(dummy_sys, prob.init, prob.tspan)
+        #Use simple stepping for on guard states to prevent adaptive methods breaking things. 
+        active_solver = (is_on_guard && !sliding_now) ? stepper : solver
+    else
+        # Otherwise, use standard system and solver. 
+        active_prob = prob
+        active_solver = solver
+    end
+
+    # Delegate the numerical integration to the active solver
+    x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(active_solver, active_prob, vf, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction)
+
+    # If a solver reports a very small step while sliding, it is likely caught
+    # in a rejection cycle. We force a conservative step to keep things moving. 
+    if (sliding_now || is_on_guard) && dt_used < 1e-10
+        dt_used = max(Δt * 0.1, 1e-5) #Force larger step
+        x_predict = xₖ .+ dt_used .* vf(xₖ, tₖ) #Estimate state via prjection
+        eventtrigger = false    #Clear event trigger to break the loop
+        t_root = NaN
+    end
+
+    # sliding exit detection
+    sliding_exit_trigger = false
+    exit_guard_fun = nothing
+
+    # Drifting occurs when our solver pulls the state of the switching surface (H(x) = 0).
+    # We use Newton projection step along the surface normal sys.N to snap the state
+    # back onto the manifold, preventing the solver from leaking out the sliding mode. 
+    if sliding_now && !eventtrigger
+        h_err = guard(sys, x_predict)
+        if !isnothing(h_err)
+            n_vec = sys.N(x_predict)
+            # Apply correction
+            x_predict = x_predict .- (h_err / dot(n_vec, n_vec)) .* n_vec
+        end
+
+        #check if we crossed an exit boundary during this sliding step
+        a_k = dot(sys.N(xₖ), sys.F(xₖ))
+        b_k = dot(sys.N(xₖ), sys.G(xₖ))
+
+        a_p = dot(sys.N(x_predict), sys.F(x_predict))
+        b_p = dot(sys.N(x_predict), sys.G(x_predict))
+
+        #exit implies a(x) goes to 0 or b(x) goes to 0
+        exit_a = (a_k < -guard_tol) && (a_p >= -guard_tol)
+        exit_b = (b_k > guard_tol) && (b_p <= guard_tol)
+
+        sliding_exit_trigger = exit_a || exit_b
+        if sliding_exit_trigger
+            #set guard for the locator to whicher vector field decoupled
+            exit_guard_fun = exit_a ? (x -> dot(sys.N(x), sys.F(x))) : (x -> dot(sys.N(x), sys.G(x)))
+        end
+    end
+    
+    # Dampen the next step size if we are sliding to prioritize surface accuracy 
+    if sliding_now || is_on_guard
+        dt_next = min(dt_next, dt_used * 1.5, 0.01) 
+    end
+
+    # Handle event detection
+    if eventtrigger
+        t_star, x_star = locate_event(event_method, prob, solver, vf, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
+        push!(sol.event_times, t_star)
+        push!(sol.t, t_star)
+        push!(sol.x, x_star)
+        push!(sol.event_indices, length(sol.t))
+        if dense_out; push!(sol.dx, vf(x_star, t_star)); end
+    elseif sliding_exit_trigger
+        # create dummy system targeting the sliding exit condition 
+        exit_sys = FilippovSystem(sys.F, sys.G, exit_guard_fun, sys.N)
+        exit_prob = HybridDynamics.prob(exit_sys, prob.init, prob.tspan)
+
+        # locate exit
+        t_star, x_star = locate_event(event_method, exit_prob, solver, vf, xₖ, tₖ, dt_used, exit_guard_fun(xₖ), tol, sol, stepper)
+
+        # Re-project to main switch surface 
+        h_err_star = guard(sys, x_star)
+        if !isnothing(h_err_star)
+            n_vec_star = sys.N(x_star)
+            x_star = x_star .- (h_err_star / dot(n_vec_star, n_vec_star)) .* n_vec_star
+        end
+
+        # ADD THESE LINES: Register the sliding exit as an official event
+        push!(sol.event_times, t_star)
+
+        # push sol array 
+        push!(sol.t, t_star)
+        push!(sol.x, x_star)
+        
+        # Track the index
+        push!(sol.event_indices, length(sol.t))
+
+        if dense_out; push!(sol.dx, vf(x_star, t_star)); end
+        dt_used = t_star - tₖ
+        x_predict = x_star
+    else
+        push!(sol.t, tₖ + dt_used)
+        push!(sol.x, x_predict)
+        if dense_out; push!(sol.dx, vf(x_predict, tₖ + dt_used)); end
+    end
+    final_sliding_state = sliding_exit_trigger ? false : sliding_now
+    
+    return x_predict, dt_used, dt_next, false, final_sliding_state
+end
+
+"""
+    solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
+               event_method::AbstractEventLocator=LinearLocator(),
+               dense_out = true,
+               dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
+               tol = 1e-6, boundary_tol = 10,
+               stepper::AbstractODESolver=RK4(),
+               guard_direction = 0, 
+               ) where {S<:FilippovSystem, I, T}
+
+Solve a Filippov system.
+
+"""
+function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
+               event_method::AbstractEventLocator=LinearLocator(),
+               dense_out = true,
+               dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
+               tol = 1e-6, boundary_tol = 10,
+               stepper::AbstractODESolver=RK4(),
+               guard_direction = 0,
+               track_sliding=:enter 
+               ) where {S<:FilippovSystem, I, T}
     sys = prob.sys
     sol = FilippovSol(prob)
-
-    _, t_end = prob.tspan     # Extract start and end times for bounds
-
-    Δt = dt_initial                 #Initialize current time step with user input
-    iter = 0                        #Start iteration counter
+    _, t_end = prob.tspan
+    Δt = dt_initial
+    iter = 0
     sliding_prev = false
 
-    # Run sim until end of specified time span
-    while sol.t[end] < t_end 
-        
-    # Safties
-        # Stop if we hit the iteration limit to avoid memory doomsday
-        iter += 1
-        if iter > max_iter 
-            @warn "Maximum Iteration Count ($max_iter) exceeded."
-            break
-        end
-
-        # Terminate if the remaining time is below machine precision
-        if t_end - sol.t[end] <= eps(t_end)
-            break
-        end
-
-        #Truncate time step if we overshoot the final sim time
-        dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
-
-    # Actually solve now
-
-        xₖ = sol.x[end] #Retrieve current state at start of step
-        tₖ = sol.t[end] #Retrieve current time at start of step
-
-        # Choose vector field for current step based on current position relative to the guard
-        vf_fun, sliding_now = filippov_vector_field(sys, xₖ)
-
-        ## This doesn't quite work due to tolerances in the above function
-        if sliding_now && !sliding_prev
-            @warn "Sliding mode entered at t = $(tₖ)"
-        end
-
-        sliding_prev = sliding_now
-        if sliding_now
-            push!(sol.s, tₖ)
-        end
-
-        vf(x,t) = vf_fun(x)
-        x_predict, _, _, dt_used, dt_next = take_step(solver, prob, vf, xₖ, tₖ, dt_step, tol, sol)
-
-        tₖ += dt_used
-        xₖ = x_predict
-        if dense_out
-            push!(sol.dx, vf(xₖ, tₖ))
-        end
-        push!(sol.t, tₖ)
-        push!(sol.x, xₖ)
-
-        Δt = dt_next
-
+    if !(track_sliding in (:both, :enter, :exit, :none))
+        throw(ArgumentError("track_sliding must be :both, :enter, :exit, or :none"))
     end
 
+    while sol.t[end] < t_end
+        iter += 1
+        if iter > max_iter
+            @info "Maximum Iterations $max_iter Reached."
+            break
+        end
+
+        if t_end - sol.t[end] <= eps(t_end)
+            @info "Time step below minimum threshold $dt_min. Terminating."
+            break
+        end
+
+        Δt = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
+
+        _, _, Δt, terminate, sliding_now = take_step_filippov!(solver, prob, Δt, tol, sol; dense_out=dense_out, stepper=stepper, event_method=event_method, guard_direction=guard_direction, boundary_tol=boundary_tol, track_sliding=track_sliding)
+
+        #handle sliding tracking 
+        if sliding_now && !sliding_prev
+            if track_sliding in (:both, :enter)
+                @info "Sliding mode entered at t = $(sol.t[end])"
+            end
+        elseif !sliding_now && sliding_prev
+            if track_sliding in (:both, :exit)
+                @info "Sliding mode exited at t = $(sol.t[end])"
+            end
+        end
+
+        if sliding_now
+            push!(sol.s, sol.t[end])
+        end
+        sliding_prev = sliding_now
+        if terminate
+            break
+        end
+    end
     return sol
 end

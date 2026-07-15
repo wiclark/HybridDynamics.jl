@@ -114,7 +114,7 @@ function locate_event(::BisectionLocator, prob, solver::AbstractODESolver, f, x�
         #test midpoint
         τ_m = (τ_l + τ_r) / 2.0
 
-        x_m, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_m, tol, sol, stepper)
+        x_m, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_m, tol, sol, stepper; check=false)
         h_m = guard(sys, x_m)
     
         if signbit(h_l) != signbit(h_m)
@@ -126,121 +126,207 @@ function locate_event(::BisectionLocator, prob, solver::AbstractODESolver, f, x�
     end
     
     t_star = tₖ + τ_l
-    x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_l, tol, sol, stepper)
+    x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_l, tol, sol, stepper; check=false)
     return t_star, x_star
 end
 #Linear Interpolation
 
 function locate_event(::LinearLocator, prob, solver::AbstractODESolver, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
+    # Extract System
     sys = prob.sys
+    # Extract left boundary to 0 and right to Δt
     τ_l, τ_r = 0.0, Δt
+    # Set guard function value at the left boundary to the current value.
     h_l = h_now
 
-    if abs(h_now) < tol || h_now < 0
+    # Check if state already satisfies the event condition, if so we return the state and time.
+    if abs(h_now) < tol 
         return tₖ, xₖ
     end
 
-    #Get right side of boundary
-    x_r, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_r, tol, sol, stepper)
+    # Get right side of boundary
+    x_r, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_r, tol, sol, stepper; check=false)
+    # Eval guard at this new right side state
     h_r = guard(sys, x_r)
+    
+    # If we ever get a step not bracketing a root we exit to avoid iterating garbage. 
+    if signbit(h_l) == signbit(h_r)
+        # Return the time and state at the end of the full step since no event took place
+        return tₖ + Δt, x_r
+    end
 
+    # Initialize our best guess for the event time offset and state to the right boundary
     τ_star = Δt
     x_star = x_r
 
     for _ in 1:100
-        #=
-        if abs(τ_r - τ_l) < tol || abs(h_r) < tol
-            τ_star = τ_r
-            x_star = x_r
-            break
-        end
-        =#
-
-        #Linear Interp
+        # Linear Interpolation
+        # Calc time offset where event occurs
         τ_m = τ_r - h_r * (τ_r - τ_l) / (h_r - h_l)
 
-        x_m, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_m, tol, sol, stepper)
+        # Step ODE solver forward by time offset τ_m
+        x_m, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_m, tol, sol, stepper; check=false)
+        # Eval guard at this new state
         h_m = guard(sys, x_m)
 
+        # Check if this interpolated state satifies the event tolerance 
         if abs(h_m) < tol
+            # If so we save current as our final answer and break out of the loop. 
             τ_star = τ_m
             x_star = x_m
             break
         end
 
-        #keep root bracketed
+        # keep root bracketed
+        # If the sign at the left boudnary is diff form the sign at the new point, root is in left half 
         if signbit(h_l) != signbit(h_m)
+            # Update right boundary time to the new time
             τ_r = τ_m
+            # Update the right boundary guard value
             h_r = h_m
         else 
+            # Otherwise root is in the right half, so update left boundary time
             τ_l = τ_m
             h_l = h_m
         end
     end
+    # Calc absolute time of the event by adding base time to the found offset
     t_star = tₖ + τ_star
-    x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper)
+    # return abs time and its corresponding state. 
     return t_star, x_star
 end
 
 function locate_event(::QuadraticLocator, prob, solver::AbstractODESolver, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
     sys = prob.sys
 
-    #Get three points 
+    # Get three points 
+    # Start of interval guard value. 
     h₀ = h_now
 
-    #middle point. We just take a half step instead of going one before the start point. I think itll be more stable. 
-    x₁, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt / 2.0, tol, sol, stepper)
+    # middle point. We just take a half step instead of going one before the start point. I think itll be more stable. 
+    x₁, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt / 2.0, tol, sol, stepper; check=false)
     h₁ = guard(sys, x₁)
 
-    #endpoint
-    x₂, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol, stepper)
+    # endpoint
+    x₂, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=false)
     h₂ = guard(sys, x₂)
 
-    #compute parabola coeffs
+    # Must actually bracket a root
+    # Check if the start and end points have same sign (meaning they likely dont have a root between them)
+    if signbit(h₀) == signbit(h₂)
+        # Compute linear interp guess as failsafe
+        θ = -h₀ / (h₂ - h₀)
+        # Ensure guessed fraction doesnt go outside the time interval 
+        τ_star = clamp(θ * Δt, 0.0, Δt)
+
+        # Step solver to time we got above. 
+        x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper; check=false)
+
+        # Return time and state bypassing the quadratic logic.
+        return tₖ + τ_star, x_star
+    end
+
+    # compute parabola coeffs
+    # y int is the starting value
     c = h₀
+    # Compute Linear coeffs based on 3 points
     b = (-3.0 * h₀ + 4.0 * h₁ - h₂) / Δt
+    # Compute quad coeffs based on 3 points
     a = 2.0 * (h₀ - 2.0 * h₁ + h₂) / (Δt ^ 2)
 
-    #root finding with Fallbacks
+    # Check if quadratic term if effectively zero. If so we fall back to linear interpolation
     if abs(a) < tol
-        #curve is basically zero, fallback to linear interp
         θ = -h₀ / (h₂ - h₀)
-        τ_star = θ * Δt
-    else 
-        discriminant = b^2 - 4.0 * a * c
-
-        if discriminant < 0
-            #fallback to linear interp
+        τ_star = clamp(θ * Δt, 0.0, Δt)
+    else
+        # Calc discriminant of quad formula
+        disc = b^2 - 4.0*a*c
+        # If disc is negative, parabola doesnt cross the axis with no real roots.
+        if disc < 0
+            # Fallback to linear interpolation if no real roots exist.
             θ = -h₀ / (h₂ - h₀)
-            τ_star = θ * Δt
+            τ_star = clamp(θ * Δt, 0.0, Δt)
         else
-            #stable quad root finding
-            q = -.5 * (b + sign(b) * sqrt(discriminant))
-            root_1 = q / a
-            root_2 = c / q
+            # Use quadratic formula (this is the stable version)
+            q = -0.5 * (b + sign(b)*sqrt(disc))
 
-            valid_1 = 0.0 <= root_1 < Δt
-            valid_2 = 0.0 <= root_2 < Δt
+            # First potential root
+            root1 = q/a
+            # Second potential root
+            root2 = c/q
 
-            #select right root
-            if valid_1 && valid_2
-                #if parabola crosses twice we pick first one
-                τ_star = min(root_1, root_2)
-            elseif valid_1
-                τ_star = root_1
-            elseif valid_2
-                τ_star = root_2
-            else
-                #roots drifted to narnia? 
+            # Verify if first root is a finite number and lies within the time interval
+            valid1 = isfinite(root1) && (0.0 <= root1 <= Δt)
+            # See above but for second root
+            valid2 = isfinite(root2) && (0.0 <= root2 <= Δt)
+
+            # If both roots are valid inside the interval...
+            if valid1 && valid2
+                # Choose earliest event time as the root. 
+                τ_star = min(root1, root2)
+            # If only the first root is valid....
+            elseif valid1
+                # Assign this first root as the root
+                τ_star = root1
+            # If only second is valid...
+            elseif valid2
+                # Assign this second root as the root
+                τ_star = root2
+            # If neither root is valid...
+            else 
+                #Fall back to linear interp. 
                 θ = -h₀ / (h₂ - h₀)
-                τ_star = θ * Δt
+                τ_star = clamp(θ * Δt, 0.0, Δt)
             end
         end
     end
-    t_star = tₖ + τ_star
-    x_star, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper)
 
-    return t_star, x_star
+    # Verify the quadratic prediction. We dont just trust it with our heart of hearts. 
+    x_test, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper; check=false)
+    h_test = guard(sys, x_test)
+
+    # If prediction is worse than midpoint we abandon it and linear interp. Just a failsafe.
+    if abs(h_test) > abs(h₁)
+        θ = -h₀ / (h₂ - h₀)
+        τ_star = clamp(θ * Δt, 0.0, Δt)
+
+        x_test, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper; check=false)
+        h_test = guard(sys, x_test)
+
+    end
+
+    # If the prediction STILL doesnt meet the tolerance requirements, attempt one more linear step.
+    if abs(h_test) > tol
+        # Reset left boundary to start of step
+        τ_l = 0.0
+        # Reset right boundary to end of the step
+        τ_r = Δt
+        # Reset left boundary guard value
+        h_l = h₀
+        # Reset right boundary guard value
+        h_r = h₂
+        
+        # Check if the root is between the start and the test point 
+        if signbit(h_l) != signbit(h_test)
+            # Shrink right boundary to test point
+            τ_r = τ_star
+            h_r = h_test
+        else
+            # Otherwise shrink left boundary to test point
+            τ_l = τ_star
+            h_l = h_test
+        end
+        # Perform one final linear interp on new bounds 
+        τ_star = τ_r - h_r*(τ_r - τ_l)/(h_r - h_l)
+        # ensure final pred is within clamped bounds
+        τ_star = clamp(τ_star, 0.0, Δt)
+        # Step solver to this final refined time
+        x_test, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_star, tol, sol, stepper; check=false)
+    end
+    # Calc the absolute time of the verified event
+    t_star = tₖ + τ_star
+    # Return abs time and its corresponding state. 
+    return t_star, x_test
 end
 
 function locate_event(::NewtonLocator, prob, solver::AbstractODESolver, f, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
@@ -250,7 +336,7 @@ function locate_event(::NewtonLocator, prob, solver::AbstractODESolver, f, xₖ,
     h_prev = h_now
 
     τ_curr = Δt
-    x_curr, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_curr, tol, sol, stepper)
+    x_curr, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_curr, tol, sol, stepper; check=false)
     h_curr = guard(sys, x_curr)
 
     for _ in 1:100
@@ -277,7 +363,7 @@ function locate_event(::NewtonLocator, prob, solver::AbstractODESolver, f, xₖ,
         h_prev = h_curr
 
         τ_curr = τ_next
-        x_curr, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_curr, tol, sol, stepper)
+        x_curr, _, _, _, _ = take_step(solver, prob, f, xₖ, tₖ, τ_curr, tol, sol, stepper; check=false)
         h_curr = guard(sys, x_curr)
     end
     t_star = tₖ + τ_curr

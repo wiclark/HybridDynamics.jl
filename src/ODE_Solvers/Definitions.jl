@@ -20,9 +20,32 @@ abstract type AbstractHybridProblem end
 #Parent Category for Solution types.
 abstract type AbstractHybridSolution end
 
-struct prob{F <: AbstractHybridSystem, I  <: AbstractArray{Float64}, T <: Tuple{Float64, Float64}} <: AbstractHybridProblem
-    sys::F
+struct prob{S <: AbstractHybridSystem, I  <: AbstractArray{Float64}, T <: Tuple{Float64, Float64}} <: AbstractHybridProblem
+    sys::S
     init::I
     tspan::T
 end
 
+"""
+    solve(prob; kwargs...)
+
+Solve a hybrid dynamical system.
+
+The available keyword arguments depend on the type of system stored in
+`prob.sys`. See the method-specific documentation for details.
+
+Supported systems include:
+
+- `GeneralSystem`
+- `LinearSystem`
+- `AffineSystem`
+- `MechanicalSystem`
+- `NonholonomicSystem`
+- `StochasticSystem`
+- `FilippovSystem`
+
+Examples
+--------
+    solve(prob, RK4())
+"""
+function solve end

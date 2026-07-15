@@ -55,7 +55,7 @@ export GeneralSystem
 
 ########
 #ODE Step solvers - Interpolation with Fixed Step size
-export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver, RichardsonExtrapolationm, ImplicitEuler
+export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver, RichardsonExtrapolation, BackwardEuler, RK4
 #With Adaptive step size
 export RK23, RK45
 
@@ -71,7 +71,7 @@ export AdaptiveABM2, AdaptiveABM3
 export MagnusLeapfrog
 
 #EventDetection locators
-export LinearLocator, BisectionLocator, QuadraticLocator
+export LinearLocator, BisectionLocator, QuadraticLocator, NewtonLocator
 
 #Linear/Affine additives
 export beating_and_blocking_sets, is_trivially_blocking
@@ -80,100 +80,59 @@ export beating_and_blocking_sets, is_trivially_blocking
 export variational_vector_field, compute_pushforward, apply_variational_jump
 
 #Plotting Help
-export split_jumps
+export split_jumps, extract_jumps
 end
-
 
 
 """
 INTEGRATION GUIDE
 
-This method of doing things uses Multiple Dispatch to seperate the physics from the solvers. 
-To integrate a new system or solver, follow this guide that hopefully explains everything. 
-Note: if you want more details on the specific things going on, go to the comments I have in each section as this will just be the overview
+### 1. ADDING A NEW SYSTEM TYPE
+Create a new file in `/src/Systems/` (e.g., `MySystem.jl`).
+* **Step 1:** Define your `struct` as a subtype of `AbstractHybridSystem`.
+* **Step 2:** Define system-specific functions (e.g., drift `f`, diffusion `g`, constraint matrix `A`).
+* **Step 3:** Create a constructor that handles optional parameters and uses `ForwardDiff` 
+  to generate the guard normal if not provided.
+* **Step 4:** Define a custom `Sol` struct (subtype `AbstractHybridSolution`) with an 
+  initialization method.
+* **Step 5:** Implement a `take_step_mysystem!` function to centralize logic 
+  (e.g., sliding modes, Zeno points) by wrapping standard solver calls.
+* **Step 6"** Implement your solve dispatch.
 
-For examples on how to run anything try the Demo files within /test/...!
+### 2. ADDING A NEW SOLVER
+Numerical solvers are agnostic of the physical system type.
+* **WHERE:** `/src/ODE_solvers.jl/...`
+* **HOW:**
+    1. Define a tag: `struct MyNewSolver <: AbstractODESolver end`.
+    2. Implement `take_step(solver::MyNewSolver, prob, f, x, t, Δt, tol, sol; kwargs...)`.
+    3. Return `x_predict`, `eventtrigger` (Bool), root-finding metrics, and `dt_next`.
 
-1. ADDING A NEW SYSTEM TYPE
-To add a new system (e.g., 'MySystem.jl'), define a struct that subtypes 'AbstractHybridSystem' in a new file within '/src/Systems/'.
+    NOTE: Currently we use subsets of these solver types (Runge Kutta and Linear Multistep Methods)
+    If yours fits within on of those then add it there. Otherwise add it as you see fit. 
 
-    • Step 1: Define the core system parameters and functions (vector field 'f', guard function 'h', and discrete map 'Δ', or whatever may be special to your system).
-    • Step 2: Create the corresponding problem ('prob') and solution ('sol') structs for the new system type.
-    • Step 3: Implement an 'init_solution' function that intializes whatever your custom solution struct with the initial condition requires.
-    • Step 4: Construct the outer 'solve' function signature to accomodate your new system type if it requires certain wacky behavior. 
+### 3. ADDING A NEW EVENT LOCATOR
+Locators handle root-finding strategies after a guard crossing is detected.
+* **WHERE:** `/src/Event_Locators.jl`
+* **HOW:**
+    1. Define a tag: `struct MyNewLocator <: AbstractEventLocator end`.
+    2. Implement `locate_event(::MyNewLocator, prob, solver, f, xₖ, tₖ, Δt, h_val, tol, sol, stepper)`.
+    3. Isolate the fractional time τ* ∈ [0, Δt] where the impact occurs, 
+       periodically querying the solver via `take_step` to probe the guard state.
 
-2) ADDING A NEW SOLVER
-If you need to add a new integration method (e.g., RK4, etc):
+### VARIABLE DICTIONARY
 
-WHERE: /src/ODE_solvers.jl
-HOW: 
-    1) Define a tag: 'struct MyNewSolver <: AbstractODESolver end'
-    2) Implement the engine with the 'take_step' function using the quadratic guard crossing layout a mock is below.
-        function take_step(::MyNewSolver, sys, f , xₖ, tₖ, Δt, tol)
-            # 1) compute x_predict (the full step integration)
-            x_predict = my_solver_step(f, xₖ, Δt, tₖ)
-
-            # 2) Compute x_mid (the exact midpoint state at Δt / 2.0)
-            x_mid = my_solver_step(f, xₖ, Δt / 2.0, tₖ)
-            #NOTE: you may need to use another solver to do this step, particularly if you are using a Linear Multistep Method. 
-
-            # 3) Evaluate the guard function at start, middle, and predicted end
-            h_now = guard(sys, xₖ)
-            h_mid = guard(sys, x_mid)
-            h_next = guard(sys, x_predict)
-
-            # 4) Evaluate event using quadratic interpolation method
-            eventtriggered = crossed_guard(h_now, h_mid, h_next; tol=tol)
-
-            # 5) Determine step size progression (adaptive or fixed) 
-            #This will be improved in the future hopefully
-            dt_next = Δt * 1.2
-
-            # 6) Return the standard step package
-            return x_predict, eventtriggered, h_now, dt_next
-        end
-        
-
-3) ADDING A NEW EVENT LOCATOR (INTER/EXTRAPOLATION METHODS)
-If you need a specialized root finding stragedy for event, or higher/lower order methods:
-
-WHERE: /src/ODE_solvers.jl
-HOW:
-    1) Define a type tag: struct MyNewLocator <: AbstractEventLocator end
-    2) Implement the engine with the 'locate_event' function to pinpoint root boundaries
-        function locate_event(::MyNewLocator, sys, solver, f, xₖ, tₖ, Δt, h_now, tol, sol)
-            # 1) Your Custom Root-Finding Strategy
-            # Run your custom algorithm to isolate the fractional step size τ_star ∈ [0, Δt].
-
-            # To evaluate the guard at any intermediate guess (τ) during your loop, query the solver engine like this:
-            #   x_guess, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, τ, tol, sol)
-            #   h_guess = guard(sys, x_guess)
-    
-    τ_star = # ... Your logic computes the precise fractional step here
-
-    # 2) Calculate precise crossing variables at the isolated root
-    t_star = tₖ + τ_star
-    x_star, _, _, _ = take_step(solver, sys, f, xₖ, tₖ, τ_star, tol, sol)
-    
-    # 3) Return the pinpointed impact conditions
-    return t_star, x_star
-end
-## VARIABLE DICTIONARY
+Below are some of the most common variables we use.
 
 | Variable | Description |
-| `sys` | The physical system object subtyping `AbstractHybridSystem`
-| `f` | The continuous vector field function `(x, t) -> dx/dt`
-| `xₖ` | The state vector at the start of the current step
-| `x_mid` | The calculated state vector exactly halfway through the step time 
-| `x_predict` | The predicted state vector at the end of the full step
-| `tₖ` | The current simulation time
-| `Δt` | The current time step duration
-| `tol` | The numerical error/root-finding tolerance threshold
-| `h_now` | Guard evaluation at the start of the step
-| `h_mid` | Guard evaluation at the exact midpoint of the step (used for quadratic event detection)
-| `h_next` | Guard evaluation at the predicted end of the step
-| `eventtriggered` | Boolean indicating a confirmed linear crossing or quadratic dip
-| `t_star` | The pinpointed time of guard impact
-| `x_star` | The state vector on the guard surface at `t_star`
-| `sol` | The complete solution object containing trajectory history
+| `sys` | The physical system object (subtype of `AbstractHybridSystem`) |
+| `f` / `f_λ` | The continuous vector field (optionally including multipliers) |
+| `xₖ` | The state vector at the start of the current step |
+| `tₖ` | The current simulation time |
+| `Δt` | The current time step duration |
+| `tol` | Numerical tolerance for integration and event detection |
+| `h` / `∇h` | Guard function and its gradient (surface normal) |
+| `x_predict` | The predicted state at the end of the step |
+| `t_star` | The pinpointed time of guard impact |
+| `x_star` | The interpolated state vector exactly on the guard surface |
+| `sol` | The `AbstractHybridSolution` object storing history/events |
 """
