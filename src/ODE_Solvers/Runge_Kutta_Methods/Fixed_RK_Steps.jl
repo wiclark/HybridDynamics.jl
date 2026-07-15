@@ -1,11 +1,31 @@
 #Non-adaptive solvers
 abstract type FixedRK <: RK end
+
+"""
+Forward (explicit) Euler method.
+"""
 struct ForwardEuler <: FixedRK end
-struct ModifiedTrap <: FixedRK end
-struct ModifiedMidpoint <: FixedRK end
-struct RichardsonExtrapolation <: FixedRK end
-struct RK4 <: FixedRK end
+"""
+Backward (implicit) Euler method.
+"""
 struct BackwardEuler <: FixedRK end
+"""
+Modified trapezoidal method.
+"""
+struct ModifiedTrap <: FixedRK end
+"""
+Modified midpoint method.
+"""
+struct ModifiedMidpoint <: FixedRK end
+"""
+Richardson Extrapolation.
+"""
+struct RichardsonExtrapolation <: FixedRK end
+"""
+Fourth-order Runge-Kutta.
+"""
+struct RK4 <: FixedRK end
+
 
 #Single take_step for RK methods
 #Fixed step methods 

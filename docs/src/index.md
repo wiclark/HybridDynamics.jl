@@ -6,9 +6,9 @@ A Julia package for studying the dynamics of hybrid systems.
 
 ## Usage
 
-Define a hybrid system using one of the specified systems below. (then prob and solve)
+This package supports the following system types: "GeneralSystem", "MechanicalSystem", "NonholonomicSystem", "StochasticSystem", "FilippovSystem", and "Linear/AffineSystem".
 
-
+For a demonstration, see the Pluto notebooks: "bouncing_ball.jl" and "pluto_examples.jl".
 
 ## Systems
 
@@ -27,14 +27,14 @@ Define a hybrid system using one of the specified systems below. (then prob and 
 
     Optional inputs:
     - ``h``: Guard
-    - $\Delta$: Reset map
+    - ``Δ``: Reset map
     - ``e``: Coefficient of restitution
 
 - **LinearSystem** ($A, \lambda, C$)
 
     Required inputs:
     - ``A``: State transition matrix
-    - $\lambda$: Normal vector to the guard
+    - ``λ``: Normal vector to the guard
     - ``C``: Reset map matrix ($x⁺ = Cx$)
 
 - **AffineSystem** ($A, b, \lambda, a, C, \kappa$)
@@ -42,10 +42,10 @@ Define a hybrid system using one of the specified systems below. (then prob and 
     Required inputs:
     - ``A``: State transition matrix
     - ``b``: Continuous affine vector ($dx/dt = Ax + b$)
-    - $\lambda$: Normal vector to the guard
+    - ``λ``: Normal vector to the guard
     - ``a``: Guard Offset const $dot(λ, x) + a = 0$
     - ``C``: Reset map matrix ($x⁺ = Cx$)
-    - $\kappa$: Discrete affine vector const x⁺ = Cx + κ
+    - ``κ``: Discrete affine vector const x⁺ = Cx + κ
 
 - **FilippovSystem** ($F, G, H$)
 

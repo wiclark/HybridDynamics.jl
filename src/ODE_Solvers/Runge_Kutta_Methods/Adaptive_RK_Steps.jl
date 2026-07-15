@@ -1,7 +1,13 @@
 abstract type AdaptiveRK <: RK end
 
 #Adaptive solvers
+"""
+Adaptive fourth-fifth order Runge-Kutta method.
+"""
 struct RK45 <: AdaptiveRK end
+"""
+Adaptive second-third order Runge-Kutta method.
+"""
 struct RK23 <: AdaptiveRK end
 
 #Adaptive step methods
