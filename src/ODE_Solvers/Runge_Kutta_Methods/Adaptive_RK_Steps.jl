@@ -56,56 +56,51 @@ end
 
 # Runge-Kutta 23
 function rk_23_step(f::Function, xₖ::AbstractArray, Δt::AbstractFloat, t::AbstractFloat, tf::AbstractFloat, sys, tol)
-    # As this is an adaptive step solver, Δt is the step size from the previous step
-    # As the step size is not of fixed size, we specify the terminal time, tf, of the problem
     dt_step = minimum([Δt, tf-t])
 
-    #Intialization to make sure they exist
-    x2 = xₖ; x3 = xₖ
-
-    # Loop through to find an acceptable step
     while true
         h_now = guard(sys, xₖ)
-        # Compute the two predictions and their difference
-        k1 = f(xₖ, t)
-
-        x2 = xₖ + dt_step*k1
-        k2 = f(x2, t+dt_step)
-        h2 = guard(sys, x2)
-
-        x3 = xₖ + dt_step/4*(k1+k2)
-        k3 = f(x3, t+dt_step/2)
-        h3 = guard(sys, x3)
-
-        x1_3 = xₖ + dt_step*(1/6*k1+1/6*k2+2/3*k3)
-        x_predict = xₖ + dt_step*(1/2*k1+1/2*k2)
-
-        LTE = norm(x1_3 - x_predict)
-        # Reject or accept?
-        dt_next = updated_step(LTE, tol, dt_step, 3)
         
+        k1 = f(xₖ, t)
+        
+        x2 = xₖ .+ dt_step .* (1/2) .* k1
+        k2 = f(x2, t + dt_step/2)
+        h2 = guard(sys, x2)
+        
+        x3 = xₖ .+ dt_step .* (3/4) .* k2
+        k3 = f(x3, t + dt_step*3/4)
+        h3 = guard(sys, x3)
+        
+        # 3rd-order advance
+        x_predict = xₖ .+ dt_step .* (2/9 .* k1 .+ 1/3 .* k2 .+ 4/9 .* k3)
         h_end = guard(sys, x_predict)
-
-        #did any intermediate stage cross guard?
+        
+        k4 = f(x_predict, t + dt_step) # FSAL setup
+        
+        # 2nd-order error estimate
+        x_err = xₖ .+ dt_step .* (7/24 .* k1 .+ 1/4 .* k2 .+ 1/3 .* k3 .+ 1/8 .* k4)
+        
+        LTE = norm(x_predict .- x_err)
+        
+        # Error is bounded by the 2nd-order estimate, so it scales as O(h^3)
+        dt_next = updated_step(LTE, tol, dt_step, 3) 
+        
         stage_crossed = (h_now * h2 < 0) || (h_now * h3 < 0)
-        #Did final state completely miss crossing?
         end_missed = (h_now * h_end > 0)
-
-        #if we crossed inside step but missed at end, force rejection
+        
         if stage_crossed && end_missed
-            dt_step = dt_step / 2.0 #force smaller step
+            dt_step = dt_step / 2.0 
             continue
         end
-
+        
         if LTE < tol
             return x_predict, dt_step, dt_next
         else
-            # We reject and repeat the loop with an updated step
             dt_step = dt_next
         end
         if dt_step < 1e-12
             @warn "Step size has decreased below 1e-12"
-            return x_predict, dt_step, dt_next #force break to avoid looping forever
+            return x_predict, dt_step, dt_next
         end
     end
 end
@@ -144,10 +139,10 @@ function rk_45_step(f::Function, xₖ::AbstractArray, Δt::AbstractFloat, t::Abs
         k6 = f(x6, t+dt_step)
         h6 = guard(sys, x6)
 
-        k7 = f(xₖ + dt_step*(35/384*k1 + 0*k2 + 500/1113*k3 + 125/192*k4 - 2187/6784*k5 + 11/84*k6), t+dt_step)
+        x_predict = xₖ + dt_step*(35/384*k1 + 0*k2 + 500/1113*k3 + 125/192*k4 - 2187/6784*k5 + 11/84*k6)
 
-        # The two updates
-        x_predict = xₖ + dt_step*k7
+        k7 = f(x_predict, t+dt_step)
+
         x1_5 = xₖ + dt_step*(5179/57600*k1 + 0*k2 + 7571/16695*k3 + 393/640*k4 - 92097/339200*k5 + 187/2100*k6 + 1/40*k7)
 
         LTE = norm(x_predict - x1_5)

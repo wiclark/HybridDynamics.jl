@@ -112,54 +112,68 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
 end
 
 function compute_lmm_step(::AdaptiveABM2, f, xₖ, tₖ, Δt, x_history, t_history)
+    x₋₁ = x_history[end]
+    t₋₁ = t_history[end]
 
-    # history
-    xₖ₋₁ = x_history[end]
-    tₖ₋₁ = t_history[end]
+    fₖ  = f(xₖ, tₖ)
+    f₋₁ = f(x₋₁, t₋₁)
 
-    # slopes
-    fₖ   = f(xₖ, tₖ)
-    fₖ₋₁ = f(xₖ₋₁, tₖ₋₁)
+    h = Δt
+    h1 = tₖ - t₋₁
 
-    x_predict = xₖ .+ Δt .* ( (3/2).*fₖ .- (1/2).*fₖ₋₁ )
+    # Variable-step AB2 predictor
+    df1 = (fₖ .- f₋₁) ./ h1
+    x_predict = xₖ .+ h .* fₖ .+ (h^2 / 2) .* df1
 
-    f_predict = f(x_predict, tₖ + Δt)
+    f_predict = f(x_predict, tₖ + h)
 
-    x_correct = xₖ .+ (Δt/2) .* (f_predict .+ fₖ)
+    # Trapezoidal corrector (AM2) - inherently step-size independent
+    x_correct = xₖ .+ (h / 2) .* (f_predict .+ fₖ)
+    f_correct = f(x_correct, tₖ + h)
 
-    f_correct = f(x_correct, tₖ + Δt)
+    x_correct2 = xₖ .+ (h / 2) .* (f_correct .+ fₖ)
 
-    x_correct2 = xₖ .+ (Δt/2) .* (f_correct .+ fₖ)
-
-    LTE = norm(x_correct2 .- x_predict) /
-          max(norm(x_correct2), 1.0)
+    LTE = norm(x_correct2 .- x_predict) / max(norm(x_correct2), 1.0)
 
     return x_correct2, x_predict, LTE
 end
 
 function compute_lmm_step(::AdaptiveABM3, f, xₖ, tₖ, Δt, x_history, t_history)
-
     x_prev1 = x_history[end]
     t_prev1 = t_history[end]
-
     x_prev2 = x_history[end-1]
     t_prev2 = t_history[end-1]
 
-    fₖ      = f(xₖ,tₖ)
-    f_prev1 = f(x_prev1,t_prev1)
-    f_prev2 = f(x_prev2,t_prev2)
+    fₖ      = f(xₖ, tₖ)
+    f_prev1 = f(x_prev1, t_prev1)
+    f_prev2 = f(x_prev2, t_prev2)
 
-    x_predict = xₖ .+ Δt .* ((23/12).*fₖ .- (16/12).*f_prev1 .+  (5/12).*f_prev2)
+    h = Δt
+    h1 = tₖ - t_prev1
+    h2 = t_prev1 - t_prev2
 
-    f_predict = f(x_predict,tₖ+Δt)
+    # Divided differences for history
+    df1 = (fₖ .- f_prev1) ./ h1
+    df2 = (f_prev1 .- f_prev2) ./ h2
+    D2_pred = (df1 .- df2) ./ (h1 + h2)
 
-    x_correct = xₖ .+ Δt .* ((5/12).*f_predict.+ (8/12).*fₖ.- (1/12).*f_prev1)
+    # Variable-step AB3 predictor
+    x_predict = xₖ .+ h .* fₖ .+ (h^2 / 2) .* df1 .+ (h^2 * (h/3 + h1/2)) .* D2_pred
+    f_predict = f(x_predict, tₖ + h)
 
-    f_correct = f(x_correct,tₖ+Δt)
+    # Variable-step AM3 corrector
+    df_p = (f_predict .- fₖ) ./ h
+    D2_corr = (df_p .- df1) ./ (h + h1)
+    
+    x_correct = xₖ .+ (h / 2) .* (f_predict .+ fₖ) .- (h^3 / 6) .* D2_corr
+    f_correct = f(x_correct, tₖ + h)
 
-    x_correct2 = xₖ .+ Δt .* ((5/12).*f_correct .+ (8/12).*fₖ .- (1/12).*f_prev1)
+    # second correction
+    df_c = (f_correct .- fₖ) ./ h
+    D2_corr2 = (df_c .- df1) ./ (h + h1)
+    x_correct2 = xₖ .+ (h / 2) .* (f_correct .+ fₖ) .- (h^3 / 6) .* D2_corr2
 
-    LTE = norm(x_correct2 .- x_predict) / max(norm(x_correct2),1.0)
+    LTE = norm(x_correct2 .- x_predict) / max(norm(x_correct2), 1.0)
 
     return x_correct2, x_predict, LTE
 end
