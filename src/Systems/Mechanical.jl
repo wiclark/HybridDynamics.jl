@@ -89,10 +89,12 @@ function specular_refl(x, M, dh, sys)
 
     # Denominator
     # println(typeof(normal))
-    denom = dot(normal, Mq \ normal)
+    Minv_n = Mq \ normal
+
+    denom = dot(normal, Minv_n)
 
     # Full equation
-    pnew = p - (1+e) * dot(p, Mq\normal) / denom * normal
+    pnew = p - (1+e) * dot(p, Minv_n) / denom * normal
 
     return vcat(q, pnew)
 end
