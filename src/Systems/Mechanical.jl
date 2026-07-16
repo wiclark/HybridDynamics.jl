@@ -89,12 +89,21 @@ function specular_refl(x, M, dh, sys)
 
     # Denominator
     # println(typeof(normal))
+    # println("q = ", q)
+    # println("p before = ", p)
+    # println("normal = ", normal)
+
     Minv_n = Mq \ normal
 
     denom = dot(normal, Minv_n)
 
     # Full equation
     pnew = p - (1+e) * dot(p, Minv_n) / denom * normal
+
+    # impulse = (1+e) * dot(p, Minv_n)/denom
+    # println("impulse = ", impulse)
+    # println("expected dp = ", -impulse .* normal)
+    # println("new p = ", pnew)
 
     return vcat(q, pnew)
 end
@@ -137,7 +146,8 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Δt,
     qₖ, pₖ = xₖ[1:n], xₖ[n+1:end]
     # Extract out the problem details
     sys = prob.sys
-    h, ∇h = sys.guard, sys.normal
+    h = sys.guard
+    ∇h = sys.normal
     M(q) = sys.M(q)
     V(q) = sys.V(q)
     Δ = sys.reset

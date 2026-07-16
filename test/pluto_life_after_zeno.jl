@@ -69,7 +69,7 @@ Coefficient_of_restitution_1a = @bind r1a Slider(0.0:0.01:1.0, show_value=true)
 begin
 	init1a = [0.0, 2.0, 2.3, -1.5]
 	sys1a = HD.MechanicalSystem(M1a, V1a; guard=h1a, e=r1a)
-	prob1a = HD.prob(sys1a, init1a, (0.0, 15.0))
+	prob1a = HD.prob(sys1a, init1a, (0.0, 10.0))
 	sol1a = HD.solve(prob1a, HD.RK45())
 end
 
@@ -98,8 +98,9 @@ Now, in three dimensions:
 begin
 	M1b(q) = [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0] #I'm guessing it's this
 	V1b(q) = q[3]
+	# h1b(q) = q[3]
 	h1b(q) = q[3] - 0.5*sin(q[2])
-	∇h1b(q) = [0, - 0.5*cos(q[2]), 1]
+	# ∇h1b(q) = [0., - 0.5*cos(q[2]), 1.]
 end;
 
 # ╔═╡ b8972101-5a59-4f3c-98fb-fa2c4ec29913
@@ -109,8 +110,8 @@ Coefficient_of_restitution_1b = @bind r1b Slider(0.0:0.01:1.0, show_value=true)
 begin
 	init1b = [0.0, 2.0, 1,
 			  0.3, -1.5, 1]
-	sys1b = HD.MechanicalSystem(M1b, V1b; guard=h1b, normal=∇h1b, e=r1b)
-	prob1b = HD.prob(sys1b, init1b, (0.0, 15.0))
+	sys1b = HD.MechanicalSystem(M1b, V1b; guard=h1b, e=r1b)
+	prob1b = HD.prob(sys1b, init1b, (0.0, 10.0))
 	sol1b = HD.solve(prob1b, HD.RK45())
 end
 
@@ -136,6 +137,14 @@ begin
 
 end
 
+# ╔═╡ ac42fc4f-d2a2-4626-a032-6eca1e6a0f50
+begin
+	hvals = [h1b(x[1:3]) for x in sol1b.x]
+
+	plt.plot(sol1b.t, hvals)
+	plt.hline!([0])
+end
+
 # ╔═╡ Cell order:
 # ╟─d1c084d0-809a-11f1-9ac4-a5a2296001e4
 # ╠═972fa9c7-0691-4401-be04-f45fa4f5f820
@@ -150,4 +159,5 @@ end
 # ╠═932a2a6a-7391-4fb0-b6c7-dda85db5ef37
 # ╠═ca9dcc3a-c73e-413d-a78b-24a4005f3434
 # ╟─b8972101-5a59-4f3c-98fb-fa2c4ec29913
-# ╟─a6cdc0c7-5ab8-4f78-a9c0-a0c673b5c44a
+# ╠═a6cdc0c7-5ab8-4f78-a9c0-a0c673b5c44a
+# ╠═ac42fc4f-d2a2-4626-a032-6eca1e6a0f50
