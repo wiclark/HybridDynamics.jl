@@ -1,7 +1,16 @@
 abstract type FixedLMM <: LMM end
 #comment
+"""
+Fixed second order Adams Bashforth multistep method. RK4 is used to caluclate starting values.
+"""
 struct AdamsBashforth2 <: FixedLMM end
+"""
+Fixed third order Adams Bashforth multistep method. RK4 is used to caluclate starting values.
+"""
 struct AdamsBashforth3 <: FixedLMM end
+"""
+Fixed second order backwards differentiation multistep method. RK4 is used to caluclate starting values.
+"""
 struct BDF2 <: FixedLMM end
 
 lmm_order(::AdamsBashforth2) = 2

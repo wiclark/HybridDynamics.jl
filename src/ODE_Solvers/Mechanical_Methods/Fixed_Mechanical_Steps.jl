@@ -2,6 +2,9 @@
 
 abstract type FixHam <: ME end
 
+"""
+First order, fixed step, implicit symplectic method.
+"""
 struct SymplecticEuler <: FixHam end
 
 compute_step(::SymplecticEuler, f, g, qₖ, pₖ, Δt, t) = symplectic_euler_step(f, g, qₖ, pₖ, Δt, t)

@@ -1,6 +1,9 @@
 # This file is not where I want it. Ignore the contents.
 # Modify various ODE solvers to handle nonholonomic constraints - a special type of DAE
 
+"""
+RK4 specific to nonholonomic systems.
+"""
 struct NH_RK4 <: NH end
 
 compute_step(::NH_RK4, f, M, A, zₖ, Δt, t) = nonholonomic_rk4(f, M, A, zₖ, Δt, t)
