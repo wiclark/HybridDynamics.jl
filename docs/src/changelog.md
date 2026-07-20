@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.0
+
+### Testing
+
+* **Filippov Testing:** Two new notebooks have been added as benchmarks for our Filippov system type. `FilippovSSF.ipynb` and `FilippovFuller.ipynb`. See those files for more details. 
+
+* **ODE Solver Testing:** We have begun stress testing our integration methods. Look to `TestingNotebook.ipynb` for all our current results. Note Adaptive methods have not been fully tested yet. See `Known Bugs` below for more. 
+
+### Known Bugs 
+* **Adaptive Solvers:** `RK23` currently is bugged and does not work for most system types, especially `MechanicalSystems` and `FilippovSystems`. It can be used for simple examples but we recommend avoiding its use for more complex systems. It is also worth noting these integration methods (`RK23`, `RK45`, `AdaptiveABM2`, `AdaptiveABM3`) have not been fully tested rigorously. They will work but can be slightly off. Take their results with a grain of salt. 
+
+
 ## v0.3.0
 
 ### External Updates
