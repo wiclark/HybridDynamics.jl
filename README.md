@@ -4,6 +4,15 @@
 
 A Julia package for studying the dynamics of hybrid systems.
 
+## Installation
+
+To install this package, run:
+```julia
+using Pkg
+Pkg.add(url="https://github.com/wiclark/HybridDynamics.jl")
+```
+in a Julia REPL.
+
 ## Usage
 
 This package supports the following system types: "GeneralSystem", "MechanicalSystem", "NonholonomicSystem", "StochasticSystem", "FilippovSystem", and "Linear/AffineSystem".
