@@ -1,4 +1,7 @@
 # This is an implementation of the Euler–Maruyama method
+"""
+Stochastic solver using the Euler–Maruyama method.
+"""
 struct EulerMaruyama <: STO end
 
 # This is for the Itô SDE: dx = f(x, t)dt + g(x, t)dW, where g is a n×m matrix function where m is the dim on Brownian motion

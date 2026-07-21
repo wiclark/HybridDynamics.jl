@@ -1,7 +1,18 @@
-#Exponential Solver
+"""
+Exact exponential solver for linear and affine systems.
+"""
 struct ExponentialSolver <: AbstractODESolver end
 
+"""
+Second order Magnus Leapfrog method.
+
+!!! compat
+    Use only for solving variational equations/matrix equations.
+
+"""
 struct MagnusLeapfrog <: FixedRK end
+
+
 
 #Supposedly useful as when doing variational equation stuff the magnus expansion preserves Lie group structure (I dont know enough about Lie groups to tell you what that means)
 #so we maintain the properties we want like volume and determinants which is very good for variational equations and eventual Lyapunov Exponents. 
@@ -39,7 +50,7 @@ end
 
 #Newton Raphson solver to find roots for implicit integration steps. 
 # Solves for x in G(x) = x - c - α*h*f(x, t_new) = 0
-function implicit_newton_solve(f::Function, x_guess::Vector, c::Vector, α::AbstractFloat, h::AbstractFloat, t_new::AbstractFloat; max_iter=50, tol=1e-6)
+function implicit_newton_solve(f::Function, x_guess::Vector, c::Vector, α::AbstractFloat, h::AbstractFloat, t_new::AbstractFloat; max_iter=50, tol=1e-12)
     x_curr = copy(x_guess)
     for _ in 1:max_iter
         #Eval vector field at curent guess for z_{n+1}
@@ -66,7 +77,7 @@ function implicit_newton_solve(f::Function, x_guess::Vector, c::Vector, α::Abst
     return fill(NaN, size(x_curr))
 end
 
-
+# Why is this here?
 compute_step(::BackwardEuler, f, xₖ, Δt, t) = implicit_euler_step(f, xₖ, Δt, t)
 function implicit_euler_step(f::Function, xₖ::AbstractArray, h::AbstractFloat, t::AbstractFloat)
     t_new = t + h

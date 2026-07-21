@@ -1,6 +1,12 @@
 abstract type AdaptiveLMM <: LMM end
 
+"""
+Adaptive second order Adams Bashforth Moulton multistep method. RK4 is used to caluclate starting values.
+"""
 struct AdaptiveABM2 <: AdaptiveLMM end
+"""
+Adaptive third order Adams Bashforth Moulton multistep method. RK4 is used to caluclate starting values.
+"""
 struct AdaptiveABM3 <: AdaptiveLMM end
 
 lmm_order(::AdaptiveABM2) = 2

@@ -4,7 +4,19 @@
 
 A Julia package for studying the dynamics of hybrid systems.
 
+## Installation
+
+To install this package, run:
+```julia
+using Pkg
+Pkg.add(url="https://github.com/wiclark/HybridDynamics.jl")
+```
+in a Julia REPL.
+
 ## Usage
+This package supports the following system types: "GeneralSystem", "MechanicalSystem", "NonholonomicSystem", "StochasticSystem", "FilippovSystem", and "Linear/AffineSystem".
+
+=======
 This package supports the following system types: "GeneralSystem", "MechanicalSystem", "NonholonomicSystem", "StochasticSystem", "FilippovSystem", and "Linear/AffineSystem".
 
 For a demonstration, see the Pluto notebooks: "bouncing_ball.jl" and "pluto_examples.jl".
@@ -26,7 +38,7 @@ For a demonstration, see the Pluto notebooks: "bouncing_ball.jl" and "pluto_exam
 
     Optional inputs:
     - ``h``: Guard
-    - $\Delta$: Reset map
+    - ``Δ``: Reset map
     - ``e``: Coefficient of restitution
 
 - **NonholonomicSystem** 
@@ -53,7 +65,7 @@ For a demonstration, see the Pluto notebooks: "bouncing_ball.jl" and "pluto_exam
 
     Required inputs:
     - ``A``: State transition matrix
-    - $\lambda$: Normal vector to the guard
+    - ``λ``: Normal vector to the guard
     - ``C``: Reset map matrix ($x⁺ = Cx$)
 
 - **AffineSystem** ($A, b, \lambda, a, C, \kappa$)
@@ -61,10 +73,10 @@ For a demonstration, see the Pluto notebooks: "bouncing_ball.jl" and "pluto_exam
     Required inputs:
     - ``A``: State transition matrix
     - ``b``: Continuous affine vector ($dx/dt = Ax + b$)
-    - $\lambda$: Normal vector to the guard
+    - ``λ``: Normal vector to the guard
     - ``a``: Guard Offset const $dot(λ, x) + a = 0$
     - ``C``: Reset map matrix ($x⁺ = Cx$)
-    - $\kappa$: Discrete affine vector const x⁺ = Cx + κ
+    - ``κ``: Discrete affine vector const x⁺ = Cx + κ
 
 - **FilippovSystem** ($F, G, H$)
 
