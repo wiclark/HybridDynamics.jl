@@ -14,7 +14,9 @@ Pkg.add(url="https://github.com/wiclark/HybridDynamics.jl")
 in a Julia REPL.
 
 ## Usage
+This package supports the following system types: "GeneralSystem", "MechanicalSystem", "NonholonomicSystem", "StochasticSystem", "FilippovSystem", and "Linear/AffineSystem".
 
+=======
 This package supports the following system types: "GeneralSystem", "MechanicalSystem", "NonholonomicSystem", "StochasticSystem", "FilippovSystem", and "Linear/AffineSystem".
 
 For a demonstration, see the Pluto notebooks: "bouncing_ball.jl" and "pluto_examples.jl".
@@ -38,6 +40,26 @@ For a demonstration, see the Pluto notebooks: "bouncing_ball.jl" and "pluto_exam
     - ``h``: Guard
     - ``Δ``: Reset map
     - ``e``: Coefficient of restitution
+
+- **NonholonomicSystem** 
+
+    Required inputs:
+    - $M$: Mass matrix
+    - $V$: Potential energy
+
+    Optional inputs:
+    - $A$: The Pfaffian constraint matrix
+    - $h$: Guard
+    - $\Delta$: Reset map
+    - $e$: Coefficient of restitution
+
+- **StochasticSystem** 
+
+    Required inputs:
+    - $f$: The drift dynamics
+    - $g$: The diffusion term
+    - $h$: Guard
+    - $\Delta$: Reset map
 
 - **LinearSystem** ($A, \lambda, C$)
 
