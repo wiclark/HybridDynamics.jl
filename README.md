@@ -4,6 +4,9 @@
 
 A Julia package for studying the dynamics of hybrid systems.
 
+## Documentation
+Documentation is available [here](https://wiclark.github.io/HybridDynamics.jl/dev/)
+
 ## Installation
 
 To install this package, run:
@@ -14,9 +17,6 @@ Pkg.add(url="https://github.com/wiclark/HybridDynamics.jl")
 in a Julia REPL.
 
 ## Usage
-This package supports the following system types: "GeneralSystem", "MechanicalSystem", "NonholonomicSystem", "StochasticSystem", "FilippovSystem", and "Linear/AffineSystem".
-
-=======
 This package supports the following system types: "GeneralSystem", "MechanicalSystem", "NonholonomicSystem", "StochasticSystem", "FilippovSystem", and "Linear/AffineSystem".
 
 For a demonstration, see the Pluto notebooks: "bouncing_ball.jl" and "pluto_examples.jl".
