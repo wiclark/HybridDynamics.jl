@@ -16,21 +16,14 @@ macro bind(def, element)
     #! format: on
 end
 
-# ╔═╡ 6df38dc0-6787-11f1-a77e-9f1ff29a6e5b
+# ╔═╡ fe4f37ce-31f4-4309-b19d-1787fc6f4d15
 begin
-	using Pkg
-	Pkg.activate("..")
-	Pkg.resolve()
-	Pkg.instantiate()
-	Pkg.precompile()
-end
-
-# ╔═╡ 5f758439-587b-4bbe-bd02-f2f9ce6cc8fb
-begin
-	import HybridDynamics as HD
-	import Plots as plt
-	using LaTeXStrings
-	using PlutoUI
+    import Pkg
+    Pkg.add(url="https://github.com/wiclark/HybridDynamics.jl")
+    import HybridDynamics as HD
+    import Plots as plt
+    using LaTeXStrings
+    using PlutoUI
 end
 
 # ╔═╡ 30a03940-11a2-45e8-8f91-501370ddcee6
@@ -362,8 +355,7 @@ begin
 end
 
 # ╔═╡ Cell order:
-# ╠═6df38dc0-6787-11f1-a77e-9f1ff29a6e5b
-# ╠═5f758439-587b-4bbe-bd02-f2f9ce6cc8fb
+# ╠═fe4f37ce-31f4-4309-b19d-1787fc6f4d15
 # ╟─30a03940-11a2-45e8-8f91-501370ddcee6
 # ╟─2880f5f2-fb01-4696-aba3-7faf4714c9d3
 # ╠═9da11b33-0def-4ac1-bd19-574ef1cceb98

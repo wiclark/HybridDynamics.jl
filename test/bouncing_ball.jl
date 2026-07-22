@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v1.0.1
+# v1.0.3
 
 using Markdown
 using InteractiveUtils
@@ -16,21 +16,14 @@ macro bind(def, element)
     #! format: on
 end
 
-# ╔═╡ 6dab3570-7290-11f1-b67c-277aa2a67d52
+# ╔═╡ 2298226e-adfb-4503-b79f-60becd105337
 begin
-	using Pkg
-	Pkg.activate("..")
-	Pkg.resolve()
-	Pkg.instantiate()
-	Pkg.precompile()
-end
-
-# ╔═╡ 2b7869d2-dcd8-4ccf-b088-605b0c261b0b
-begin
-	import HybridDynamics as HD
-	import Plots as plt
-	using LaTeXStrings
-	using PlutoUI
+    import Pkg
+    Pkg.add(url="https://github.com/wiclark/HybridDynamics.jl")
+    import HybridDynamics as HD
+    import Plots as plt
+    using LaTeXStrings
+    using PlutoUI
 end
 
 # ╔═╡ 1934f0b1-2e7f-43ca-a0b8-885d49d00a53
@@ -184,8 +177,7 @@ Notice that stochastic systems do not contain the sliding mode logic that mechan
 """
 
 # ╔═╡ Cell order:
-# ╠═6dab3570-7290-11f1-b67c-277aa2a67d52
-# ╠═2b7869d2-dcd8-4ccf-b088-605b0c261b0b
+# ╠═2298226e-adfb-4503-b79f-60becd105337
 # ╟─1934f0b1-2e7f-43ca-a0b8-885d49d00a53
 # ╟─9619965e-6551-48c1-900b-9f4e4716d79c
 # ╠═514aa411-0315-4737-b253-75c1559b4392
