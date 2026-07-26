@@ -76,17 +76,19 @@ function rk_23_step(f::Function, xₖ::AbstractArray, Δt::AbstractFloat, t::Abs
         k1 = f(xₖ, t)
 
         x2 = xₖ + dt_step*k1
-        k2 = f(x2, t+dt_step)
+        k2 = f(x2, t + dt_step/2) # Was t+dt_step
         h2 = guard(sys, x2)
 
         x3 = xₖ + dt_step/4*(k1+k2)
-        k3 = f(x3, t+dt_step/2)
+        k3 = f(x3, t + dt_step*3/4) # Was t+dt_step/2
         h3 = guard(sys, x3)
 
         x1_3 = xₖ + dt_step*(1/6*k1+1/6*k2+2/3*k3)
         x_predict = xₖ + dt_step*(1/2*k1+1/2*k2)
 
-        LTE = norm(x1_3 - x_predict)
+        err = x_predict .- x1_3
+        scale = max(norm(x_predict), 1.0)
+        LTE = norm(err) / scale
         # Reject or accept?
         dt_next = updated_step(LTE, tol, dt_step, 3)
         
@@ -150,13 +152,12 @@ function rk_45_step(f::Function, xₖ::AbstractArray, Δt::AbstractFloat, t::Abs
         k6 = f(x6, t+dt_step)
         h6 = guard(sys, x6)
 
-        k7 = f(xₖ + dt_step*(35/384*k1 + 0*k2 + 500/1113*k3 + 125/192*k4 - 2187/6784*k5 + 11/84*k6), t+dt_step)
+        x_predict = xₖ + dt_step * ((35/384) * k1 + (500/1113) * k3 + (125/192) * k4 - (2187/6784) * k5 + (11/84) * k6)
+        k7 = f(x_predict, t + dt_step)
 
-        # The two updates
-        x_predict = xₖ + dt_step*k7
-        x1_5 = xₖ + dt_step*(5179/57600*k1 + 0*k2 + 7571/16695*k3 + 393/640*k4 - 92097/339200*k5 + 187/2100*k6 + 1/40*k7)
+        x1_5 = xₖ + dt_step * ((5179/57600) * k1 + (7571/16695) * k3 + (393/640) * k4 - (92097/339200) * k5 + (187/2100) * k6 + (1/40) * k7)
 
-        LTE = norm(x_predict - x1_5)
+        LTE = norm(x_predict - x1_5) / max(norm(x_predict),1.0)
         # Reject or accept?
         dt_next = updated_step(LTE, tol, dt_step, 5)
         

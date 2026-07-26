@@ -76,11 +76,15 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
         h_corr = guard(sys, x_next)
 
         # Calc proposed next step size using helper from beginning 
-        dt_next = 0.9*Δt*(tol/LTE)^(1/(k+1))
+        if LTE == 0
+            dt_next = 2Δt
+        else
+            dt_next = 0.9*Δt*(tol/LTE)^(1/(k+1))
+        end
 
         # Prevent violent changes in step size.
-        growth = 1.25
-        shrink = 0.8
+        growth = 2.0
+        shrink = 0.5
 
         dt_next = min(dt_next, growth*Δt)
         dt_next = max(dt_next, shrink*Δt)
@@ -106,17 +110,18 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
                 return x_next, false, NaN, Δt, dt_next
             end
         else
-            # Step rejected: shrink and try again 
-            Δt = max(dt_next, 0.8*Δt)
-            if Δt < 1e-6
-                @warn "LMM Step size has decreased below 1e-6"
-                # Force break to avoid inf loops
+            # Step rejected: shrink and retry
+            Δt = dt_next
+
+            if Δt < 1e-12
+                @warn "LMM Step size has decreased below 1e-12"
                 return x_next, false, NaN, Δt, dt_next
             end
         end
     end
 end
 
+#=
 function compute_lmm_step(::AdaptiveABM2, f, xₖ, tₖ, Δt, x_history, t_history)
 
     # history
@@ -133,14 +138,10 @@ function compute_lmm_step(::AdaptiveABM2, f, xₖ, tₖ, Δt, x_history, t_histo
 
     x_correct = xₖ .+ (Δt/2) .* (f_predict .+ fₖ)
 
-    f_correct = f(x_correct, tₖ + Δt)
+    LTE = (5/12) * norm(x_correct - x_predict) /
+        max(norm(x_correct), 1.0)
 
-    x_correct2 = xₖ .+ (Δt/2) .* (f_correct .+ fₖ)
-
-    LTE = norm(x_correct2 .- x_predict) /
-          max(norm(x_correct2), 1.0)
-
-    return x_correct2, x_predict, LTE
+    return x_correct, x_predict, LTE
 end
 
 function compute_lmm_step(::AdaptiveABM3, f, xₖ, tₖ, Δt, x_history, t_history)
@@ -163,9 +164,118 @@ function compute_lmm_step(::AdaptiveABM3, f, xₖ, tₖ, Δt, x_history, t_histo
 
     f_correct = f(x_correct,tₖ+Δt)
 
-    x_correct2 = xₖ .+ Δt .* ((5/12).*f_correct .+ (8/12).*fₖ .- (1/12).*f_prev1)
+    LTE = (3/10) * norm(x_correct - x_predict) /
+      max(norm(x_correct),1.0)
 
-    LTE = norm(x_correct2 .- x_predict) / max(norm(x_correct2),1.0)
+    return x_correct, x_predict, LTE
+end
+=#
 
-    return x_correct2, x_predict, LTE
+function compute_lmm_step(::AdaptiveABM2, f, xₖ, tₖ, Δt, x_history, t_history)
+    x_prev = x_history[end]
+    t_prev = t_history[end]
+
+    fₖ = f(xₖ, tₖ)
+    f_prev = f(x_prev, t_prev)
+
+    ab_times = [t_prev, tₖ]
+    ab_coeff = variable_adams_coefficients(ab_times)
+
+    # AB Predictor
+    x_predict = xₖ .+ Δt .* (ab_coeff[2] .* fₖ + ab_coeff[1] .* f_prev)
+
+    #AM corrector
+    f_predict = f(x_predict, tₖ + Δt)
+
+    am_times = [tₖ, tₖ + Δt]
+    am_coeff = variable_adams_coefficients(am_times)
+
+    x_correct = xₖ .+ Δt .* (am_coeff[2] .* f_predict + am_coeff[1] .* fₖ)
+
+    # Milne LTE estimate
+    LTE = (5/12) * norm(x_correct - x_predict) /
+      max(norm(x_correct), 1.0)
+
+    return x_correct, x_predict, LTE
+end
+
+function compute_lmm_step(::AdaptiveABM3, f, xₖ, tₖ, Δt, x_history, t_history)
+    x_prev1 = x_history[end]
+    t_prev1 = t_history[end]
+
+    x_prev2 = x_history[end-1]
+    t_prev2 = t_history[end-1]
+
+    fₖ = f(xₖ, tₖ)
+    f_prev1 = f(x_prev1, t_prev1)
+    f_prev2 = f(x_prev2, t_prev2)
+
+    # AB predictor
+    ab_times = [t_prev2, t_prev1, tₖ]
+    ab_coeff = variable_adams_coefficients(ab_times)
+
+    x_predict = xₖ .+ Δt .* (ab_coeff[3] .* fₖ + ab_coeff[2] .* f_prev1 + ab_coeff[1] .* f_prev2)
+
+    # AM corrector
+    f_predict = f(x_predict, tₖ+Δt)
+
+    am_times = [t_prev1, tₖ, tₖ + Δt]
+    am_coeff = variable_adams_coefficients(am_times)
+
+    x_correct = xₖ .+ Δt .* (am_coeff[3] .* f_predict + am_coeff[2] .* fₖ + am_coeff[1] .* f_prev1)
+
+    # Milne LTE estimate
+    LTE = (3/10) * norm(x_correct - x_predict) /
+      max(norm(x_correct),1.0)
+
+    return x_correct, x_predict, LTE
+end
+
+#Compute Adams coeffs for arbitrary time spacing
+function variable_adams_coefficients(times)
+
+    n = length(times)
+
+    t_n = times[end]
+    h = times[end] - times[end-1]
+
+    ξ = (times .- t_n) ./ h
+
+    coeffs = zeros(n)
+
+    for i in 1:n
+
+        # Build Lagrange basis polynomial
+        poly = [1.0]
+        denom = 1.0
+
+        for j in 1:n
+            if j != i
+                denom *= ξ[i] - ξ[j]
+
+                newpoly = zeros(length(poly)+1)
+
+                for k in 1:length(poly)
+                    newpoly[k] += -ξ[j]*poly[k]
+                    newpoly[k+1] += poly[k]
+                end
+
+                poly = newpoly
+            end
+        end
+
+        poly ./= denom
+
+
+        # Integrate from 0 to 1
+        integral = 0.0
+
+        for k in 1:length(poly)
+            integral += poly[k]/k
+        end
+
+        coeffs[i] = integral
+    end
+
+    return coeffs
 end
