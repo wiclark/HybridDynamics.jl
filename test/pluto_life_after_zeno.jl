@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v1.0.3
+# v0.20.24
 
 using Markdown
 using InteractiveUtils
@@ -70,7 +70,7 @@ begin
 	init1a = [0.0, 2.0, 2.3, -1.5]
 	sys1a = HD.MechanicalSystem(M1a, V1a; guard=h1a, e=r1a)
 	prob1a = HD.prob(sys1a, init1a, (0.0, 10.0))
-	sol1a = HD.solve(prob1a, HD.RK45())
+	sol1a = HD.solve(prob1a, HD.RK4())
 end
 
 # ╔═╡ ea3d9084-6b36-49c7-ab55-5628d0c0ba33
@@ -112,7 +112,7 @@ begin
 			  0.3, -1.5, 1]
 	sys1b = HD.MechanicalSystem(M1b, V1b; guard=h1b, e=r1b)
 	prob1b = HD.prob(sys1b, init1b, (0.0, 10.0))
-	sol1b = HD.solve(prob1b, HD.RK45())
+	sol1b = HD.solve(prob1b, HD.RK4())
 end
 
 # ╔═╡ a6cdc0c7-5ab8-4f78-a9c0-a0c673b5c44a

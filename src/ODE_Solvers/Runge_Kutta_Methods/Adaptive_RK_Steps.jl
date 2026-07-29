@@ -85,7 +85,7 @@ function rk_23_step(f::Function, xₖ::AbstractArray, Δt::AbstractFloat, t::Abs
         # Compute 3rd-order state y3
         y3 = xₖ + dt_step * ((2/9) * k1 + (1/3) * k2 + (4/9) * k3)
 
-        # Evaluate k4 at y3 (FSAL step)
+        # Evaluate k4 at y3
         k4 = f(y3, t + dt_step)
 
         # Direct error calculation: err = y3 - y2
@@ -162,13 +162,13 @@ function rk_45_step(f::Function, xₖ::AbstractArray, Δt::AbstractFloat, t::Abs
         # Compute 5th-order state y5
         y5 = xₖ + dt_step * ((35/384) * k1 + (500/1113) * k3 + (125/192) * k4 - (2187/6784) * k5 + (11/84) * k6)
 
-        # Evaluate k7 at y5 (FSAL step)
+        # Evaluate k7 at y5
         k7 = f(y5, t + dt_step)
 
         # Direct error calculation: err = y5 - y4
         err = dt_step * ((71/57600) * k1 - (71/16695) * k3 + (71/1920) * k4 - (17253/339200) * k5 + (22/525) * k6 - (1/40) * k7)
 
-        # Propagate 4th-order solution y4 = y5 - err (yields exact 0.80 slope)
+        # Propagate 4th-order solution y4 = y5 - err
         x_predict = y5 - err
 
         scale = max(norm(x_predict), 1.0)
