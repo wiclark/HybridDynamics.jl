@@ -83,10 +83,10 @@ function rk_23_step(f::Function, xₖ::AbstractArray, Δt::AbstractFloat, t::Abs
         k3 = f(x3, t + dt_step*3/4) # Was t+dt_step/2
         h3 = guard(sys, x3)
 
-        x1_3 = xₖ + dt_step*(1/6*k1+1/6*k2+2/3*k3)
         x_predict = xₖ + dt_step*(1/2*k1+1/2*k2)
 
-        err = x_predict .- x1_3
+        # Direct error calculation: (1/2 - 1/6)k1 + (1/2 - 1/6)k2 - (2/3)k3
+        err = dt_step * ((1/3)*k1 + (1/3)*k2 - (2/3)*k3)
         scale = max(norm(x_predict), 1.0)
         LTE = norm(err) / scale
         # Reject or accept?
@@ -155,9 +155,11 @@ function rk_45_step(f::Function, xₖ::AbstractArray, Δt::AbstractFloat, t::Abs
         x_predict = xₖ + dt_step * ((35/384) * k1 + (500/1113) * k3 + (125/192) * k4 - (2187/6784) * k5 + (11/84) * k6)
         k7 = f(x_predict, t + dt_step)
 
-        x1_5 = xₖ + dt_step * ((5179/57600) * k1 + (7571/16695) * k3 + (393/640) * k4 - (92097/339200) * k5 + (187/2100) * k6 + (1/40) * k7)
+        # Calculate the error directly via the difference in DP54 weights (b - b*) 
+        # to avoid catastrophic cancellation with xₖ
+        err = dt_step * ((71/57600) * k1 - (71/16695) * k3 + (71/1920) * k4 - (17253/339200) * k5 + (22/525) * k6 - (1/40) * k7)
 
-        LTE = norm(x_predict - x1_5) / max(norm(x_predict),1.0)
+        LTE = norm(err) / max(norm(x_predict), 1.0)
         # Reject or accept?
         dt_next = updated_step(LTE, tol, dt_step, 5)
         
