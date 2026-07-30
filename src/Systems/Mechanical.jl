@@ -214,7 +214,7 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Δt,
         x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(solver, prob, f, vcat(qₖ, pₖ), tₖ, Δt, tol, sol)
         # Was there an impact?
         if eventtrigger
-            t_star, x_star = locate_event(event_method, prob, solver, f, vcat(qₖ, pₖ), tₖ, Δt, guard(sys, xₖ), tol, sol, stepper)
+            t_star, x_star = locate_event(event_method, prob, solver, f, vcat(qₖ, pₖ), tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
             x_predict = Δ(x_star, M, ∇h, sys)
 
             push!(sol.event_times, t_star)
