@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.24
+# v1.0.3
 
 using Markdown
 using InteractiveUtils
@@ -18,8 +18,6 @@ end
 
 # ╔═╡ fe4f37ce-31f4-4309-b19d-1787fc6f4d15
 begin
-    import Pkg
-    Pkg.add(url="https://github.com/wiclark/HybridDynamics.jl")
     import HybridDynamics as HD
     import Plots as plt
     using LaTeXStrings

@@ -9,7 +9,7 @@ Documentation is available [here](https://wiclark.github.io/HybridDynamics.jl/de
 
 ## Installation
 
-To install this package, run:
+To install this package directly from this repo, run:
 ```julia
 using Pkg
 Pkg.add(url="https://github.com/wiclark/HybridDynamics.jl")
@@ -19,7 +19,13 @@ in a Julia REPL.
 ## Usage
 This package supports the following system types: "GeneralSystem", "MechanicalSystem", "NonholonomicSystem", "StochasticSystem", "FilippovSystem", and "Linear/AffineSystem".
 
-For a demonstration, see the Pluto notebooks: "bouncing_ball.jl" and "pluto_examples.jl".
+For demonstrations, see the demos folder:
+- "pluto_examples.jl": A Pluto notebook providing an example of each problem type.
+- "pluto_bouncing_ball.jl": A Pluto notebook covering the dissipative bouncing ball as different problems.
+- "pluto_life_after_zeno.jl": A Pluto notebook showcasing various mechanical examples with Zeno trajectories.
+- "FilippovFuller.ipynb": A Jupyter notebook presenting Fuller's problem as an example of a chattering Filippov system.
+- "FilippovSSF.ipynv": A Jupyter notebook with modeling a system with friction as a Filippov system.
+- "TestingNotebook.ipynb": A Jupyter notebook that performs error analysis for various methods.
 
 ## Systems
 
