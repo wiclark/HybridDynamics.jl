@@ -18,7 +18,7 @@ end
 
 Create a mechanical hybrid system of the form:
 ```math
-H(q,p) = \frac{1}{2}p^\top M(q) p + V(q), \\quad h(q) \\geq 0.
+H(q,p) = \\frac{1}{2}p^\\top M(q) p + V(q), \\quad h(q) \\geq 0.
 ```
 """
 function MechanicalSystem(M, V;
