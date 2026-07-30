@@ -31,7 +31,8 @@ makedocs(
             "Stochastic" => "Examples/ex_stochastic.md",
             "Filippov" => "Examples/ex_filippov.md"
         ],
-        "Change Log" => "changelog.md"
+        "Change Log" => "changelog.md",
+        "Known Bugs" => "docs/src/knownissues.md"
     ],
 )
 
