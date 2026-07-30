@@ -32,7 +32,7 @@ makedocs(
             "Filippov" => "Examples/ex_filippov.md"
         ],
         "Change Log" => "changelog.md",
-        "Known Bugs" => "docs/src/knownissues.md"
+        "Known Bugs" => "knownissues.md"
     ],
 )
 
