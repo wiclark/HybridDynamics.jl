@@ -60,121 +60,138 @@ function updated_step(LTE::AbstractFloat, tol::AbstractFloat, Δt::AbstractFloat
     return Δt * minimum( [ facmax, maximum( [ facmin, fac*ε ] ) ] )
 end
 
-# Runge-Kutta 23
+# Runge-Kutta 23 (Bogacki-Shampine 3(2))
 function rk_23_step(f::Function, xₖ::AbstractArray, Δt::AbstractFloat, t::AbstractFloat, tf::AbstractFloat, sys, tol)
-    # As this is an adaptive step solver, Δt is the step size from the previous step
-    # As the step size is not of fixed size, we specify the terminal time, tf, of the problem
-    dt_step = minimum([Δt, tf-t])
+    dt_step = minimum([Δt, tf - t])
 
-    #Intialization to make sure they exist
     x2 = xₖ; x3 = xₖ
 
-    # Loop through to find an acceptable step
     while true
         h_now = guard(sys, xₖ)
-        # Compute the two predictions and their difference
+
+        # Stage 1
         k1 = f(xₖ, t)
 
-        x2 = xₖ + dt_step*k1
-        k2 = f(x2, t+dt_step)
+        # Stage 2
+        x2 = xₖ + dt_step * (1/2) * k1
+        k2 = f(x2, t + dt_step * 1/2)
         h2 = guard(sys, x2)
 
-        x3 = xₖ + dt_step/4*(k1+k2)
-        k3 = f(x3, t+dt_step/2)
+        # Stage 3
+        x3 = xₖ + dt_step * (3/4) * k2
+        k3 = f(x3, t + dt_step * 3/4)
         h3 = guard(sys, x3)
 
-        x1_3 = xₖ + dt_step*(1/6*k1+1/6*k2+2/3*k3)
-        x_predict = xₖ + dt_step*(1/2*k1+1/2*k2)
+        # Compute 3rd-order state y3
+        y3 = xₖ + dt_step * ((2/9) * k1 + (1/3) * k2 + (4/9) * k3)
 
-        LTE = norm(x1_3 - x_predict)
-        # Reject or accept?
+        # Evaluate k4 at y3
+        k4 = f(y3, t + dt_step)
+
+        # Direct error calculation: err = y3 - y2
+        err = dt_step * ((-5/72) * k1 + (1/12) * k2 + (1/9) * k3 - (1/8) * k4)
+
+        # Propagate 2nd-order solution y2 = y3 - err 
+        x_predict = y3 - err
+
+        scale = max(norm(x_predict), 1.0)
+        LTE = norm(err) / scale
+
         dt_next = updated_step(LTE, tol, dt_step, 3)
-        
+
         h_end = guard(sys, x_predict)
 
-        #did any intermediate stage cross guard?
         stage_crossed = (h_now * h2 < 0) || (h_now * h3 < 0)
-        #Did final state completely miss crossing?
         end_missed = (h_now * h_end > 0)
 
-        #if we crossed inside step but missed at end, force rejection
         if stage_crossed && end_missed
-            dt_step = dt_step / 2.0 #force smaller step
+            dt_step = dt_step / 2.0
             continue
         end
 
         if LTE < tol
             return x_predict, dt_step, dt_next
         else
-            # We reject and repeat the loop with an updated step
             dt_step = dt_next
         end
+
         if dt_step < 1e-12
             @warn "Step size has decreased below 1e-12"
-            return x_predict, dt_step, dt_next #force break to avoid looping forever
+            return x_predict, dt_step, dt_next
         end
     end
 end
 
-# Runge-Kutta 45
+# Runge-Kutta 45 (Dormand-Prince 5(4))
 function rk_45_step(f::Function, xₖ::AbstractArray, Δt::AbstractFloat, t::AbstractFloat, tf::AbstractFloat, sys, tol)
-    # As the step size is not of fixed size, we specify the terminal time, tf, of the problem
-    dt_step = minimum([Δt, tf-t])
+    dt_step = minimum([Δt, tf - t])
 
-    #Initialization to make them exist
     x2 = xₖ; x3 = xₖ; x4 = xₖ; x5 = xₖ; x6 = xₖ
 
-    # Loop through to find an acceptable step
     while true
         h_now = guard(sys, xₖ)
-        # Compute the two predictions and their difference
+
+        # Stage 1
         k1 = f(xₖ, t)
 
-        x2 = xₖ + dt_step*1/5*k1
-        k2 = f(x2, t+dt_step*1/5)
+        # Stage 2
+        x2 = xₖ + dt_step * (1/5) * k1
+        k2 = f(x2, t + dt_step * 1/5)
         h2 = guard(sys, x2)
 
-        x3 = xₖ + dt_step*(3/40*k1 + 9/40*k2)
-        k3 = f(x3, t+dt_step*3/10)
+        # Stage 3
+        x3 = xₖ + dt_step * (3/40 * k1 + 9/40 * k2)
+        k3 = f(x3, t + dt_step * 3/10)
         h3 = guard(sys, x3)
 
-        x4 = xₖ + dt_step*(44/45*k1 - 56/15*k2 + 32/9*k3)
-        k4 = f(x4, t+dt_step*4/5)
+        # Stage 4
+        x4 = xₖ + dt_step * (44/45 * k1 - 56/15 * k2 + 32/9 * k3)
+        k4 = f(x4, t + dt_step * 4/5)
         h4 = guard(sys, x4)
 
-        x5 = xₖ + dt_step*(19372/6561*k1 - 25360/2187*k2 + 64448/6561*k3 - 212/729*k4)
-        k5 = f(x5,t+dt_step*8/9)
+        # Stage 5
+        x5 = xₖ + dt_step * (19372/6561 * k1 - 25360/2187 * k2 + 64448/6561 * k3 - 212/729 * k4)
+        k5 = f(x5, t + dt_step * 8/9)
         h5 = guard(sys, x5)
 
-        x6 = xₖ + dt_step*(9017/3168*k1 - 355/33*k2 + 46732/5247*k3 + 49/176*k4 - 5105/18656*k5)
-        k6 = f(x6, t+dt_step)
+        # Stage 6
+        x6 = xₖ + dt_step * (9017/3168 * k1 - 355/33 * k2 + 46732/5247 * k3 + 49/176 * k4 - 5103/18656 * k5)
+        k6 = f(x6, t + dt_step)
         h6 = guard(sys, x6)
 
-        k7 = f(xₖ + dt_step*(35/384*k1 + 0*k2 + 500/1113*k3 + 125/192*k4 - 2187/6784*k5 + 11/84*k6), t+dt_step)
+        # Compute 5th-order state y5
+        y5 = xₖ + dt_step * ((35/384) * k1 + (500/1113) * k3 + (125/192) * k4 - (2187/6784) * k5 + (11/84) * k6)
 
-        # The two updates
-        x_predict = xₖ + dt_step*k7
-        x1_5 = xₖ + dt_step*(5179/57600*k1 + 0*k2 + 7571/16695*k3 + 393/640*k4 - 92097/339200*k5 + 187/2100*k6 + 1/40*k7)
+        # Evaluate k7 at y5
+        k7 = f(y5, t + dt_step)
 
-        LTE = norm(x_predict - x1_5)
-        # Reject or accept?
+        # Direct error calculation: err = y5 - y4
+        err = dt_step * ((71/57600) * k1 - (71/16695) * k3 + (71/1920) * k4 - (17253/339200) * k5 + (22/525) * k6 - (1/40) * k7)
+
+        # Propagate 4th-order solution y4 = y5 - err
+        x_predict = y5 - err
+
+        scale = max(norm(x_predict), 1.0)
+        LTE = norm(err) / scale
+
         dt_next = updated_step(LTE, tol, dt_step, 5)
-        
+
         h_end = guard(sys, x_predict)
 
         stage_crossed = (h_now * h2 < 0) || (h_now * h3 < 0) || (h_now * h4 < 0) || (h_now * h5 < 0) || (h_now * h6 < 0)
         end_missed = (h_now * h_end > 0)
 
         if stage_crossed && end_missed
-            dt_step = dt_step / 2.0 #force smaller step
+            dt_step = dt_step / 2.0
             continue
         end
-        
+
         if LTE < tol
             return x_predict, dt_step, dt_next
         else
             dt_step = dt_next
         end
+
         if dt_step < 1e-12
             @warn "Step size has decreased below 1e-12"
             return x_predict, dt_step, dt_next

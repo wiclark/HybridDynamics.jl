@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v1.0.3
+# v0.20.24
 
 using Markdown
 using InteractiveUtils
@@ -119,7 +119,7 @@ end
 begin
 	sysM = HD.MechanicalSystem(M, V; guard=h, normal=∇h, e=r)
 	probM = HD.prob(sysM, [-0.95, 0.0, 0.2, -1.5], (0.0, 10.0))
-	solM = HD.solve(probM, HD.RK45())
+	solM = HD.solve(probM, HD.RK4())
 end
 
 # ╔═╡ fb3eb7c9-3f93-4986-aa89-c2ca478429d3
@@ -222,7 +222,7 @@ h_ball(x) = x[1]
 begin
 	sysG = HD.GeneralSystem(f_ball, h_ball, Δ_ball; direction=-1)
 	probG = HD.prob(sysG, [10.0, 0.0], (0.0, 15.0))
-	solG = HD.solve(probG)
+	solG = HD.solve(probG, HD.RK4())
 end
 
 # ╔═╡ 7ca75d5b-b8a6-472f-b5a7-f746b581e67f
@@ -284,7 +284,7 @@ begin
         LA_sys = HD.AffineSystem(LA_A, LA_b, LA_λ, LA_a, LA_C, LA_κ)
         LA_guard = -LA_a
         LA_prob = HD.prob(LA_sys, LA_x0, LA_tspan)
-        LA_sol = HD.solve(LA_prob, HD.RK45())
+        LA_sol = HD.solve(LA_prob, HD.RK4())
     else
         LA_sys = HD.LinearSystem(LA_A, LA_λ, LA_C)
         LA_guard = 0.0

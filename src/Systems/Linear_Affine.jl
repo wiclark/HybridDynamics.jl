@@ -270,10 +270,12 @@ function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Δt, tol, sol;
     _, t_end = prob.tspan
     dt_step = (tₖ + Δt > t_end) ? (t_end - tₖ) : Δt
 
+    #=
     if abs(guard(sys, xₖ)) < tol * adaptive_tol_mult
         dt_step = min(dt_step, dt_min * adaptive_dt_mult)
     end
-
+    =#
+    
     x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
 
     if eventtrigger
