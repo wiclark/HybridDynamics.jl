@@ -44,7 +44,7 @@ function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, directi
         a, b, c  = A \ [h_prev, h_now, h_next]
 
         #Ensure it is actually a parabola then check disc
-        if abs(a) > tol
+        if abs(a) > eps(Float64)
             discriminant = b^2 - 4*a*c
             if discriminant > 0
                 sqrt_d = sqrt(discriminant)
