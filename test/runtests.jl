@@ -1,6 +1,10 @@
-using HybridDynamics
+import HybridDynamics as HD
 using Test
 
+# Tolerance for testing the output of solution structs
+soltol = 1e-1
+
 @testset "HybridDynamics.jl" begin
-    # Write your tests here.
+    include("general.jl")
+    include("solvers.jl")
 end
