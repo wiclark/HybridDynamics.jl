@@ -50,22 +50,22 @@ For demonstrations, see the demos folder:
 - **NonholonomicSystem** 
 
     Required inputs:
-    - $M$: Mass matrix
-    - $V$: Potential energy
+    - ``M``: Mass matrix
+    - ``V``: Potential energy
 
     Optional inputs:
-    - $A$: The Pfaffian constraint matrix
-    - $h$: Guard
-    - $\Delta$: Reset map
-    - $e$: Coefficient of restitution
+    - ``A``: The Pfaffian constraint matrix
+    - ``h``: Guard
+    - ``Δ``: Reset map
+    - ``e``: Coefficient of restitution
 
 - **StochasticSystem** 
 
     Required inputs:
-    - $f$: The drift dynamics
-    - $g$: The diffusion term
-    - $h$: Guard
-    - $\Delta$: Reset map
+    - ``f``: The drift dynamics
+    - ``g``: The diffusion term
+    - ``h``: Guard
+    - ``Δ``: Reset map
 
 - **LinearSystem** ($A, \lambda, C$)
 

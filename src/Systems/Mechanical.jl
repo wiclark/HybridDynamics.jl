@@ -18,10 +18,7 @@ end
 
 Create a mechanical hybrid system of the form:
 ```math
-\\begin{cases}
-M(q) \\ddot{q} + \\nabla V(q) = 0, \\quad & h(q) \\neq 0 \\
-\\text{reset}, & h(q) = 0
-\\end{cases}
+H(q,p) = \frac{1}{2}p^\top M(q) p + V(q), \quad h(q) \geq 0.
 ```
 
 """

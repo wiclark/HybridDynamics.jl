@@ -30,7 +30,7 @@ r = 0.6
 ```@example mech
 sysM = HD.MechanicalSystem(M, V; guard=h, normal=∇h, e=r)
 probM = HD.prob(sysM, [-0.95, 0.0, 0.2, -1.5], (0.0, 10.0))
-solM = HD.solve(probM, HD.RK45())
+solM = HD.solve(probM, HD.RK4())
 ```
 
 ```@example mech
