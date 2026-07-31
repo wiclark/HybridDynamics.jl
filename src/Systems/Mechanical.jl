@@ -84,7 +84,7 @@ function specular_refl(x, M, dh, sys)
     Mq = M(q)           # Mass matrix
     p = x[n+1:end]      # velocities
 
-    # Constraint normal (row -> column) # <- It just is a column vector
+    # Constraint normal
     normal = dh(q)
 
     # Denominator
@@ -270,6 +270,13 @@ function solve(prob::prob{S, I, T},
     p_dot(q, p, λ) = ForwardDiff.gradient(q -> -H(q,p), q) .+ λ*∇h(q)
     # Combining these vector fields together
     f_λ(q, p, λ) = [q_dot(q, p); p_dot(q, p, λ)]
+
+    # Initial derivative, pray it's not on the guard (for now)
+    if dense_out
+        push!(sol.dx, 
+        f_λ(prob.init[1:length(prob.init ÷ 2)], prob.init[length(prob.init ÷ 2):end],
+        0))
+    end
 
     _, t_end = prob.tspan           # Extract the terminal time of the problem
 

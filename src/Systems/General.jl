@@ -142,6 +142,11 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
     Δt = dt_initial
     iter = 0
 
+    # Initial derivative, pray it's not on the guard (for now)
+    if dense_out
+        push!(sol.dx, f(prob.init, prob.tspan[1]))
+    end
+
     while sol.t[end] < t_end
         
         iter += 1
