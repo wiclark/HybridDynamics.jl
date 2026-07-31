@@ -24,13 +24,13 @@ M(q) = [1.0 0.0; 0.0 1.0]
 V(q) = q[2]
 h(q) = 1 - (q[1]^2+q[2]^2)
 ∇h(q) = [-2*q[1], -2*q[2]]
-r = 0.6
+r = 0.6;
 ```
 
 ```@example mech
 sysM = HD.MechanicalSystem(M, V; guard=h, normal=∇h, e=r)
 probM = HD.prob(sysM, [-0.95, 0.0, 0.2, -1.5], (0.0, 10.0))
-solM = HD.solve(probM, HD.RK45())
+solM = HD.solve(probM, HD.RK4())
 ```
 
 ```@example mech

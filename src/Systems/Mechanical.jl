@@ -16,14 +16,7 @@ end
     MechanicalSystem(M, V; guard=nothing, normal=nothing, reset=specular_refl,
                      e=1.0, direction=-1)
 
-Create a mechanical hybrid system of the form:
-```math
-\\begin{cases}
-M(q) \\ddot{q} + \\nabla V(q) = 0, \\quad & h(q) \\neq 0 \\
-\\text{reset}, & h(q) = 0
-\\end{cases}
-```
-
+Create a mechanical hybrid system.
 """
 function MechanicalSystem(M, V;
                 guard = nothing,
@@ -271,11 +264,11 @@ function solve(prob::prob{S, I, T},
     # Combining these vector fields together
     f_λ(q, p, λ) = [q_dot(q, p); p_dot(q, p, λ)]
 
+    n = length(prob.init) ÷ 2
     # Initial derivative, pray it's not on the guard (for now)
     if dense_out
         push!(sol.dx, 
-        f_λ(prob.init[1:length(prob.init) ÷ 2], prob.init[length(prob.init) ÷ 2:end],
-        0))
+        f_λ(prob.init[1:n], prob.init[n+1:end], 0))
     end
 
     _, t_end = prob.tspan           # Extract the terminal time of the problem
