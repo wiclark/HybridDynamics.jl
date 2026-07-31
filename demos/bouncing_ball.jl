@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v1.0.1
+# v1.0.3
 
 using Markdown
 using InteractiveUtils
@@ -82,7 +82,7 @@ end
 begin
 	sysG = HD.GeneralSystem(f_ball, h_ball, Δ_ball; direction=-1)
 	probG = HD.prob(sysG, [10.0, 0.0], (0.0, 15.0))
-	solG = HD.solve(probG)
+	solG = HD.solve(probG, HD.RK4())
 end
 
 # ╔═╡ 9f2d777b-8e8c-4ace-865e-4ec7c6226ed3
@@ -114,8 +114,8 @@ md"""
 
 # ╔═╡ 13da5896-c5ef-4829-b934-917a42495d01
 begin
-	# The mass matrix (needs to be in the form of a matrix)
-	M(q) = [1.0;;]
+	# The mass matrix
+	M(q) = 1.0
 	# The potential energy
 	V(q) = 9.81*q[1]
 	# The guard location and its differential (as a vector)

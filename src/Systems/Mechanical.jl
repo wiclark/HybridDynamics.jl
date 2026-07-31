@@ -274,7 +274,7 @@ function solve(prob::prob{S, I, T},
     # Initial derivative, pray it's not on the guard (for now)
     if dense_out
         push!(sol.dx, 
-        f_λ(prob.init[1:length(prob.init ÷ 2)], prob.init[length(prob.init ÷ 2):end],
+        f_λ(prob.init[1:length(prob.init) ÷ 2], prob.init[length(prob.init) ÷ 2:end],
         0))
     end
 
