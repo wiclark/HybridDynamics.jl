@@ -38,7 +38,7 @@ We use Milne's device for error est because it is easy to compute. Since we alre
 #user can specify if they want RK4 here
 function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::RK=RK4(); check=true, guard_direction=default_guard_direction(prob.sys))
     
-    # 1. Probing Override: If checking is disabled, LMM history assumptions are violated. Route to RK stepper.
+    # Probing Override: If checking is disabled, LMM history assumptions are violated. Route to RK stepper.
     if !check
         return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=false, guard_direction=guard_direction)
     end
@@ -48,6 +48,14 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
     tf = prob.tspan[2]
 
     Δt = minimum([Δt, tf - tₖ])
+
+    # Proximity based step clamping for LMM
+    h_current_val = guard(sys, xₖ)
+    if !isnothing(h_current_val) && abs(h_current_val) < 0.1
+        f_val = f(xₖ, tₖ)
+        dt_max_guard = abs(h_current_val) / (norm(f_val) + 1e-8)
+        Δt = min(Δt, max(dt_max_guard, 1e-5))
+    end
 
     # Determine how many cont steps we have since last jump
     history_len = isempty(sol.event_indices) ? length(sol.x) : (length(sol.x) - sol.event_indices[end])
@@ -72,8 +80,27 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
         # Compute step and retrieve LTE 
         x_next, x_predict, LTE = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
 
-        h_now = guard(sys, xₖ)
-        h_corr = guard(sys, x_next)
+        # Safeguard against numerical explosions with fancy guards or weird history details.  
+        if any(isnan, x_next) || any(isinf, x_next) || any(isnan, x_predict) || any(isinf, x_predict)
+            return take_step(stepper, prob, f, xₖ, tₖ, Δt * 0.5, tol, sol, stepper; check=false, guard_direction=guard_direction)
+        end
+
+        # Guard boundary rejection logic
+        h_now     = guard(sys, xₖ)
+        h_predict = guard(sys, x_predict) # The predictor acts as our "stage"
+        h_end     = guard(sys, x_next)    # The corrector acts as our "end"
+
+        if !isnothing(h_now) && !isnothing(h_predict) && !isnothing(h_end)
+            stage_crossed = (h_now * h_predict < 0)
+            end_missed    = (h_now * h_end > 0)
+            crossed       = (h_now * h_end < 0)
+
+            # Step rejection for guard bounding: catches overshoots, skips, and curved/high-frequency bounds
+            if (stage_crossed && end_missed) || (crossed && abs(h_end) > max(abs(h_now), 10 * tol)) || (h_predict * h_end < 0)
+                Δt = Δt / 2.0
+                continue
+            end
+        end
 
         # Prevent violent changes in step size.
         growth = 5.0
@@ -81,36 +108,42 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
 
         # Calc proposed next step size using helper from beginning 
         if LTE == 0
-            dt_next = growth*Δt
+            dt_next = growth * Δt
         else
-            dt_next = 0.9*Δt*(tol/LTE)^(1/(k+1))
+            dt_next = 0.9 * Δt * (tol / LTE)^(1 / (k + 1))
         end
 
-        dt_next = min(dt_next, growth*Δt)
-        dt_next = max(dt_next, shrink*Δt)
+        dt_next = min(dt_next, growth * Δt)
+        dt_next = max(dt_next, shrink * Δt)
+
         if LTE < tol
             if check
-                h_now = guard(sys, xₖ)
-                h_next = guard(sys, x_next)
-
-                # Guard eval looking back to prev step for the quad check 
+                # Evaluate looking back to prev step for the quad check 
                 if history_len > 1
                     idx = length(sol.x) - 1
                     t_prev = sol.t[idx]
                     h_prev = guard(sys, sol.x[idx])
+                    
+                    # Prevent degenerate quadratic interpolation in the event locator.
+                    # If LTE spikes shrank Δt drastically, the time stencil becomes skewed.
+                    if (tₖ - t_prev) > 10 * Δt
+                        t_prev = tₖ - Δt
+                        # Linear backward extrapolation guarantees a stable root bracket
+                        h_prev = h_now - (h_end - h_now)
+                    end
                 else
                     t_prev = tₖ - Δt
                     h_prev = h_now
                 end
                 
-                eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
+                eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_end, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
+
                 return x_next, eventtrigger, t_root, Δt, dt_next
             else 
-                # Fallback (Structurally unreachable due to top delegation)
                 return x_next, false, NaN, Δt, dt_next
             end
         else
-            # Step rejected: shrink and retry
+            # Step rejected due to LTE error: shrink and retry
             Δt = dt_next
 
             if Δt < 1e-12
