@@ -49,19 +49,6 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
 
     Δt = minimum([Δt, tf - tₖ])
 
-    h_current_val = guard(sys, xₖ)
-
-    if !isnothing(h_current_val) && abs(h_current_val) < 0.1
-        f_val = f(xₖ, tₖ)
-
-        dt_max_guard = abs(h_current_val) / (norm(f_val) + 1e-8)
-
-        Δt = min(
-            Δt,
-            max(dt_max_guard, 1e-5)
-        )
-    end
-
     # Determine how many cont steps we have since last jump
     history_len = isempty(sol.event_indices) ? length(sol.x) : (length(sol.x) - sol.event_indices[end])
 
@@ -104,8 +91,6 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
         end
 
         # Guard boundary rejection logic. 
-        # We have no intermediate stages, so we probe the interior of the proposed step. 
-        # This matters for guards like sin(x) where we can cross the guard multiple times in a single step.
         h_now = guard(sys, xₖ)
         h_predict = guard(sys, x_predict)
         h_end = guard(sys, x_next)
@@ -136,9 +121,16 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
             end_missed    = (h_now * h_end > 0)
             crossed       = (h_now * h_end < 0)
 
+            # Check if system is a Filippov system using type name inspection
+            # All this does is swap logic if we have a Filippov system to keep track of sliding mode entry and exit. 
+            # Mechanical is the root of the issue as the logic each system needs doesnt fully match so this is what we have (IT SUCKS I KNOW - DS)
+            is_filippov_sys = occursin("Filippov", string(typeof(sys)))
+            should_enforce_penetration = !is_filippov_sys
+
             if multiple_crossings ||
-            (stage_crossed && end_missed) ||
-            (h_predict * h_end < 0)
+               (stage_crossed && end_missed) ||
+               (h_predict * h_end < 0) ||
+               (should_enforce_penetration && crossed && abs(h_end) > tol)
 
                 Δt = Δt / 2.0
                 continue
