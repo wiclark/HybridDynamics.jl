@@ -49,12 +49,17 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
 
     Δt = minimum([Δt, tf - tₖ])
 
-    # Proximity based step clamping for LMM
     h_current_val = guard(sys, xₖ)
+
     if !isnothing(h_current_val) && abs(h_current_val) < 0.1
         f_val = f(xₖ, tₖ)
+
         dt_max_guard = abs(h_current_val) / (norm(f_val) + 1e-8)
-        Δt = min(Δt, max(dt_max_guard, 1e-5))
+
+        Δt = min(
+            Δt,
+            max(dt_max_guard, 1e-5)
+        )
     end
 
     # Determine how many cont steps we have since last jump
@@ -62,6 +67,13 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
 
     # Startup phase: IF we dont have history we use RK stepper
     if history_len <= k
+        if length(sol.t) >= 2
+            h_startup = sol.t[end] - sol.t[end - 1]
+
+            if h_startup > 1e-12
+                Δt = min(Δt, h_startup)
+            end
+        end
         return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
     end
 
@@ -75,6 +87,12 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
         return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
     end
 
+    h_last = time_diffs[end]
+
+    if Δt > 2.0 * h_last
+        Δt = 2.0 * h_last
+    end
+
     # Adaptive step loop
     while true
         # Compute step and retrieve LTE 
@@ -85,26 +103,51 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
             return take_step(stepper, prob, f, xₖ, tₖ, Δt * 0.5, tol, sol, stepper; check=false, guard_direction=guard_direction)
         end
 
-        # Guard boundary rejection logic
-        h_now     = guard(sys, xₖ)
-        h_predict = guard(sys, x_predict) # The predictor acts as our "stage"
-        h_end     = guard(sys, x_next)    # The corrector acts as our "end"
+        # Guard boundary rejection logic. 
+        # We have no intermediate stages, so we probe the interior of the proposed step. 
+        # This matters for guards like sin(x) where we can cross the guard multiple times in a single step.
+        h_now = guard(sys, xₖ)
+        h_predict = guard(sys, x_predict)
+        h_end = guard(sys, x_next)
 
         if !isnothing(h_now) && !isnothing(h_predict) && !isnothing(h_end)
+            x_probe1 = (3.0 / 4.0) .* xₖ .+ (1.0 / 4.0) .* x_next
+            x_probe2 = (1.0 / 2.0) .* xₖ .+ (1.0 / 2.0) .* x_next
+            x_probe3 = (1.0 / 4.0) .* xₖ .+ (3.0 / 4.0) .* x_next
+
+            h_probe1 = guard(sys, x_probe1)
+            h_probe2 = guard(sys, x_probe2)
+            h_probe3 = guard(sys, x_probe3)
+
+            samples = (h_now, h_probe1, h_probe2, h_probe3, h_end)
+
+            crossing_count = 0
+
+            for i in 1:(length(samples) - 1)
+                if samples[i] * samples[i + 1] < 0
+                    crossing_count += 1
+                end
+            end
+
+            multiple_crossings = crossing_count > 1
+
+            # Predictor/end-point checks
             stage_crossed = (h_now * h_predict < 0)
             end_missed    = (h_now * h_end > 0)
             crossed       = (h_now * h_end < 0)
 
-            # Step rejection for guard bounding: catches overshoots, skips, and curved/high-frequency bounds
-            if (stage_crossed && end_missed) || (crossed && abs(h_end) > max(abs(h_now), 10 * tol)) || (h_predict * h_end < 0)
+            if multiple_crossings ||
+            (stage_crossed && end_missed) ||
+            (h_predict * h_end < 0)
+
                 Δt = Δt / 2.0
                 continue
             end
         end
 
         # Prevent violent changes in step size.
-        growth = 5.0
-        shrink = 0.1
+        growth = 2.0
+        shrink = 0.25
 
         # Calc proposed next step size using helper from beginning 
         if LTE == 0
@@ -118,28 +161,28 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
 
         if LTE < tol
             if check
-                # Evaluate looking back to prev step for the quad check 
-                if history_len > 1
-                    idx = length(sol.x) - 1
+                # Evaluate looking back to previous accepted step
+                # for the event locator.
+                if length(sol.x) >= 2
+                    idx = max(1, length(sol.x) - 1)
+
                     t_prev = sol.t[idx]
                     h_prev = guard(sys, sol.x[idx])
-                    
-                    # Prevent degenerate quadratic interpolation in the event locator.
-                    # If LTE spikes shrank Δt drastically, the time stencil becomes skewed.
+
+                    # Prevent degenerate quadratic interpolation if things get small. 
                     if (tₖ - t_prev) > 10 * Δt
                         t_prev = tₖ - Δt
-                        # Linear backward extrapolation guarantees a stable root bracket
+                        # Linear backward extrapolation gives the locator a stable local bracket.
                         h_prev = h_now - (h_end - h_now)
                     end
                 else
                     t_prev = tₖ - Δt
                     h_prev = h_now
                 end
-                
-                eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_end, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
 
+                eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_end, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
                 return x_next, eventtrigger, t_root, Δt, dt_next
-            else 
+            else
                 return x_next, false, NaN, Δt, dt_next
             end
         else
@@ -178,7 +221,8 @@ function compute_lmm_step(::AdaptiveABM2, f, xₖ, tₖ, Δt, x_history, t_histo
     x_correct = xₖ .+ Δt .* (am_coeff[2] .* f_predict .+ am_coeff[1] .* fₖ)
 
     # Milne LTE estimate
-    LTE = (1/6) * norm(x_correct .- x_predict)
+    scale = max(norm(x_correct), 1.0)
+    LTE = (1 / 6) * norm(x_correct .- x_predict) / scale
 
     return x_correct, x_predict, LTE
 end
@@ -209,7 +253,8 @@ function compute_lmm_step(::AdaptiveABM3, f, xₖ, tₖ, Δt, x_history, t_histo
     x_correct = xₖ .+ Δt .* (am_coeff[3] .* f_predict .+ am_coeff[2] .* fₖ .+ am_coeff[1] .* f_prev1)
 
     # Milne LTE estimate
-    LTE = (1/10) * norm(x_correct .- x_predict)
+    scale = max(norm(x_correct), 1.0)
+    LTE = (1 / 10) * norm(x_correct .- x_predict) / scale
 
     return x_correct, x_predict, LTE
 end
