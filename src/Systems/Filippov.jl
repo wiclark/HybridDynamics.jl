@@ -192,7 +192,7 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Δt, tol, sol;
         # locate exit
         t_star, x_star = locate_event(event_method, exit_prob, solver, vf, xₖ, tₖ, dt_used, exit_guard_fun(xₖ), tol, sol, stepper)
 
-        # FIX: Iterative Newton re-projection to main switch surface
+        # Iterative Newton re-projection to main switch surface
         for _ in 1:10
             h_err_star = guard(sys, x_star)
             (isnothing(h_err_star) || abs(h_err_star) < 1e-11) && break
