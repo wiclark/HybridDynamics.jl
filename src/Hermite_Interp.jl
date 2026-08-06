@@ -4,6 +4,9 @@
 #     push!(sol.dx, f(xₖ, tₖ))
 # end
 
+function (sol::StochasticSol)(t::Real)
+    error("Interpolation attempted on stochastic system type; this is undefined.")
+end
 
 # Cubic Hermite interpolant for dense output
 function (sol::AbstractHybridSolution)(t::Real)

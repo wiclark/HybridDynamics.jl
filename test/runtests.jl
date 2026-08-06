@@ -7,5 +7,8 @@ soltol = 0.5
 @testset "HybridDynamics.jl" begin
     include("general.jl")
     include("mechanical.jl")
+    include("stochastic.jl")
+
     include("solvers.jl")
+
 end
