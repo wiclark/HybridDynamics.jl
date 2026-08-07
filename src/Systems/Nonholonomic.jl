@@ -107,7 +107,7 @@ function find_multiplier(prob::prob{S, I, T}; sliding=false) where {S<:Nonholono
     # Work out the value of the k (or k+1) multipliers
     # Differentiate the constraint and solve for the multiplier
     A_dot(q, p) = ForwardDiff.derivative(ε -> A(q .+ ε*inv(M(q))*p), 0.0)
-    λ(q, p) = inv(A(q)*inv(M(q))*(A(q)')) * (-A_dot(q,p)*inv(M(q))*p + A(q)*inv(M(q))*p_dot(q,p))
+    λ(q, p) = inv(A(q)*inv(M(q))*(A(q)')) * (-A_dot(q,p)*inv(M(q))*p - A(q)*inv(M(q))*p_dot(q,p))
     # The version below works, but is slower.
     #=
     ρ(q, p) = A(q) * inv(M(q)) *  p
