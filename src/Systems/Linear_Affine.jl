@@ -441,11 +441,11 @@ function solve(prob::prob{S, I, T},
         end
 
         @info "System started on the guard. Immediate jump applied at t = $t₀."
-    end
-
-    # Initial derivative if not on guard
-    if dense_out
-        push!(sol.dx, f(prob.init, prob.tspan[1]))
+    else
+        # Initial derivative if not on guard
+        if dense_out
+            push!(sol.dx, f(prob.init, prob.tspan[1]))
+        end
     end
 
     # Run until end time or max iter

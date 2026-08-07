@@ -256,6 +256,38 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
         throw(ArgumentError("track_sliding must be :both, :enter, :exit, or :none"))
     end
 
+    # Evaluate initial conditions for dense_out and check if starting on the guard
+    x₀ = sol.x[end]
+    t₀ = sol.t[end]
+    
+    # Boundary and guard tolerances
+    guard_tol = max(tol * 10, 1e-7)
+    boundary_layer = guard_tol * boundary_tol
+    
+    h_val = guard(sys, x₀)
+    vf_fun, sliding_start = filippov_vector_field(sys, x₀; Ftol=boundary_layer, atol=guard_tol)
+
+    # Check if we start exactly on the switching surface
+    if !isnothing(h_val) && abs(h_val) <= guard_tol
+        @info "System started on the guard at t = $t₀."
+        push!(sol.event_times, t₀)
+        push!(sol.event_indices, length(sol.t))
+        
+        # Check if this initial guard state triggers sliding mode immediately
+        if sliding_start
+            if track_sliding in (:both, :enter)
+                @info "Sliding mode entered at t = $t₀"
+            end
+            push!(sol.s, t₀)
+            sliding_prev = true # Prevents the while loop from redundantly logging the entry
+        end
+    end
+
+    # Initial derivative if dense_out is requested
+    if dense_out
+        push!(sol.dx, vf_fun(x₀))
+    end
+
     while sol.t[end] < t_end
         iter += 1
         if iter > max_iter

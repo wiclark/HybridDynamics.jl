@@ -133,6 +133,24 @@ function solve(prob::prob{S, I, T},
     Δt = dt_initial
     iter = 0
 
+    # Check if we start on the guard
+    h_val = prob.sys.h(sol.x[end])
+    h_scalar = h_val isa AbstractVector ? minimum(h_val) : h_val
+    
+    if abs(h_scalar) <= tol
+        x₀ = sol.x[end]
+        t₀ = sol.t[end]
+
+        x⁺ = prob.sys.Δ(x₀)
+
+        push!(sol.t, t₀)
+        push!(sol.x, x⁺)
+        push!(sol.event_times, t₀)
+        push!(sol.event_indices, length(sol.t))
+
+        @info "System started on the guard. Immediate jump applied at t = $t₀."
+    end
+
  # Run sim until end of specified time span
     while sol.t[end] < t_end 
         

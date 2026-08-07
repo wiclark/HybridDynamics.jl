@@ -303,6 +303,35 @@ function solve(prob::prob{S, I, T},
         sol.x[end] = vcat(q₀, p₀)
     end
 
+    # Determine the free multiplier for initial derivative calculations
+    λ_free = find_multiplier(prob)
+    
+    # Check if we start on the guard
+    if abs(guard(sys, sol.x[end])) <= tol
+        x₀_proj = sol.x[end]
+        t₀ = sol.t[end]
+
+        x⁺ = sys.reset(x₀_proj, M, A, ∇h, sys)
+
+        push!(sol.t, t₀)
+        push!(sol.x, x⁺)
+        push!(sol.event_times, t₀)
+        push!(sol.event_indices, length(sol.t))
+
+        if dense_out
+            push!(sol.dx, f_λ(x₀_proj[1:n], x₀_proj[n+1:end], λ_free(x₀_proj[1:n], x₀_proj[n+1:end]), 0.0))
+            push!(sol.dx, f_λ(x⁺[1:n], x⁺[n+1:end], λ_free(x⁺[1:n], x⁺[n+1:end]), 0.0))
+        end
+
+        @info "System started on the guard. Immediate jump applied at t = $t₀."
+    else
+        # Initial derivative if NOT on guard
+        if dense_out
+            x₀_proj = sol.x[end]
+            push!(sol.dx, f_λ(x₀_proj[1:n], x₀_proj[n+1:end], λ_free(x₀_proj[1:n], x₀_proj[n+1:end]), 0.0))
+        end
+    end
+
     # Run sim until end of specified time span
     while sol.t[end] < t_end 
         

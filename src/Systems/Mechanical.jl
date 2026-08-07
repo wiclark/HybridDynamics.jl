@@ -266,10 +266,30 @@ function solve(prob::prob{S, I, T},
     f_λ(q, p, λ) = [q_dot(q, p); p_dot(q, p, λ)]
 
     n = length(prob.init) ÷ 2
-    # Initial derivative, pray it's not on the guard (for now)
-    if dense_out
-        push!(sol.dx, 
-        f_λ(prob.init[1:n], prob.init[n+1:end], 0))
+
+    # Check if we start on the guard
+    if abs(guard(sys, sol.x[end])) <= tol
+        x₀ = sol.x[end]
+        t₀ = sol.t[end]
+
+        x⁺ = sys.reset(x₀, M, ∇h, sys)
+
+        push!(sol.t, t₀)
+        push!(sol.x, x⁺)
+        push!(sol.event_times, t₀)
+        push!(sol.event_indices, length(sol.t))
+
+        if dense_out
+            push!(sol.dx, f_λ(x₀[1:n], x₀[n+1:end], 0.0))
+            push!(sol.dx, f_λ(x⁺[1:n], x⁺[n+1:end], 0.0))
+        end
+
+        @info "System started on the guard. Immediate jump applied at t = $t₀."
+    else
+        # Initial derivative if NOT on guard
+        if dense_out
+            push!(sol.dx, f_λ(prob.init[1:n], prob.init[n+1:end], 0.0))
+        end
     end
 
     _, t_end = prob.tspan           # Extract the terminal time of the problem

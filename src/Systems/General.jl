@@ -142,9 +142,31 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
     Δt = dt_initial
     iter = 0
 
-    # Initial derivative, pray it's not on the guard (for now)
-    if dense_out
-        push!(sol.dx, f(prob.init, prob.tspan[1]))
+    iter = 0
+
+    # Check if we start on the guard
+    if abs(guard(sys, sol.x[end])) <= tol
+        x₀ = sol.x[end]
+        t₀ = sol.t[end]
+
+        x⁺ = apply_reset(sys, x₀)
+
+        push!(sol.t, t₀)
+        push!(sol.x, x⁺)
+        push!(sol.event_times, t₀)
+        push!(sol.event_indices, length(sol.t))
+
+        if dense_out
+            push!(sol.dx, f(x₀, t₀))
+            push!(sol.dx, f(x⁺, t₀))
+        end
+
+        @info "System started on the guard. Immediate jump applied at t = $t₀."
+    else
+        # Initial derivative if NOT on guard
+        if dense_out
+            push!(sol.dx, f(prob.init, prob.tspan[1]))
+        end
     end
 
     while sol.t[end] < t_end
