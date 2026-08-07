@@ -9,7 +9,7 @@ soltol = 0.5
     include("linear.jl")
     include("affine.jl")
     include("mechanical.jl")
-    # include("nonholonomic.jl")
+    include("nonholonomic.jl")
     include("stochastic.jl")
     # include("filippov.jl")
 
