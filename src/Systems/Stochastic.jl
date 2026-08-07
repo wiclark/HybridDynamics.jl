@@ -14,7 +14,11 @@ end
     StochasticSystem(f, g, h, Δ; 
     normal = nothing, direction=0)
 
-Construct a stochastic system of the form:
+Construct a stochastic system. `f` represents the continuous flow/drift dynamics, `g` is the diffusion term,
+`h` is the guard, and `Δ` is the reset map.
+
+If not provided, the normal to the guard, `normal`, will be found using ForwardDiff.
+The event detection direction, `direction`, is set to be bidirectional.
 
 """
 function StochasticSystem(f, g, h, Δ; 
@@ -49,7 +53,7 @@ end
 struct StochasticSol{T, X, DX, I, E, EI} <: AbstractHybridSolution
     t::T        # Time data
     x::X        # x, the state
-    dx::DX      # f(x) Derivative at each state x - only filled when dense_out = true
+    dx::DX      # f(x) Derivative at each state x - empty for this system
     prob::I     # Remember the problem - to aid interpolation
     event_times::E    # Times where an event has occurred
     event_indices::EI #Indices where an event has occurred

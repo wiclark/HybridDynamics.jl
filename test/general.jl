@@ -15,20 +15,24 @@ h_ball(x) = x[1]
 Δ_ball(x) = [abs(x[1]), -0.8*x[2]]
 
 sysG = HD.GeneralSystem(f_ball, h_ball, Δ_ball; direction=-1)
-probG = HD.prob(sysG, [10.0, 0.0], (0.0, 2.0))
+probG1 = HD.prob(sysG, [10.0, 0.0], (0.0, 2.0))
+probGz = HD.prob(sysG, [1.0, 0.0], (0.0, 5.0))
 
 @testset "General" begin
     
-    solG = HD.solve(probG, HD.RK4())
+    solG1 = HD.solve(probG1, HD.RK4())
 
     # Test to verify the solution at t=1 is within a tolerance of an exact value
-    @test solG(1) ≈ [5.095, -9.81] atol=soltol
+    @test solG1(1) ≈ [5.095, -9.81] atol=soltol
     # After bounce, position
-    @test solG(1.75)[1] ≈ -9.81/2*(1.75-sqrt(10*2/9.81))^2 + 9.81*0.8*sqrt(10*2/9.81)*(1.75-sqrt(10*2/9.81)) atol=soltol
+    @test solG1(1.75)[1] ≈ -9.81/2*(1.75-sqrt(10*2/9.81))^2 + 9.81*0.8*sqrt(10*2/9.81)*(1.75-sqrt(10*2/9.81)) atol=soltol
     # One bounce
-    @test length(solG.event_times) == 1
+    @test length(solG1.event_times) == 1
     # At the right time
-    @test solG.event_times[1] ≈ sqrt(10*2/9.81) atol=soltol
+    @test solG1.event_times[1] ≈ sqrt(10*2/9.81) atol=soltol
+
+    # Throws warning for repeated event
+    @test_logs (:warn,) HD.solve(probGz, HD.RK4())
 
 end
 
