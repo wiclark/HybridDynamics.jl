@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.0.1
+
+- Known bugs added to "Known Bugs" page.
+- Various fixes to adaptive solvers. They now pass tests.
+- Tests added for stochastic, and nonholonomic systems. All tests currently pass.
+- Added check to see if the initial condition is on the guard to all system types. If so, the reset is applied immediately.
+- Dense output via Hermite interpolation has been fixed for general, linear, affine, and mechanical systems, i.e. 'dx' is no longer off by one in its index. Attempting interpolation with a stochastic system now correctly throws an error.
+- Many typos and small bugs (e.g. dropped negatives) have been fixed.
+
+
 ## v1.0.0
 
 ### Tests
