@@ -32,7 +32,7 @@ h_sleigh(q) = 1 - (q[1]^2+q[2]^2)
 ∇h_sleigh(q) = [-2*q[1], -2*q[2], 0.0]
 
 sysNH = HD.NonholonomicSystem(M_sleigh, V_sleigh; A = A_sleigh, guard=h_sleigh, normal=∇h_sleigh, e=1)
-probNH = HD.prob(sysNH, [0.0, 0.0, 0.0, 1.0, 0.0, 1.5], (0.0, 100.0))
+probNH = HD.prob(sysNH, [0.0, 0.0, 0.0, 1.0, 0.0, 1.5], (0.0, 10.0))
 solNH = HD.solve(probNH, solver=HD.RK4())
 ```
 
