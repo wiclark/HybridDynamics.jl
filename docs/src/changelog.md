@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.0.1
+
+- Known bugs added to "Known Bugs" page.
+- Various fixes to adaptive solvers. They now pass tests.
+- Tests added for stochastic, and nonholonomic systems. All tests currently pass.
+- Added check to see if the initial condition is on the guard to all system types. If so, the reset is applied immediately.
+- Dense output via Hermite interpolation has been fixed for general, linear, affine, and mechanical systems, i.e. 'dx' is no longer off by one in its index. Attempting interpolation with a stochastic system now correctly throws an error.
+- Many typos and small bugs (e.g. dropped negatives) have been fixed.
+
+
+## v1.0.0
+
+### Tests
+
+* Tests have been added to the package. These will allow us to better keep up with how our updates work with the code as a whole. 
+* Added `TestingNotebook.ipynb` which delves into detail on how we test our ODE solvers. Note for now it is quite sparse as we are focusing on actually making the solvers good but it will be updated in a future patch. This notebook includes many useful thigns so go take a look!
+
+### ODE Solver Testing
+
+* **Fixed Solvers:** Working much better now. They are not perfect currently but that will be fixed in the next update and they will work great for any applications of this package as of now. 
+* **Adaptive Solvers:** Bugged at this time. Along with bringing them up to date with the new testing software (in `TestingNotebook.ipynb`) there has been some big behind the scenes changes for some of our solvers. `AdaptiveABM2` and `AdaptiveABM3` have been updated to use their adaptive coefficients as before we had fixed values. Then `RK23` and `RK45` have been given protection against catastrophic cancellation. Otherwise these solvers struggle at this time with certain systems, see the Known Bugs tab below. 
+
+### Known Bugs
+
+**Adaptive Solvers:** Adaptive solvers currently do not work as intended for `Mechanical`, `Filippov` and `General` systems. The fault lies in the more complicated guard structure. That in mind, the solvers should be more than reasonable for any non-hybrid applications as well as our other system types. These will be fixed in the next update. 
+
 ## v0.4.0
 
 ### Testing

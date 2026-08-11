@@ -38,7 +38,7 @@ We use Milne's device for error est because it is easy to compute. Since we alre
 #user can specify if they want RK4 here
 function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::RK=RK4(); check=true, guard_direction=default_guard_direction(prob.sys))
     
-    # 1. Probing Override: If checking is disabled, LMM history assumptions are violated. Route to RK stepper.
+    # Probing Override: If checking is disabled, LMM history assumptions are violated. Route to RK stepper.
     if !check
         return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=false, guard_direction=guard_direction)
     end
@@ -54,6 +54,13 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
 
     # Startup phase: IF we dont have history we use RK stepper
     if history_len <= k
+        if length(sol.t) >= 2
+            h_startup = sol.t[end] - sol.t[end - 1]
+
+            if h_startup > 1e-12
+                Δt = min(Δt, h_startup)
+            end
+        end
         return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
     end
 
@@ -67,50 +74,111 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
         return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
     end
 
+    h_last = time_diffs[end]
+
+    if Δt > 2.0 * h_last
+        Δt = 2.0 * h_last
+    end
+
     # Adaptive step loop
     while true
         # Compute step and retrieve LTE 
         x_next, x_predict, LTE = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
 
+        # Safeguard against numerical explosions with fancy guards or weird history details.  
+        if any(isnan, x_next) || any(isinf, x_next) || any(isnan, x_predict) || any(isinf, x_predict)
+            return take_step(stepper, prob, f, xₖ, tₖ, Δt * 0.5, tol, sol, stepper; check=false, guard_direction=guard_direction)
+        end
+
+        # Guard boundary rejection logic. 
         h_now = guard(sys, xₖ)
-        h_corr = guard(sys, x_next)
+        h_predict = guard(sys, x_predict)
+        h_end = guard(sys, x_next)
+
+        if !isnothing(h_now) && !isnothing(h_predict) && !isnothing(h_end)
+            x_probe1 = (3.0 / 4.0) .* xₖ .+ (1.0 / 4.0) .* x_next
+            x_probe2 = (1.0 / 2.0) .* xₖ .+ (1.0 / 2.0) .* x_next
+            x_probe3 = (1.0 / 4.0) .* xₖ .+ (3.0 / 4.0) .* x_next
+
+            h_probe1 = guard(sys, x_probe1)
+            h_probe2 = guard(sys, x_probe2)
+            h_probe3 = guard(sys, x_probe3)
+
+            samples = (h_now, h_probe1, h_probe2, h_probe3, h_end)
+
+            crossing_count = 0
+
+            for i in 1:(length(samples) - 1)
+                if samples[i] * samples[i + 1] < 0
+                    crossing_count += 1
+                end
+            end
+
+            multiple_crossings = crossing_count > 1
+
+            # Predictor/end-point checks
+            stage_crossed = (h_now * h_predict < 0)
+            end_missed    = (h_now * h_end > 0)
+            crossed       = (h_now * h_end < 0)
+
+            # Check if system is a Filippov system using type name inspection
+            # All this does is swap logic if we have a Filippov system to keep track of sliding mode entry and exit. 
+            # Mechanical is the root of the issue as the logic each system needs doesnt fully match so this is what we have (IT SUCKS I KNOW - DS)
+            is_filippov_sys = occursin("Filippov", string(typeof(sys)))
+            should_enforce_penetration = !is_filippov_sys
+
+            if multiple_crossings ||
+               (stage_crossed && end_missed) ||
+               (h_predict * h_end < 0) ||
+               (should_enforce_penetration && crossed && abs(h_end) > tol)
+
+                Δt = Δt / 2.0
+                continue
+            end
+        end
 
         # Prevent violent changes in step size.
-        growth = 5.0
-        shrink = 0.1
+        growth = 2.0
+        shrink = 0.25
 
         # Calc proposed next step size using helper from beginning 
         if LTE == 0
-            dt_next = growth*Δt
+            dt_next = growth * Δt
         else
-            dt_next = 0.9*Δt*(tol/LTE)^(1/(k+1))
+            dt_next = 0.9 * Δt * (tol / LTE)^(1 / (k + 1))
         end
 
-        dt_next = min(dt_next, growth*Δt)
-        dt_next = max(dt_next, shrink*Δt)
+        dt_next = min(dt_next, growth * Δt)
+        dt_next = max(dt_next, shrink * Δt)
+
         if LTE < tol
             if check
-                h_now = guard(sys, xₖ)
-                h_next = guard(sys, x_next)
+                # Evaluate looking back to previous accepted step
+                # for the event locator.
+                if length(sol.x) >= 2
+                    idx = max(1, length(sol.x) - 1)
 
-                # Guard eval looking back to prev step for the quad check 
-                if history_len > 1
-                    idx = length(sol.x) - 1
                     t_prev = sol.t[idx]
                     h_prev = guard(sys, sol.x[idx])
+
+                    # Prevent degenerate quadratic interpolation if things get small. 
+                    if (tₖ - t_prev) > 10 * Δt
+                        t_prev = tₖ - Δt
+                        # Linear backward extrapolation gives the locator a stable local bracket.
+                        h_prev = h_now - (h_end - h_now)
+                    end
                 else
                     t_prev = tₖ - Δt
                     h_prev = h_now
                 end
-                
-                eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
+
+                eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_end, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
                 return x_next, eventtrigger, t_root, Δt, dt_next
-            else 
-                # Fallback (Structurally unreachable due to top delegation)
+            else
                 return x_next, false, NaN, Δt, dt_next
             end
         else
-            # Step rejected: shrink and retry
+            # Step rejected due to LTE error: shrink and retry
             Δt = dt_next
 
             if Δt < 1e-12
@@ -145,7 +213,8 @@ function compute_lmm_step(::AdaptiveABM2, f, xₖ, tₖ, Δt, x_history, t_histo
     x_correct = xₖ .+ Δt .* (am_coeff[2] .* f_predict .+ am_coeff[1] .* fₖ)
 
     # Milne LTE estimate
-    LTE = (1/6) * norm(x_correct .- x_predict)
+    scale = max(norm(x_correct), 1.0)
+    LTE = (1 / 6) * norm(x_correct .- x_predict) / scale
 
     return x_correct, x_predict, LTE
 end
@@ -176,7 +245,8 @@ function compute_lmm_step(::AdaptiveABM3, f, xₖ, tₖ, Δt, x_history, t_histo
     x_correct = xₖ .+ Δt .* (am_coeff[3] .* f_predict .+ am_coeff[2] .* fₖ .+ am_coeff[1] .* f_prev1)
 
     # Milne LTE estimate
-    LTE = (1/10) * norm(x_correct .- x_predict)
+    scale = max(norm(x_correct), 1.0)
+    LTE = (1 / 10) * norm(x_correct .- x_predict) / scale
 
     return x_correct, x_predict, LTE
 end

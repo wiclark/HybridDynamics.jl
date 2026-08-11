@@ -8,7 +8,6 @@ using Distributions
 
 include("ODE_Solvers/Definitions.jl")
 
-include("Hermite_Interp.jl")
 include("Analysis/Pathology.jl")
 
 include("Systems/Linear_Affine.jl")
@@ -30,8 +29,7 @@ include("ODE_Solvers/Event_Locators.jl")
 
 include("Analysis/VariationalEquation.jl")
 include("Analysis/Utilities.jl")
-
-
+include("Hermite_Interp.jl")
 
 
 #Basic Def Structs

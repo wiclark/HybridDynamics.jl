@@ -80,7 +80,7 @@ function specular_refl(x, M, dh, sys)
     Mq = M(q)           # Mass matrix
     p = x[n+1:end]      # velocities
 
-    # Constraint normal (row -> column) # <- It just is a column vector
+    # Constraint normal
     normal = dh(q)
 
     # Denominator
@@ -127,7 +127,8 @@ end
 # Internal
 function guard(sys::MechanicalSystem, x::AbstractArray)
     x_phys = (x isa AbstractMatrix) ? x[:, 1] : x
-    val = sys.guard(x_phys)
+    n = div(length(x_phys), 2)
+    val = sys.guard(x_phys[1:n])
     # Returns the most negative value <-- Why is this all required here?
     return val isa AbstractVector ? minimum(val) : val
 end
@@ -178,9 +179,6 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Δt,
         end
         # If ∇h(q)̇q>0 with λ=0, then we are escaping the guard (inwards) and are escaping the sliding mode
         if guard_error(0.0) > 0
-            if solver isa LMM
-                push!(sol.event_indices, length(sol.x))
-            end
             F(z, t) = f_λ(z[1:n], z[n+1:end], 0.0)
             x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F, vcat(qₖ,pₖ), tₖ, Δt, tol, sol; check=false)
             # Record the derivative
@@ -188,9 +186,6 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Δt,
                 push!(sol.dx, F(x_predict, tₖ+dt_used))
             end
         else
-            if solver isa LMM
-                push!(sol.event_indices, length(sol.x))
-            end
             # We have the expression for the multiplier
             λ_constrained = find_multiplier(prob)
             F2(z, t) = f_λ(z[1:n], z[n+1:end], λ_constrained(z[1:n], z[n+1:end]))
@@ -204,22 +199,28 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Δt,
         push!(sol.x, x_predict)
         push!(sol.t, tₖ+dt_used)
         push!(sol.zeno, tₖ)
+
+        if solver isa LMM
+                push!(sol.event_indices, length(sol.x))
+        end
+
         return x_predict, dt_used, dt_next, true
     else # No Zeno stuff is present
         f(z, t) = f_λ(z[1:n], z[n+1:end], 0.0)
         x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(solver, prob, f, vcat(qₖ, pₖ), tₖ, Δt, tol, sol)
         # Was there an impact?
         if eventtrigger
-            t_star, x_star = locate_event(event_method, prob, solver, f, vcat(qₖ, pₖ), tₖ, Δt, guard(sys, xₖ), tol, sol, stepper)
+            t_star, x_star = locate_event(event_method, prob, solver, f, vcat(qₖ, pₖ), tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
             x_predict = Δ(x_star, M, ∇h, sys)
 
             push!(sol.event_times, t_star)
 
+            push!(sol.t, t_star)
+            push!(sol.x, x_predict)
+
             if solver isa LMM
                 push!(sol.event_indices, length(sol.x))
             end
-            push!(sol.t, t_star)
-            push!(sol.x, x_predict)
 
             if dense_out
                 push!(sol.dx, f(x_predict, t_star))
@@ -266,6 +267,33 @@ function solve(prob::prob{S, I, T},
     p_dot(q, p, λ) = ForwardDiff.gradient(q -> -H(q,p), q) .+ λ*∇h(q)
     # Combining these vector fields together
     f_λ(q, p, λ) = [q_dot(q, p); p_dot(q, p, λ)]
+
+    n = length(prob.init) ÷ 2
+
+    # Check if we start on the guard
+    if abs(guard(sys, sol.x[end])) <= tol
+        x₀ = sol.x[end]
+        t₀ = sol.t[end]
+
+        x⁺ = sys.reset(x₀, M, ∇h, sys)
+
+        push!(sol.t, t₀)
+        push!(sol.x, x⁺)
+        push!(sol.event_times, t₀)
+        push!(sol.event_indices, length(sol.t))
+
+        if dense_out
+            push!(sol.dx, f_λ(x₀[1:n], x₀[n+1:end], 0.0))
+            push!(sol.dx, f_λ(x⁺[1:n], x⁺[n+1:end], 0.0))
+        end
+
+        @info "System started on the guard. Immediate jump applied at t = $t₀."
+    else
+        # Initial derivative if NOT on guard
+        if dense_out
+            push!(sol.dx, f_λ(prob.init[1:n], prob.init[n+1:end], 0.0))
+        end
+    end
 
     _, t_end = prob.tspan           # Extract the terminal time of the problem
 

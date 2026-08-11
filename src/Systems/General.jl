@@ -58,8 +58,8 @@ function take_step_general!(solver, prob::prob{S,I,T}, f, Δt, tol, sol; dense_o
     x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction)
 
     if eventtrigger
-
-        t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, Δt, guard(sys, xₖ), tol, sol, stepper)
+         
+        t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
 
         if abs(guard(sys, x_star)) > 1e-3
             @warn "Event Location is not located on the guard."
@@ -72,15 +72,11 @@ function take_step_general!(solver, prob::prob{S,I,T}, f, Δt, tol, sol; dense_o
             return x⁺, dt_used, dt_next, true
         end
 
+        push!(sol.t, t_star, t_star)
+        push!(sol.x, x_star, x⁺)
+        
         push!(sol.event_times, t_star)
-
-        push!(sol.t, t_star)
-        push!(sol.x, x_star)
-
         push!(sol.event_indices, length(sol.t))
-
-        push!(sol.t, t_star)
-        push!(sol.x, x⁺)
 
         if dense_out
             push!(sol.dx, f(x_star, t_star))
@@ -91,13 +87,17 @@ function take_step_general!(solver, prob::prob{S,I,T}, f, Δt, tol, sol; dense_o
             @warn "Fast switching detected. Possible beating/blocking/Zeno."
             return x⁺, dt_used, dt_next, true
         end
+        return x⁺, dt_used, dt_next, false 
     else
-        push!(sol.t, tₖ+dt_used)
-        push!(sol.x, x_predict)
+        
+        t_next = tₖ + dt_used
 
         if dense_out
-            push!(sol.dx, f(x_predict, tₖ+dt_used))
+            push!(sol.dx, f(x_predict, t_next)) 
         end
+
+        push!(sol.t, t_next)
+        push!(sol.x, x_predict)
     end
     return x_predict, dt_used, dt_next, false
 end
@@ -142,6 +142,31 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
     Δt = dt_initial
     iter = 0
 
+    # Check if we start on the guard
+    if abs(guard(sys, sol.x[end])) <= tol
+        x₀ = sol.x[end]
+        t₀ = sol.t[end]
+
+        x⁺ = apply_reset(sys, x₀)
+
+        push!(sol.t, t₀)
+        push!(sol.x, x⁺)
+        push!(sol.event_times, t₀)
+        push!(sol.event_indices, length(sol.t))
+
+        if dense_out
+            push!(sol.dx, f(x₀, t₀))
+            push!(sol.dx, f(x⁺, t₀))
+        end
+
+        @info "System started on the guard. Immediate jump applied at t = $t₀."
+    else
+        # Initial derivative if NOT on guard
+        if dense_out
+            push!(sol.dx, f(prob.init, prob.tspan[1]))
+        end
+    end
+
     while sol.t[end] < t_end
         
         iter += 1
@@ -151,14 +176,14 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
             break
         end
 
-        if t_end - sol.t[end] <= eps(t_end)
-            @info "Time step below minimum threshold $dt_min. Terminating"
+        if t_end - sol.t[end] < dt_min
+            @info "Time to end of simulation below minimum time step. Ending simulation at t = $(sol.t[end])"
             break 
         end
 
-        Δt = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
+        dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
-        _, _, Δt, terminate = take_step_general!(solver, prob, f, Δt, tol, sol; dense_out=dense_out, stepper=stepper, event_method=event_method, guard_direction=guard_direction)
+        _, _, Δt, terminate = take_step_general!(solver, prob, f, dt_step, tol, sol; dense_out=dense_out, stepper=stepper, event_method=event_method, guard_direction=guard_direction)
 
         if terminate
             break

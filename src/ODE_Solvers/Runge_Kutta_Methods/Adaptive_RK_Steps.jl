@@ -65,7 +65,6 @@ function rk_23_step(f::Function, xₖ::AbstractArray, Δt::AbstractFloat, t::Abs
     dt_step = minimum([Δt, tf - t])
 
     x2 = xₖ; x3 = xₖ
-
     while true
         h_now = guard(sys, xₖ)
 
@@ -103,8 +102,10 @@ function rk_23_step(f::Function, xₖ::AbstractArray, Δt::AbstractFloat, t::Abs
 
         stage_crossed = (h_now * h2 < 0) || (h_now * h3 < 0)
         end_missed = (h_now * h_end > 0)
+        crossed = (h_now * h_end < 0)
 
-        if stage_crossed && end_missed
+        # Step rejection
+        if (stage_crossed && end_missed) || (crossed && abs(h_end) > max(abs(h_now), 10 * tol))
             dt_step = dt_step / 2.0
             continue
         end
@@ -127,7 +128,6 @@ function rk_45_step(f::Function, xₖ::AbstractArray, Δt::AbstractFloat, t::Abs
     dt_step = minimum([Δt, tf - t])
 
     x2 = xₖ; x3 = xₖ; x4 = xₖ; x5 = xₖ; x6 = xₖ
-
     while true
         h_now = guard(sys, xₖ)
 
@@ -180,12 +180,14 @@ function rk_45_step(f::Function, xₖ::AbstractArray, Δt::AbstractFloat, t::Abs
 
         stage_crossed = (h_now * h2 < 0) || (h_now * h3 < 0) || (h_now * h4 < 0) || (h_now * h5 < 0) || (h_now * h6 < 0)
         end_missed = (h_now * h_end > 0)
+        crossed = (h_now * h_end < 0)
 
-        if stage_crossed && end_missed
+        # Step rejection
+        if (stage_crossed && end_missed) || (crossed && abs(h_end) > max(abs(h_now), 10 * tol))
             dt_step = dt_step / 2.0
             continue
         end
-
+        
         if LTE < tol
             return x_predict, dt_step, dt_next
         else

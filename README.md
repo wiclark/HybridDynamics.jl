@@ -12,9 +12,14 @@ Documentation is available [here](https://wiclark.github.io/HybridDynamics.jl/de
 To install this package directly from this repo, run:
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/wiclark/HybridDynamics.jl")
+Pkg.add("HybridDynamics")
 ```
 in a Julia REPL.
+
+The package can then be loaded using the command:
+```julia
+import HybridDynamics as HD
+```
 
 ## Usage
 This package supports the following system types: "GeneralSystem", "MechanicalSystem", "NonholonomicSystem", "StochasticSystem", "FilippovSystem", and "Linear/AffineSystem".

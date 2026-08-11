@@ -14,7 +14,11 @@ end
     StochasticSystem(f, g, h, Δ; 
     normal = nothing, direction=0)
 
-Construct a stochastic system of the form:
+Construct a stochastic system. `f` represents the continuous flow/drift dynamics, `g` is the diffusion term,
+`h` is the guard, and `Δ` is the reset map.
+
+If not provided, the normal to the guard, `normal`, will be found using ForwardDiff.
+The event detection direction, `direction`, is set to be bidirectional.
 
 """
 function StochasticSystem(f, g, h, Δ; 
@@ -49,7 +53,7 @@ end
 struct StochasticSol{T, X, DX, I, E, EI} <: AbstractHybridSolution
     t::T        # Time data
     x::X        # x, the state
-    dx::DX      # f(x) Derivative at each state x - only filled when dense_out = true
+    dx::DX      # f(x) Derivative at each state x - empty for this system
     prob::I     # Remember the problem - to aid interpolation
     event_times::E    # Times where an event has occurred
     event_indices::EI #Indices where an event has occurred
@@ -128,6 +132,24 @@ function solve(prob::prob{S, I, T},
      _, t_end = prob.tspan           # Extract the terminal time of the problem
     Δt = dt_initial
     iter = 0
+
+    # Check if we start on the guard
+    h_val = prob.sys.h(sol.x[end])
+    h_scalar = h_val isa AbstractVector ? minimum(h_val) : h_val
+    
+    if abs(h_scalar) <= tol
+        x₀ = sol.x[end]
+        t₀ = sol.t[end]
+
+        x⁺ = prob.sys.Δ(x₀)
+
+        push!(sol.t, t₀)
+        push!(sol.x, x⁺)
+        push!(sol.event_times, t₀)
+        push!(sol.event_indices, length(sol.t))
+
+        @info "System started on the guard. Immediate jump applied at t = $t₀."
+    end
 
  # Run sim until end of specified time span
     while sol.t[end] < t_end 

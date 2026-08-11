@@ -107,7 +107,7 @@ function find_multiplier(prob::prob{S, I, T}; sliding=false) where {S<:Nonholono
     # Work out the value of the k (or k+1) multipliers
     # Differentiate the constraint and solve for the multiplier
     A_dot(q, p) = ForwardDiff.derivative(ε -> A(q .+ ε*inv(M(q))*p), 0.0)
-    λ(q, p) = inv(A(q)*inv(M(q))*(A(q)')) * (-A_dot(q,p)*inv(M(q))*p + A(q)*inv(M(q))*p_dot(q,p))
+    λ(q, p) = inv(A(q)*inv(M(q))*(A(q)')) * (-A_dot(q,p)*inv(M(q))*p - A(q)*inv(M(q))*p_dot(q,p))
     # The version below works, but is slower.
     #=
     ρ(q, p) = A(q) * inv(M(q)) *  p
@@ -301,6 +301,35 @@ function solve(prob::prob{S, I, T},
         @warn "Initial conditions do not satisfy the constraint. Projecting to distribution."
         p₀ = p₀ - B_Δ(q₀)' * inv(B_Δ(q₀) * B_Δ(q₀)') * B_Δ(q₀) * p₀
         sol.x[end] = vcat(q₀, p₀)
+    end
+
+    # Determine the free multiplier for initial derivative calculations
+    λ_free = find_multiplier(prob)
+    
+    # Check if we start on the guard
+    if abs(guard(sys, sol.x[end])) <= tol
+        x₀_proj = sol.x[end]
+        t₀ = sol.t[end]
+
+        x⁺ = sys.reset(x₀_proj, M, A, ∇h, sys)
+
+        push!(sol.t, t₀)
+        push!(sol.x, x⁺)
+        push!(sol.event_times, t₀)
+        push!(sol.event_indices, length(sol.t))
+
+        if dense_out
+            push!(sol.dx, f_λ(x₀_proj[1:n], x₀_proj[n+1:end], λ_free(x₀_proj[1:n], x₀_proj[n+1:end]), 0.0))
+            push!(sol.dx, f_λ(x⁺[1:n], x⁺[n+1:end], λ_free(x⁺[1:n], x⁺[n+1:end]), 0.0))
+        end
+
+        @info "System started on the guard. Immediate jump applied at t = $t₀."
+    else
+        # Initial derivative if NOT on guard
+        if dense_out
+            x₀_proj = sol.x[end]
+            push!(sol.dx, f_λ(x₀_proj[1:n], x₀_proj[n+1:end], λ_free(x₀_proj[1:n], x₀_proj[n+1:end]), 0.0))
+        end
     end
 
     # Run sim until end of specified time span
