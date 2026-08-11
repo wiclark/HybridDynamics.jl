@@ -183,7 +183,7 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Δt,
     if h(qₖ) < ztol  &&  abs(dot(∇h(qₖ), M(qₖ) \ pₖ)) < ztol
         # To what degree does λ preserve the holonomic constraint?
         function guard_error_nh(Λ)
-            F(z, t) = f_λ(z[1:n], z[n+1:end], λ_free(x_new[1:n], x_new[n+1:end]), Λ)
+            F(z, t) = f_λ(z[1:n], z[n+1:end], λ_free(z[1:n], z[n+1:end]), Λ)
             x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false)
             q_next, p_next = x_predict[1:n], x_predict[n+1:end]
             # (Tangent) constraint violation
