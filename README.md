@@ -24,13 +24,15 @@ import HybridDynamics as HD
 ## Usage
 This package supports the following system types: "GeneralSystem", "MechanicalSystem", "NonholonomicSystem", "StochasticSystem", "FilippovSystem", and "Linear/AffineSystem".
 
-For demonstrations, see the demos folder:
-- "pluto_examples.jl": A Pluto notebook providing an example of each problem type.
-- "pluto_bouncing_ball.jl": A Pluto notebook covering the dissipative bouncing ball as different problems.
-- "pluto_life_after_zeno.jl": A Pluto notebook showcasing various mechanical examples with Zeno trajectories.
-- "FilippovFuller.ipynb": A Jupyter notebook presenting Fuller's problem as an example of a chattering Filippov system.
-- "FilippovSSF.ipynv": A Jupyter notebook with modeling a system with friction as a Filippov system.
-- "TestingNotebook.ipynb": A Jupyter notebook that performs error analysis for various methods.
+For demonstrations, see the demos folder for Jupyter and Pluto notebooks:
+- "examples_pluto.jl": A Pluto notebook providing an example of each problem type.
+- "bouncing_ball_pluto.jl": A Pluto notebook covering the dissipative bouncing ball as different problems.
+- "life_after_zeno_pluto.jl": A Pluto notebook showcasing various mechanical examples with Zeno trajectories.
+- "FilippovFuller_jupyter.ipynb": A Jupyter notebook presenting Fuller's problem as an example of a chattering Filippov system.
+- "FilippovSSF_jupyter.ipynb": A Jupyter notebook with modeling a system with friction as a Filippov system.
+- "TestingNotebook_jupyter.ipynb": A Jupyter notebook that performs error analysis for various methods.
+
+The demonstrations require the pacakges: Plots, LaTeXStrings, Printf (only 'TestingNotebook_jupyter.ipynb'), and PlutoUI (all Pluto notebooks).
 
 ## Systems
 

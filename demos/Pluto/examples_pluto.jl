@@ -16,85 +16,84 @@ macro bind(def, element)
     #! format: on
 end
 
-# ╔═╡ 2298226e-adfb-4503-b79f-60becd105337
+# ╔═╡ fe4f37ce-31f4-4309-b19d-1787fc6f4d15
 begin
-    import HybridDynamics as H
+    import HybridDynamics as HD
     import Plots as plt
     using LaTeXStrings
     using PlutoUI
 end
 
-# ╔═╡ 1934f0b1-2e7f-43ca-a0b8-885d49d00a53
+# ╔═╡ 30a03940-11a2-45e8-8f91-501370ddcee6
 md"""
-# The bouncing ball
-The purpose of this notebook is to offer a tutorial of HybridDynamics.jl through the bouncing ball. This is the hybrid system given by
+## A Filippov Example
 ```math
 	\begin{cases}
-		\ddot{x} = -g, & x > 0, \\
-		\dot{x}^+ = -e\dot{x}, & x = 0.
+		\dot{x} = 3, \ \dot{y} = ξ, & y > \sin x \\[1ex]
+		\dot{x} = 0, \ \dot{y} = 1, & y < \sin x
 	\end{cases}
 ```
 """
 
-# ╔═╡ 9619965e-6551-48c1-900b-9f4e4716d79c
+# ╔═╡ 2880f5f2-fb01-4696-aba3-7faf4714c9d3
 md"""
-## A general hybrid system
-!!! info "General Systems"
-	A general system consists of the data $(f, h, Δ; \delta)$ where
+!!! info "A Filippov Problem"
+	A Filippov system contains the data $(F,G,H,N)$ where
 	```math
 		\begin{cases}
-			\dot{x} = f(x, t), & h(x)\ne 0, \\
-			x^+ = \Delta(x), & h(x) = 0.
+			\dot{x} = F(x), & H(x) > 0, \\
+			\dot{x} = G(x), & H(x) < 0,
 		\end{cases}
 	```
-	The optional argument of $\delta \in \{-1, 0, 1\}$ dictates the crossing direction.
+	and $N = \nabla H$.
 """
 
-# ╔═╡ 4445d15b-0813-4ab0-9184-c1809219ad08
-@bind e Slider(0.0:0.01:1.0, show_value=true, default=0.8)
+# ╔═╡ e6bc3aba-7b99-4ca8-8657-12b8609cd427
+@bind ξ Slider(-2:0.1:0, show_value=true)
 
-# ╔═╡ 514aa411-0315-4737-b253-75c1559b4392
-# The data for the general problem formulation
+# ╔═╡ 9da11b33-0def-4ac1-bd19-574ef1cceb98
 begin
-	# The dynamics
-	function f_ball(x, t)
-		g = 9.81
-		q, v = x
-		return [v, -g]
-	end
-	# The impact condition
-	h_ball(x) = x[1]
-	# The reset map
-	Δ_ball(x) = [x[1], -e*x[2]]
+	F(x) = [3, ξ]
+	G(x) = [0, 1]
+	H(x) = x[2] - sin(x[1])
+	N(x) = [-cos(x[1]), 1]
 end
 
-# ╔═╡ b8befa98-6049-424b-8f4c-e7d868dea35d
-# Set up and solve the problem
+# ╔═╡ 0cf59ef8-d158-42dc-913a-7766ac4d2420
 begin
-	sysG = HD.GeneralSystem(f_ball, h_ball, Δ_ball; direction=-1)
-	probG = HD.prob(sysG, [10.0, 0.0], (0.0, 15.0))
-	solG = HD.solve(probG)
+	sysF = HD.FilippovSystem(F, G, H, N)
+	probF = HD.prob(sysF, [0.0, 1.0], (0.0, 10.0))
+	solF = HD.solve(probF, HD.RK4())
 end
 
-# ╔═╡ 9f2d777b-8e8c-4ace-865e-4ec7c6226ed3
+# ╔═╡ 1959511b-8aa8-49d0-893c-b9b801a2bda0
 begin
-	times, states = HD.split_jumps(solG)
-	plt.plot(times, getindex.(states, 1), label="Position", lw=2, lc=:blue)
-	plt.plot!(times, getindex.(states, 2), label="Velocity", lw=2, lc=:orange)
-	plt.plot!(title = "Bouncing ball", xlabel = "Time", grid = true)
+	xf = getindex.(solF.x, 1)
+	yf = getindex.(solF.x, 2)
+	xh = range(minimum(xf)-0.5, maximum(xf)+0.5, length=1_000)
 end
 
-# ╔═╡ ec50258b-cd93-4064-9f2a-cb371d7d10f8
+# ╔═╡ bbc202e7-fd8d-4eb1-9de2-93b09a73a425
+begin
+	plt.plot(xf, yf, lw=2, label="Filippov Trajectory")
+	plt.plot!(xh, sin.(xh), lw=2, lc=:black, ls=:dash, label=L"H(x)=0")
+	plt.plot!(title = "Filippov Trajectory", label=L"x", ylabel=L"y")
+end
+
+# ╔═╡ 7b9a3bb2-0b4f-48bf-9c7a-1824281ad707
 md"""
-Notice that the solution is Zeno. Altough the problem had a specified final time of 15, the simulation stopped prematurely. 
-
-By exploiding the mechanical nature of this problem, we can extend past the Zeno point.
+## A Mechancal Example
+```math
+	H(x,y,p_x,p_y) = \frac{1}{2}(p_x^2+p_y^2) + y
+```
+```math
+	h(x,y) = 1 - (x^2+y^2) \geq 0.
+```
 """
 
-# ╔═╡ 6886ba9c-28c9-4955-860c-582b4541b732
+# ╔═╡ 80034ca8-e254-4beb-8486-da9de404f503
 md"""
-## A mechanical hybrid system
-!!! info "Mechanical Systems"
+!!! info "A Mechanical Problem"
 	A Mechanical system contains the data $(M, V, G, N, R, E)$
 	1. .$M(q)$ is the mass matrix.
 	2. .$V(q)$ is the potential energy.
@@ -103,43 +102,223 @@ md"""
 	5. .$E$ is the coefficient of restitution.
 """
 
-# ╔═╡ 13da5896-c5ef-4829-b934-917a42495d01
+# ╔═╡ 49b430c8-ac20-4988-9c49-83a38111285f
 begin
-	# The mass matrix (needs to be in the form of a matrix)
-	M(q) = [1.0;;]
-	# The potential energy
-	V(q) = 9.81*q[1]
-	# The guard location and its differential (as a vector)
-	h(q) = q[1]
-	∇h(q) = [1.0]
+	M(q) = [1.0 0.0; 0.0 1.0]
+	V(q) = q[2]
+	h(q) = 1 - (q[1]^2+q[2]^2)
+	∇h(q) = [-2*q[1], -2*q[2]]
 end
 
-# ╔═╡ 88bd4e41-04e8-4fa2-9223-66b25b5bd6b0
+# ╔═╡ a5cd41cd-b341-49c7-a052-bfd20f631b0c
+@bind r Slider(0.0:0.01:1.0, show_value=true)
+
+# ╔═╡ c1a00790-005e-40ae-9e4c-20f8aac7b787
 begin
-	sysM = HD.MechanicalSystem(M, V; guard=h, normal=∇h, e=e)
-	probM = HD.prob(sysM, [10.0, 0.0], (0.0, 15.0))
-	solM = HD.solve(probM, solver=HD.RK45())
+	sysM = HD.MechanicalSystem(M, V; guard=h, normal=∇h, e=r)
+	probM = HD.prob(sysM, [-0.95, 0.0, 0.2, -1.5], (0.0, 10.0))
+	solM = HD.solve(probM, HD.RK4())
 end
 
-# ╔═╡ 9dd93417-455f-4be9-a9de-f00df58845e3
+# ╔═╡ fb3eb7c9-3f93-4986-aa89-c2ca478429d3
 begin
-	tm, sm = HD.split_jumps(solM)
-	plt.plot(tm, getindex.(sm, 1), label="Position", lw=2, lc=:blue)
-	plt.plot!(tm, getindex.(sm, 2), label="Velocity", lw=2, lc=:orange)
+	xm = getindex.(solM.x, 1)
+	ym = getindex.(solM.x, 2)
+	plt.plot(xm, ym, label="Ball Trajectory", lw=2)
+	θ = LinRange(0, 2π, 100)
+	plt.plot!(cos.(θ), sin.(θ), label="", lc=:black, aspect_ratio=1)
+end
+
+# ╔═╡ 597d4dce-acf4-44a1-bc7a-9d7ec35de2f7
+md"""
+## A Nonholonomic Example
+#### The Chaplygin sleigh
+```math
+	M(q) = \begin{bmatrix}
+		m & 0 & -ma\sin\theta \\
+		0 & m & ma\cos\theta \\
+		-ma\sin\theta & ma\cos\theta & I+ma^2
+	\end{bmatrix}
+```
+```math
+	A(q) = \begin{bmatrix}
+		-\sin\theta & \cos\theta & 0
+	\end{bmatrix}
+```
+```math
+	h(x,y) = 1 - (x^2+y^2) \geq 0.
+```
+"""
+
+# ╔═╡ 8e0f34ac-35ab-4808-a1ed-53525361c688
+@bind a Slider(-0.5:0.01:0.5, show_value=true, default=0.0)
+
+# ╔═╡ 6d47f9d2-c604-46ba-af77-254478d19ab0
+begin
+	M_sleigh(q) = [1.0 0.0 -a*sin(q[3]);
+			0.0 1.0 a*cos(q[3]);
+			-a*sin(q[3]) a*cos(q[3]) 1+a^2]
+	V_sleigh(q) = 0.0
+	A_sleigh(q) = [-sin(q[3]) cos(q[3]) 0.0]
+	h_sleigh(q) = 1 - (q[1]^2+q[2]^2)
+	∇h_sleigh(q) = [-2*q[1], -2*q[2], 0.0]
+end
+
+# ╔═╡ da267e54-7c2b-4a31-b429-077b47912814
+begin
+	sysNH = HD.NonholonomicSystem(M_sleigh, V_sleigh; A = A_sleigh, guard=h_sleigh, normal=∇h_sleigh, e=1)
+	probNH = HD.prob(sysNH, [0.0, 0.0, 0.0, 1.0, 0.0, 1.5], (0.0, 100.0))
+	solNH = HD.solve(probNH, HD.RK4())
+end
+
+# ╔═╡ d8370b2e-077d-488f-afb2-ceffa00fc255
+begin
+	xs = getindex.(solNH.x, 1)
+	ys = getindex.(solNH.x, 2)
+	plt.plot(xs, ys, label="Sleigh Trajectory", lw=2)
+	plt.plot!(cos.(θ), sin.(θ), label="", lc=:black, aspect_ratio=1)
+end
+
+# ╔═╡ eea32534-7258-478d-b96e-aee9bc212011
+md"""
+## A General Example
+```math
+	\begin{cases}
+		\ddot{x} = -g -\alpha\cdot \dot{x} \cdot|\dot{x}|, & x > 0 \\[1ex]
+		\dot{x}^+ = -e\dot{x}^-, & x = 0
+	\end{cases}
+```
+"""
+
+# ╔═╡ 15b10a81-2909-4df8-8d1c-0fcd7af5d9ff
+md"""
+!!! info "A General Problem"
+	A general system consists of the data $(f, h, \Delta)$ where
+	```math
+		\begin{cases}
+			\dot{x} = f(x, t), & h(x) \ne 0, \\
+			x^+ = \Delta(x), & h(x) = 0.
+		\end{cases}
+	```
+"""
+
+# ╔═╡ 33b07ebd-6275-4aa5-a855-7a6b29b97de9
+function f_ball(x, t)
+	g = 9.81
+	α = 0.1
+	q, v = x
+	return [v, -g-α*v*abs(v)]
+end
+
+# ╔═╡ 6e9ae3eb-e2d2-42b2-bcfe-c42c6dd4be65
+h_ball(x) = x[1]
+
+# ╔═╡ 8702895d-c0ea-459b-814a-b67f4c193860
+Δ_ball(x) = [abs(x[1]), -0.8*x[2]]
+
+# ╔═╡ cb05396f-92a2-468c-af34-f64e25a93e16
+begin
+	sysG = HD.GeneralSystem(f_ball, h_ball, Δ_ball; direction=-1)
+	probG = HD.prob(sysG, [10.0, 0.0], (0.0, 15.0))
+	solG = HD.solve(probG, HD.RK4())
+end
+
+# ╔═╡ 7ca75d5b-b8a6-472f-b5a7-f746b581e67f
+begin
+	times, states = HD.split_jumps(solG)
+	plt.plot(times, getindex.(states, 1), label="Position", lw=2, lc=:blue)
+	plt.plot!(times, getindex.(states, 2), label="Velocity", lw=2, lc=:orange)
 	plt.plot!(title = "Bouncing ball", xlabel = "Time", grid = true)
 end
 
-# ╔═╡ 526471c6-3624-4633-9caf-b2ce6a4c9903
-tz = solM.zeno[1]
+# ╔═╡ 293d4ac4-bbb7-41ea-ae29-ae0844fd3992
+solG.event_times
 
-# ╔═╡ 6db93a1d-8da0-4232-aee9-ec3d5c77d1ef
+# ╔═╡ 8e899a64-9654-4e7e-ac0f-2376b89aa913
 md"""
-We can even determine the first Zeno time. This happens at $t_z =$ $tz.
+## Linear and Affine Systems
+!!! info "Linear and Affine Problems"
+	A Linear Hybrid System consists of the data $(A, λ, C)$ where 
+	```math
+		\mathcal{LH} = 
+		\begin{cases}
+			\dot x = Ax, & λx \neq 0, \\
+			x^+ = Cx, & λx = 0.
+		\end{cases}
+	```
+	An Affine Hybrid System consists of the data $(A, b, λ, a, C, κ)$ where
+	```math
+		\mathcal{AH} = 
+		\begin{cases}
+			\dot x = Ax + b, λx + a \neq 0, \\
+			x^+ = Cx + κ, λx + a = 0.
+		\end{cases}
+	```
+
+	1. .$A$ is the state matrix. 
+	2. .$b$ is the continuous affine vector ($\dot x = Ax + b$).
+	3. .$λ$ is the guard normal vector.
+	4. .$a$ is the guard affine vector ($λx + a = 0$).
+	5. .$C$ is the reset matrix
+	6. .$κ$ is the reset affine vector $(x^+ = Cx + κ)$.
 """
 
-# ╔═╡ 20cc2ebd-76c7-468c-8133-e271a958fa10
+# ╔═╡ 154b65b0-f68b-4ec7-a035-b5d3ea78fb26
+begin
+	LA_type = "Linear" # Options: "Linear", "Affine"
+	LA_A = [-0.5 -10.0; 10.0 -0.5]
+	LA_λ = [1.0, 0.0]
+	LA_C = [0.8 0.0; 0.0 0.8]
+	LA_x0 = [1.0, 0.5]
+	LA_tspan = (0.0, 2.0)
+end
+
+# ╔═╡ 7259e7cc-e810-41c7-b57b-acedd5ed6691
+begin
+    if LA_type == "Affine"
+        LA_b = [2.0, 0.0]
+        LA_a = 0.2
+        LA_κ = [0.1, -0.2]
+        LA_sys = HD.AffineSystem(LA_A, LA_b, LA_λ, LA_a, LA_C, LA_κ)
+        LA_guard = -LA_a
+        LA_prob = HD.prob(LA_sys, LA_x0, LA_tspan)
+        LA_sol = HD.solve(LA_prob, HD.RK4())
+    else
+        LA_sys = HD.LinearSystem(LA_A, LA_λ, LA_C)
+        LA_guard = 0.0
+        LA_prob = HD.prob(LA_sys, LA_x0, LA_tspan)
+        LA_sol = HD.solve(LA_prob, HD.RK4())
+    end
+end
+
+# ╔═╡ 1e618fc0-28ab-4c28-9be5-8b1582a69cba
+LA_t_list, LA_x_list = HD.split_jumps(LA_sol)
+
+# ╔═╡ a77c28dc-8d08-42b6-8e51-1949ea04bb4a
+begin
+    p = plt.plot(title="$(LA_type) System Trajectory", xlabel="x1", ylabel="x2", 
+                 aspect_ratio=:equal, grid=true, legend=false)
+    
+    plt.vline!(p, [LA_guard], label="Guard", color=:black, alpha=0.3, lw=2)
+    
+    plt.plot!(p, getindex.(LA_x_list, 1), getindex.(LA_x_list, 2), 
+              color=:red, linestyle=:dash, lw=1.5, label="Trajectory")
+    p
+end
+
+# ╔═╡ efe951a9-31d1-49e1-bf19-cdcd7a6a5f0e
 md"""
-## A stochastic hybrid system
+## A Stochastic Example
+```math
+	\begin{cases}
+		dx = -(x-3)dt + 0.2 dW, & x < 2 \\
+		x^+ = x-1, & x = 2
+	\end{cases}
+```
+"""
+
+# ╔═╡ 8eae9c66-e573-4458-bab5-ac92e61f261a
+md"""
 !!! info "Stochastic Systems"
 	A stochastic system contains the data $(f, g, h, Δ; δ)$
 	```math
@@ -151,37 +330,38 @@ md"""
 	Notice that $g$ must be given as a matrix.
 """
 
-# ╔═╡ cb32d96e-c98f-467b-8dc6-f33b1c8748d6
-g(x, t) = [0.0; 0.5;;]
-
-# ╔═╡ a44b7da6-d928-4758-ae77-f6276d8d752f
+# ╔═╡ 7e2f7386-647e-4503-9343-2ce78cc2752f
 begin
-	sysST = HD.StochasticSystem(f_ball, g, h_ball, Δ_ball; direction=-1)
-	probST = HD.prob(sysST, [10.0, 0.0], (0.0, 15.0))
-	solST = HD.solve(probST; dt_initial=1e-3)
+	f_st(x, t) = -(x .-3.)
+	g_st(x, t) = [0.2;;]
+	h_st(x) = x[1]-2
+	Δ_st(x) = x .- 1.0
 end
 
-# ╔═╡ 1f0e7c83-86d4-4717-99dc-087c32329285
+# ╔═╡ 0a709e7a-f8a4-4b72-aa15-eb3fb92f517e
+begin
+	sysST = HD.StochasticSystem(f_st, g_st, h_st, Δ_st)
+	probST = HD.prob(sysST, [0.5], (0.0, 3.0))
+	solST = HD.solve(probST)
+end
+
+# ╔═╡ b31969a0-fac6-4e69-a9f1-391750214770
 begin
 	ts, ss = HD.split_jumps(solST)
-	plt.plot(ts, getindex.(ss, 1), label="Position", lw=2, lc=:blue)
-	plt.plot!(ts, getindex.(ss, 2), label="Velocity", lw=2, lc=:orange)
+	plt.plot(ts, getindex.(ss, 1), label="", lw=2, lc=:blue)
 	plt.plot!(title = "Stochastic Bouncing ball", xlabel = "Time", grid = true)
 end
-
-# ╔═╡ 61cc9dff-a67e-4733-a8bd-84a2f5586bdc
-md"""
-Notice that stochastic systems do not contain the sliding mode logic that mechanical systems do.
-"""
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
+HybridDynamics = "6b3332bd-f7e8-4dca-bbbd-4128c12b268e"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 
 [compat]
+HybridDynamics = "~1.0.0"
 LaTeXStrings = "~1.4.0"
 Plots = "~1.41.6"
 PlutoUI = "~0.7.83"
@@ -193,12 +373,46 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "c4f704049b9848f44617ca7d7884c95290710e4c"
+project_hash = "5e40c6f4bf020bf57d0aa19883905217687cf544"
+
+[[deps.ANSIColoredPrinters]]
+git-tree-sha1 = "574baf8110975760d391c710b6341da1afa48d8c"
+uuid = "a4c015fc-c6ff-483c-b24f-f7ea428134e9"
+version = "0.0.1"
 
 [[deps.AbstractPlutoDingetjes]]
 git-tree-sha1 = "6c3913f4e9bdf6ba3c08041a446fb1332716cbc2"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
 version = "1.4.0"
+
+[[deps.AbstractTrees]]
+git-tree-sha1 = "2d9c9a55f9c93e8887ad391fbae72f8ef55e1177"
+uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
+version = "0.4.5"
+
+[[deps.Accessors]]
+deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "MacroTools"]
+git-tree-sha1 = "7063ad1083578215c7c4bf410368150abe8d5524"
+uuid = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
+version = "0.1.45"
+
+    [deps.Accessors.extensions]
+    AxisKeysExt = "AxisKeys"
+    IntervalSetsExt = "IntervalSets"
+    LinearAlgebraExt = "LinearAlgebra"
+    StaticArraysExt = "StaticArrays"
+    StructArraysExt = "StructArrays"
+    TestExt = "Test"
+    UnitfulExt = "Unitful"
+
+    [deps.Accessors.weakdeps]
+    AxisKeys = "94b1ba4f-4ee9-5380-92f1-94cde586c3c5"
+    IntervalSets = "8197267c-284f-5f27-9208-e0e47529a953"
+    LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+    StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
+    Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+    Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [[deps.AliasTables]]
 deps = ["PtrArrays", "Random"]
@@ -262,12 +476,10 @@ deps = ["ColorTypes", "FixedPointNumbers", "LinearAlgebra", "Requires", "Statist
 git-tree-sha1 = "8b3b6f87ce8f65a2b4f857528fd8d70086cd72b1"
 uuid = "c3611d14-8923-5661-9e6a-0046d554d3a4"
 version = "0.11.0"
+weakdeps = ["SpecialFunctions"]
 
     [deps.ColorVectorSpace.extensions]
     SpecialFunctionsExt = "SpecialFunctions"
-
-    [deps.ColorVectorSpace.weakdeps]
-    SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 
 [[deps.Colors]]
 deps = ["ColorTypes", "FixedPointNumbers", "Reexport"]
@@ -275,16 +487,51 @@ git-tree-sha1 = "37ea44092930b1811e666c3bc38065d7d87fcc74"
 uuid = "5ae59095-9a9b-59fe-a467-6f913c188581"
 version = "0.13.1"
 
+[[deps.CommonSolve]]
+git-tree-sha1 = "f54afab101687a7049833d07636418a83e9a250b"
+uuid = "38540f10-b2f7-11e9-35d8-d573e4eb0ff2"
+version = "0.2.12"
+
+[[deps.CommonSubexpressions]]
+deps = ["MacroTools"]
+git-tree-sha1 = "cda2cfaebb4be89c9084adaca7dd7333369715c5"
+uuid = "bbf7d656-a473-5ed7-a52c-81e309532950"
+version = "0.3.1"
+
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
 version = "1.3.0+1"
+
+[[deps.CompositionsBase]]
+git-tree-sha1 = "802bb88cd69dfd1509f6670416bd4434015693ad"
+uuid = "a33af91c-f02d-484b-be07-31d278c5ca2b"
+version = "0.1.2"
+weakdeps = ["InverseFunctions"]
+
+    [deps.CompositionsBase.extensions]
+    CompositionsBaseInverseFunctionsExt = "InverseFunctions"
 
 [[deps.ConcurrentUtilities]]
 deps = ["Serialization", "Sockets"]
 git-tree-sha1 = "21d088c496ea22914fe80906eb5bce65755e5ec8"
 uuid = "f0e56b4a-5159-44fe-b623-3e5288b988bb"
 version = "2.5.1"
+
+[[deps.ConstructionBase]]
+git-tree-sha1 = "b4b092499347b18a015186eae3042f72267106cb"
+uuid = "187b0558-2788-49d3-abe0-74a17ed4e7c9"
+version = "1.6.0"
+
+    [deps.ConstructionBase.extensions]
+    ConstructionBaseIntervalSetsExt = "IntervalSets"
+    ConstructionBaseLinearAlgebraExt = "LinearAlgebra"
+    ConstructionBaseStaticArraysExt = "StaticArrays"
+
+    [deps.ConstructionBase.weakdeps]
+    IntervalSets = "8197267c-284f-5f27-9208-e0e47529a953"
+    LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [[deps.Contour]]
 git-tree-sha1 = "439e35b0b36e2e5881738abc8857bd92ad6ff9a8"
@@ -319,10 +566,46 @@ git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
 
+[[deps.DiffResults]]
+deps = ["StaticArraysCore"]
+git-tree-sha1 = "782dd5f4561f5d267313f23853baaaa4c52ea621"
+uuid = "163ba53b-c6d8-5494-b064-1a9d43ac40c5"
+version = "1.1.0"
+
+[[deps.DiffRules]]
+deps = ["IrrationalConstants", "LogExpFunctions", "NaNMath", "Random", "SpecialFunctions"]
+git-tree-sha1 = "79a2aca180a85c690c58a020d47b426954b590f8"
+uuid = "b552c78f-8df3-52c6-915a-8e097449b14b"
+version = "1.16.0"
+
+[[deps.Distributions]]
+deps = ["AliasTables", "FillArrays", "LinearAlgebra", "PDMats", "Printf", "QuadGK", "Random", "Roots", "SpecialFunctions", "Statistics", "StatsAPI", "StatsBase", "StatsFuns"]
+git-tree-sha1 = "cd3c5ac74cd3923c8945c6a81518c46abd0e73a3"
+uuid = "31c24e10-a181-5473-b8eb-7969acd0382f"
+version = "0.25.129"
+
+    [deps.Distributions.extensions]
+    DistributionsChainRulesCoreExt = "ChainRulesCore"
+    DistributionsDensityInterfaceExt = "DensityInterface"
+    DistributionsSparseConnectivityTracerExt = "SparseConnectivityTracer"
+    DistributionsTestExt = "Test"
+
+    [deps.Distributions.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    DensityInterface = "b429d917-457f-4dbc-8f4c-0cc954292b1d"
+    SparseConnectivityTracer = "9f842d2f-2579-4b1d-911e-f412cf18a3f5"
+    Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
 [[deps.DocStringExtensions]]
 git-tree-sha1 = "7442a5dfe1ebb773c29cc2962a8980f47221d76c"
 uuid = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 version = "0.9.5"
+
+[[deps.Documenter]]
+deps = ["ANSIColoredPrinters", "AbstractTrees", "Base64", "CodecZlib", "Dates", "DocStringExtensions", "Downloads", "Git", "IOCapture", "InteractiveUtils", "JSON", "Logging", "Markdown", "MarkdownAST", "Pkg", "PrecompileTools", "REPL", "RegistryInstances", "SHA", "TOML", "Test", "Unicode"]
+git-tree-sha1 = "56e9c37b5e7c3b4f080ab1da18d72d5c290e184a"
+uuid = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+version = "1.17.0"
 
 [[deps.Downloads]]
 deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
@@ -363,6 +646,24 @@ version = "8.1.2+0"
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
 
+[[deps.FillArrays]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "5bad39456d9f0166184fce2248783dd9862645c1"
+uuid = "1a297f60-69ca-5386-bcde-b61e274b549b"
+version = "1.17.0"
+
+    [deps.FillArrays.extensions]
+    FillArraysPDMatsExt = "PDMats"
+    FillArraysSparseArraysExt = "SparseArrays"
+    FillArraysStaticArraysExt = "StaticArrays"
+    FillArraysStatisticsExt = "Statistics"
+
+    [deps.FillArrays.weakdeps]
+    PDMats = "90014a1f-27ba-587c-ab20-58faa44d9150"
+    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+    Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+
 [[deps.FixedPointNumbers]]
 deps = ["Random", "Statistics"]
 git-tree-sha1 = "59af96b98217c6ef4ae0dfe065ac7c20831d1a84"
@@ -379,6 +680,18 @@ version = "2.17.1+0"
 git-tree-sha1 = "9c68794ef81b08086aeb32eeaf33531668d5f5fc"
 uuid = "1fa38f19-a742-5d3f-a2b9-30dd87b9d5f8"
 version = "1.3.7"
+
+[[deps.ForwardDiff]]
+deps = ["CommonSubexpressions", "DiffResults", "DiffRules", "LinearAlgebra", "LogExpFunctions", "NaNMath", "Preferences", "Printf", "Random", "SpecialFunctions"]
+git-tree-sha1 = "73d5084cae45f9d0857776ad78cf303fec09eb02"
+uuid = "f6369f11-7733-5829-9624-2563aa707210"
+version = "1.4.3"
+
+    [deps.ForwardDiff.extensions]
+    ForwardDiffStaticArraysExt = "StaticArrays"
+
+    [deps.ForwardDiff.weakdeps]
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [[deps.FreeType2_jll]]
 deps = ["Artifacts", "Bzip2_jll", "JLLWrappers", "Libdl", "Zlib_jll"]
@@ -416,6 +729,11 @@ git-tree-sha1 = "6fada551286ab6ea4ca1628cb2de9f166a2ec966"
 uuid = "d2c73de3-f751-5644-a686-071e5b155ba9"
 version = "0.73.26+0"
 
+[[deps.Gamma]]
+git-tree-sha1 = "86f86b6168a016ed88e4ae4e64577b98c3b59e8e"
+uuid = "a0844989-3bd2-4988-8bea-c9407ab0941b"
+version = "1.1.0"
+
 [[deps.GettextRuntime_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "Libiconv_jll"]
 git-tree-sha1 = "45288942190db7c5f760f59c04495064eedf9340"
@@ -428,11 +746,29 @@ git-tree-sha1 = "38044a04637976140074d0b0621c1edf0eb531fd"
 uuid = "61579ee1-b43e-5ca0-a5da-69d92c66a64b"
 version = "9.55.1+0"
 
+[[deps.Git]]
+deps = ["Git_LFS_jll", "Git_jll", "JLLWrappers", "OpenSSH_jll"]
+git-tree-sha1 = "824a1890086880696fc908fe12a17bcf61738bd8"
+uuid = "d7ba0133-e1db-5d97-8f8c-041e4b3a1eb2"
+version = "1.5.0"
+
+[[deps.Git_LFS_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "8c66e385d631bb934ff05e76d4a566c640c8df69"
+uuid = "020c3dae-16b3-5ae5-87b3-4cb189e250b2"
+version = "3.7.1+0"
+
+[[deps.Git_jll]]
+deps = ["Artifacts", "Expat_jll", "JLLWrappers", "LibCURL_jll", "Libdl", "Libiconv_jll", "OpenSSL_jll", "PCRE2_jll", "Zlib_jll"]
+git-tree-sha1 = "7b16700f9e313c0d972d1222ede50a2076aa0770"
+uuid = "f8c6e375-362e-5223-8a59-34ff63f689eb"
+version = "2.55.0+0"
+
 [[deps.Glib_jll]]
 deps = ["Artifacts", "GettextRuntime_jll", "JLLWrappers", "Libdl", "Libffi_jll", "Libiconv_jll", "Libmount_jll", "PCRE2_jll", "Zlib_jll"]
-git-tree-sha1 = "24f6def62397474a297bfcec22384101609142ed"
+git-tree-sha1 = "090526e65de8f69648ac156daae153de8b56df62"
 uuid = "7746bdde-850d-59dc-9ae8-88ece973131d"
-version = "2.86.3+0"
+version = "2.88.3+0"
 
 [[deps.Graphite2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -457,6 +793,18 @@ git-tree-sha1 = "f923f9a774fcf3f5cb761bfa43aeadd689714813"
 uuid = "2e76f6c2-a576-52d4-95c1-20adfe4de566"
 version = "8.5.1+0"
 
+[[deps.HybridDynamics]]
+deps = ["Distributions", "Documenter", "ForwardDiff", "LinearAlgebra", "Random"]
+git-tree-sha1 = "dabb023aba0b10982d6dfab8869adb0d02e8070c"
+uuid = "6b3332bd-f7e8-4dca-bbbd-4128c12b268e"
+version = "1.0.0"
+
+[[deps.HypergeometricFunctions]]
+deps = ["Gamma", "LinearAlgebra"]
+git-tree-sha1 = "31bb6c92405c084617facc1d7ed9eb6c402d061e"
+uuid = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
+version = "0.3.30"
+
 [[deps.Hyperscript]]
 deps = ["Test"]
 git-tree-sha1 = "179267cfa5e712760cd43dcae385d7ea90cc25a4"
@@ -479,6 +827,16 @@ version = "1.0.0"
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 version = "1.11.0"
+
+[[deps.InverseFunctions]]
+git-tree-sha1 = "a779299d77cd080bf77b97535acecd73e1c5e5cb"
+uuid = "3587e190-3f89-42d0-90ee-14403ec27112"
+version = "0.1.17"
+weakdeps = ["Dates", "Test"]
+
+    [deps.InverseFunctions.extensions]
+    InverseFunctionsDatesExt = "Dates"
+    InverseFunctionsTestExt = "Test"
 
 [[deps.IrrationalConstants]]
 git-tree-sha1 = "b2d91fe939cae05960e760110b328288867b5758"
@@ -560,6 +918,11 @@ version = "0.16.11"
     SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
     SymEngine = "123dc426-2d89-5057-bbad-38513e3affd8"
     tectonic_jll = "d7dd28d6-a5e6-559c-9131-7eb760cdacc5"
+
+[[deps.LazilyInitializedFields]]
+git-tree-sha1 = "0f2da712350b020bc3957f269c9caad516383ee0"
+uuid = "0e77f7df-68c5-4e49-93ce-4cd80f5598bf"
+version = "1.3.0"
 
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
@@ -672,6 +1035,12 @@ deps = ["Base64", "JuliaSyntaxHighlighting", "StyledStrings"]
 uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
 version = "1.11.0"
 
+[[deps.MarkdownAST]]
+deps = ["AbstractTrees", "Markdown"]
+git-tree-sha1 = "93c718d892e73931841089cdc0e982d6dd9cc87b"
+uuid = "d0879d2d-cac2-40c8-9cee-1863dc0c7391"
+version = "0.1.3"
+
 [[deps.MbedTLS]]
 deps = ["Dates", "MbedTLS_jll", "MozillaCACerts_jll", "NetworkOptions", "Random", "Sockets"]
 git-tree-sha1 = "8785729fa736197687541f7053f6d8ab7fc44f92"
@@ -729,6 +1098,12 @@ deps = ["Artifacts", "Libdl"]
 uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
 version = "0.8.7+0"
 
+[[deps.OpenSSH_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "OpenSSL_jll", "Zlib_jll"]
+git-tree-sha1 = "b862f484cf659efabffd601c5c920e981c942b63"
+uuid = "9bd350c2-7e96-507f-8002-3f2e150b4e1b"
+version = "10.4.1+0"
+
 [[deps.OpenSSL]]
 deps = ["BitFlags", "Dates", "MozillaCACerts_jll", "NetworkOptions", "OpenSSL_jll", "Sockets"]
 git-tree-sha1 = "1d1aaa7d449b58415f97d2839c318b70ffb525a0"
@@ -739,6 +1114,12 @@ version = "1.6.1"
 deps = ["Artifacts", "Libdl"]
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
 version = "3.5.4+0"
+
+[[deps.OpenSpecFun_jll]]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "1346c9208249809840c91b26703912dff463d335"
+uuid = "efe28fd5-8261-553b-a9e1-b2916fc3738e"
+version = "0.5.6+0"
 
 [[deps.Opus_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -755,6 +1136,16 @@ version = "1.8.2"
 deps = ["Artifacts", "Libdl"]
 uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
 version = "10.44.0+1"
+
+[[deps.PDMats]]
+deps = ["LinearAlgebra", "SparseArrays", "SuiteSparse"]
+git-tree-sha1 = "123266c25174ef6c8d4718920abc206452cf8de6"
+uuid = "90014a1f-27ba-587c-ab20-58faa44d9150"
+version = "0.11.41"
+weakdeps = ["StatsBase"]
+
+    [deps.PDMats.extensions]
+    StatsBaseExt = "StatsBase"
 
 [[deps.Pango_jll]]
 deps = ["Artifacts", "Cairo_jll", "Fontconfig_jll", "FreeType2_jll", "FriBidi_jll", "Glib_jll", "HarfBuzz_jll", "JLLWrappers", "Libdl"]
@@ -873,6 +1264,18 @@ git-tree-sha1 = "672c938b4b4e3e0169a07a5f227029d4905456f2"
 uuid = "e99dba38-086e-5de3-a5b1-6e4c66e897c3"
 version = "6.10.2+1"
 
+[[deps.QuadGK]]
+deps = ["DataStructures", "LinearAlgebra"]
+git-tree-sha1 = "5e8e8b0ab68215d7a2b14b9921a946fee794749e"
+uuid = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"
+version = "2.11.3"
+
+    [deps.QuadGK.extensions]
+    QuadGKEnzymeExt = "Enzyme"
+
+    [deps.QuadGK.weakdeps]
+    Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+
 [[deps.REPL]]
 deps = ["InteractiveUtils", "JuliaSyntaxHighlighting", "Markdown", "Sockets", "StyledStrings", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
@@ -900,6 +1303,12 @@ git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
 uuid = "189a3867-3050-52da-a836-e630ba90ab69"
 version = "1.2.2"
 
+[[deps.RegistryInstances]]
+deps = ["LazilyInitializedFields", "Pkg", "TOML", "Tar"]
+git-tree-sha1 = "ffd19052caf598b8653b99404058fce14828be51"
+uuid = "2792f1a3-b283-48e8-9a74-f99dce5104f3"
+version = "0.1.0"
+
 [[deps.RelocatableFolders]]
 deps = ["SHA", "Scratch"]
 git-tree-sha1 = "ffdaf70d81cf6ff22c2b6e733c900c3321cab864"
@@ -911,6 +1320,40 @@ deps = ["UUIDs"]
 git-tree-sha1 = "62389eeff14780bfe55195b7204c0d8738436d64"
 uuid = "ae029012-a4dd-5104-9daa-d747884805df"
 version = "1.3.1"
+
+[[deps.Rmath]]
+deps = ["Random", "Rmath_jll"]
+git-tree-sha1 = "5b3d50eb374cea306873b371d3f8d3915a018f0b"
+uuid = "79098fc4-a85e-5d69-aa6a-4863f24498fa"
+version = "0.9.0"
+
+[[deps.Rmath_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "58cdd8fb2201a6267e1db87ff148dd6c1dbd8ad8"
+uuid = "f50d1b31-88e8-58de-be2c-1cc44531875f"
+version = "0.5.1+0"
+
+[[deps.Roots]]
+deps = ["Accessors", "CommonSolve", "Printf"]
+git-tree-sha1 = "91cfb1cb4f6e27557cc2df798a31eff6089a41eb"
+uuid = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
+version = "3.0.0"
+
+    [deps.Roots.extensions]
+    RootsChainRulesCoreExt = "ChainRulesCore"
+    RootsForwardDiffExt = "ForwardDiff"
+    RootsIntervalRootFindingExt = "IntervalRootFinding"
+    RootsSymPyExt = "SymPy"
+    RootsSymPyPythonCallExt = "SymPyPythonCall"
+    RootsUnitfulExt = "Unitful"
+
+    [deps.Roots.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+    IntervalRootFinding = "d2bf35a9-74e0-55ec-b149-d360ff49b807"
+    SymPy = "24249f21-da20-56a4-8eb1-6a02cf4ae2e6"
+    SymPyPythonCall = "bc8888f7-b21e-4b7c-a06a-5d9c9496438c"
+    Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
@@ -952,11 +1395,28 @@ deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 version = "1.12.0"
 
+[[deps.SpecialFunctions]]
+deps = ["IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_jll"]
+git-tree-sha1 = "97c8329c5f503d2936fb36719fe25b9f94b1ae8a"
+uuid = "276daf66-3868-5448-9aa4-cd146d93841b"
+version = "2.8.1"
+
+    [deps.SpecialFunctions.extensions]
+    SpecialFunctionsChainRulesCoreExt = "ChainRulesCore"
+
+    [deps.SpecialFunctions.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+
 [[deps.StableRNGs]]
 deps = ["Random"]
 git-tree-sha1 = "4f96c596b8c8258cc7d3b19797854d368f243ddc"
 uuid = "860ef19b-820b-49d6-a774-d7a799459cd3"
 version = "1.0.4"
+
+[[deps.StaticArraysCore]]
+git-tree-sha1 = "6ab403037779dae8c514bad259f32a447262455a"
+uuid = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
+version = "1.4.4"
 
 [[deps.Statistics]]
 deps = ["LinearAlgebra"]
@@ -980,6 +1440,20 @@ git-tree-sha1 = "e4d7a1a0edc20af42689ea6f4f3587a2175d50ee"
 uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 version = "0.34.12"
 
+[[deps.StatsFuns]]
+deps = ["HypergeometricFunctions", "IrrationalConstants", "LogExpFunctions", "Reexport", "Rmath", "SpecialFunctions"]
+git-tree-sha1 = "770240df9a3b8888065046948f7a09b4e0f997d5"
+uuid = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
+version = "2.2.0"
+
+    [deps.StatsFuns.extensions]
+    StatsFunsChainRulesCoreExt = "ChainRulesCore"
+    StatsFunsInverseFunctionsExt = "InverseFunctions"
+
+    [deps.StatsFuns.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    InverseFunctions = "3587e190-3f89-42d0-90ee-14403ec27112"
+
 [[deps.StructUtils]]
 deps = ["Dates", "UUIDs"]
 git-tree-sha1 = "82bee338d650aa515f31866c460cb7e3bcef90b8"
@@ -999,6 +1473,10 @@ version = "2.8.2"
 [[deps.StyledStrings]]
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
 version = "1.11.0"
+
+[[deps.SuiteSparse]]
+deps = ["Libdl", "LinearAlgebra", "Serialization", "SparseArrays"]
+uuid = "4607b0f0-06f3-5cda-b6b1-a6196a1729e9"
 
 [[deps.SuiteSparse_jll]]
 deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
@@ -1037,9 +1515,9 @@ uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
 version = "0.1.13"
 
 [[deps.URIs]]
-git-tree-sha1 = "bef26fb046d031353ef97a82e3fdb6afe7f21b1a"
+git-tree-sha1 = "3b0738bd7c5645641845da25cbd99800b8718689"
 uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
-version = "1.6.1"
+version = "1.6.2"
 
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
@@ -1129,9 +1607,9 @@ version = "6.0.2+0"
 
 [[deps.Xorg_libXi_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libXext_jll", "Xorg_libXfixes_jll"]
-git-tree-sha1 = "a376af5c7ae60d29825164db40787f15c80c7c54"
+git-tree-sha1 = "dcb316b3ce0941f195537dda56bea4517fcd3ff5"
 uuid = "a51aa0fd-4e3c-5386-b890-e753decda492"
-version = "1.8.3+0"
+version = "1.8.4+0"
 
 [[deps.Xorg_libXinerama_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libXext_jll"]
@@ -1271,9 +1749,9 @@ version = "0.2.2+0"
 
 [[deps.libdrm_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libpciaccess_jll"]
-git-tree-sha1 = "63aac0bcb0b582e11bad965cef4a689905456c03"
+git-tree-sha1 = "28e57478e8a160d346a19c28b3fffb9273bcc9c2"
 uuid = "8e53e030-5e6c-5a89-a30b-be5b7263a166"
-version = "2.4.125+1"
+version = "2.4.134+0"
 
 [[deps.libevdev_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -1347,24 +1825,42 @@ version = "1.13.0+0"
 """
 
 # ╔═╡ Cell order:
-# ╠═2298226e-adfb-4503-b79f-60becd105337
-# ╟─1934f0b1-2e7f-43ca-a0b8-885d49d00a53
-# ╟─9619965e-6551-48c1-900b-9f4e4716d79c
-# ╠═514aa411-0315-4737-b253-75c1559b4392
-# ╠═4445d15b-0813-4ab0-9184-c1809219ad08
-# ╠═b8befa98-6049-424b-8f4c-e7d868dea35d
-# ╠═9f2d777b-8e8c-4ace-865e-4ec7c6226ed3
-# ╟─ec50258b-cd93-4064-9f2a-cb371d7d10f8
-# ╟─6886ba9c-28c9-4955-860c-582b4541b732
-# ╠═13da5896-c5ef-4829-b934-917a42495d01
-# ╠═88bd4e41-04e8-4fa2-9223-66b25b5bd6b0
-# ╠═9dd93417-455f-4be9-a9de-f00df58845e3
-# ╟─6db93a1d-8da0-4232-aee9-ec3d5c77d1ef
-# ╠═526471c6-3624-4633-9caf-b2ce6a4c9903
-# ╟─20cc2ebd-76c7-468c-8133-e271a958fa10
-# ╠═cb32d96e-c98f-467b-8dc6-f33b1c8748d6
-# ╠═a44b7da6-d928-4758-ae77-f6276d8d752f
-# ╠═1f0e7c83-86d4-4717-99dc-087c32329285
-# ╟─61cc9dff-a67e-4733-a8bd-84a2f5586bdc
+# ╠═fe4f37ce-31f4-4309-b19d-1787fc6f4d15
+# ╟─30a03940-11a2-45e8-8f91-501370ddcee6
+# ╟─2880f5f2-fb01-4696-aba3-7faf4714c9d3
+# ╠═9da11b33-0def-4ac1-bd19-574ef1cceb98
+# ╠═0cf59ef8-d158-42dc-913a-7766ac4d2420
+# ╠═1959511b-8aa8-49d0-893c-b9b801a2bda0
+# ╠═e6bc3aba-7b99-4ca8-8657-12b8609cd427
+# ╠═bbc202e7-fd8d-4eb1-9de2-93b09a73a425
+# ╟─7b9a3bb2-0b4f-48bf-9c7a-1824281ad707
+# ╟─80034ca8-e254-4beb-8486-da9de404f503
+# ╠═49b430c8-ac20-4988-9c49-83a38111285f
+# ╠═c1a00790-005e-40ae-9e4c-20f8aac7b787
+# ╠═a5cd41cd-b341-49c7-a052-bfd20f631b0c
+# ╠═fb3eb7c9-3f93-4986-aa89-c2ca478429d3
+# ╟─597d4dce-acf4-44a1-bc7a-9d7ec35de2f7
+# ╠═8e0f34ac-35ab-4808-a1ed-53525361c688
+# ╠═6d47f9d2-c604-46ba-af77-254478d19ab0
+# ╠═da267e54-7c2b-4a31-b429-077b47912814
+# ╠═d8370b2e-077d-488f-afb2-ceffa00fc255
+# ╟─eea32534-7258-478d-b96e-aee9bc212011
+# ╟─15b10a81-2909-4df8-8d1c-0fcd7af5d9ff
+# ╠═33b07ebd-6275-4aa5-a855-7a6b29b97de9
+# ╠═6e9ae3eb-e2d2-42b2-bcfe-c42c6dd4be65
+# ╠═8702895d-c0ea-459b-814a-b67f4c193860
+# ╠═cb05396f-92a2-468c-af34-f64e25a93e16
+# ╠═7ca75d5b-b8a6-472f-b5a7-f746b581e67f
+# ╠═293d4ac4-bbb7-41ea-ae29-ae0844fd3992
+# ╟─8e899a64-9654-4e7e-ac0f-2376b89aa913
+# ╠═154b65b0-f68b-4ec7-a035-b5d3ea78fb26
+# ╠═7259e7cc-e810-41c7-b57b-acedd5ed6691
+# ╠═1e618fc0-28ab-4c28-9be5-8b1582a69cba
+# ╠═a77c28dc-8d08-42b6-8e51-1949ea04bb4a
+# ╟─efe951a9-31d1-49e1-bf19-cdcd7a6a5f0e
+# ╟─8eae9c66-e573-4458-bab5-ac92e61f261a
+# ╠═7e2f7386-647e-4503-9343-2ce78cc2752f
+# ╠═0a709e7a-f8a4-4b72-aa15-eb3fb92f517e
+# ╠═b31969a0-fac6-4e69-a9f1-391750214770
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
