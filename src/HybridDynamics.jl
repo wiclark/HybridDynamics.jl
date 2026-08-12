@@ -87,6 +87,9 @@ export variational_vector_field, compute_pushforward, apply_variational_jump
 
 #Plotting Help
 export split_jumps, extract_jumps
+
+# Utilities for things
+export jump_count, jump_interval
 end
 
 

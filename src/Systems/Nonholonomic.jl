@@ -50,7 +50,7 @@ function NonholonomicSystem(M, V;
 end
 
 # General solution struct for nonholonomic systems
-struct NonholonomicSol{T, X, DX, I, E, EI, Z}
+struct NonholonomicSol{T, X, DX, I, E, EI, Z} <: AbstractHybridSolution
     t::T     # Time data
     x::X     # x = (q,p), the state and momentum
     dx::DX   # f(x) derivatve at each state x - only filled out when dense_out = true
