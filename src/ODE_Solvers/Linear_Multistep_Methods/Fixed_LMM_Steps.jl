@@ -17,10 +17,10 @@ lmm_order(::AdamsBashforth2) = 2
 lmm_order(::AdamsBashforth3) = 3
 lmm_order(::BDF2) = 2
 
-function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = RK4(); check=true, guard_direction=default_guard_direction(prob.sys))
+function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, Df, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = RK4(); check=true, guard_direction=default_guard_direction(prob.sys))
 
     if !check
-        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=false, guard_direction=guard_direction)
+        return take_step(stepper, prob, f, Df, xₖ, tₖ, Δt, tol, sol, stepper; check=false, guard_direction=guard_direction)
     end
 
     sys = prob.sys
@@ -31,7 +31,7 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
 
     # Must be strictly less than k so we shift to LMM immediately when we have enough history
     if history_len < k
-        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
+        return take_step(stepper, prob, f, Df, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
     end
 
     # Multistep phase: We do have history so we extract prev states. 
@@ -41,11 +41,11 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
     time_diffs = diff(vcat(t_history, tₖ))
 
     if any(time_diffs .<= 1e-12)
-        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
+        return take_step(stepper, prob, f, Df, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
     end
 
     # Pass history arrays forward
-    x_predict = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
+    x_predict = compute_lmm_step(solver, f, Df, xₖ, tₖ, Δt, x_history, t_history)
     
     if check 
         h_now = guard(sys, xₖ)
@@ -69,7 +69,7 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
     end
 end
 
-function compute_lmm_step(::AdamsBashforth2, f, xₖ, tₖ, Δt, x_history, t_history)
+function compute_lmm_step(::AdamsBashforth2, f, Df, xₖ, tₖ, Δt, x_history, t_history)
     x_prev = x_history[end]
     t_prev = t_history[end]
 
@@ -85,7 +85,7 @@ function compute_lmm_step(::AdamsBashforth2, f, xₖ, tₖ, Δt, x_history, t_hi
     return xₖ .+ β0 .* fₖ .+ β1 .* f_minus1
 end
 
-function compute_lmm_step(::AdamsBashforth3, f, xₖ, tₖ, Δt, x_history, t_history)
+function compute_lmm_step(::AdamsBashforth3, f, Df, xₖ, tₖ, Δt, x_history, t_history)
     # x_history[end] is x_{k-1}, x_history[end-1] is x_{k-2}
     x_prev1 = x_history[end]
     t_prev1 = t_history[end]
@@ -100,7 +100,7 @@ function compute_lmm_step(::AdamsBashforth3, f, xₖ, tₖ, Δt, x_history, t_hi
     return xₖ .+ Δt .* ((23/12) .* fₖ .- (16/12) .* f_prev1 .+ (5/12) .* f_prev2)
 end
 
-function compute_lmm_step(::BDF2, f, xₖ, tₖ, Δt, x_history, t_history)
+function compute_lmm_step(::BDF2, f, Df, xₖ, tₖ, Δt, x_history, t_history)
     x_prev = x_history[end]
     t_prev = t_history[end]
     t_new = tₖ + Δt

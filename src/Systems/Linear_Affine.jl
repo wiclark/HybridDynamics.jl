@@ -211,10 +211,10 @@ function is_trivially_blocking(sys::Union{LinearSystem, AffineSystem})
     n = length(sys.λ)
 
     #check full rank AND the point is the oriign
-    return rank(analysis.blocking_set) == n && isapprox(norm(analysis.blocking_offsets))
+    return rank(analysis.blocking_set) == n && isapprox(norm(analysis.blocking_offsets), 0.0, atol=1e-10)
 end
 
-function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Δt, tol, sol; dense_out=true, stepper::AbstractODESolver=RK45(), event_method::AbstractEventLocator=LinearLocator(), guard_direction=prob.sys.direction, event_before_flow=false,
+function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Df, Δt, tol, sol; dense_out=true, stepper::AbstractODESolver=RK45(), event_method::AbstractEventLocator=LinearLocator(), guard_direction=prob.sys.direction, event_before_flow=false,
     #Pathology
     last_jump_time, last_intervals, zeno_count,
     instant_jump_count, zeno_ratio,
@@ -276,10 +276,10 @@ function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Δt, tol, sol;
     end
     =#
     
-    x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
+    x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, Df, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
 
     if eventtrigger
-        t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
+        t_star, x_star = locate_event(event_method, prob, solver, f, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
 
         jump_interval = t_star - last_jump_time
 
@@ -382,6 +382,7 @@ function solve(prob::prob{S, I, T},
                max_buffer_size=5,
                max_instant_jumps = 5,
                guard_direction = prob.sys.direction,
+               Df = (x, t) -> prob.sys.A,
                #Tunable pathology tolerance parameters
                min_zeno_history = 2,
                zeno_floor_mult = 2.0,
@@ -406,7 +407,6 @@ function solve(prob::prob{S, I, T},
                 dx .+= sys.b
             end
         end
-
         return dx
     end
 
@@ -464,7 +464,7 @@ function solve(prob::prob{S, I, T},
 
         # Truncate time step if we overshoot the final time
         _, _, Δt, terminate, last_jump_time, zeno_count, instant_jump_count = take_step_linear_affine!(
-            solver, prob, f, Δt, tol, sol; dense_out=dense_out,
+            solver, prob, f, Df, Δt, tol, sol; dense_out=dense_out,
             stepper=stepper, event_method=event_method, guard_direction=guard_direction,
             event_before_flow,
             last_jump_time=last_jump_time, last_intervals=last_intervals, zeno_count=zeno_count,

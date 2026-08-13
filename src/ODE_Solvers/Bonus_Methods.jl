@@ -77,17 +77,6 @@ function implicit_newton_solve(f::Function, x_guess::Vector, c::Vector, α::Abst
     return fill(NaN, size(x_curr))
 end
 
-# Why is this here?
-compute_step(::BackwardEuler, f, xₖ, Δt, t) = implicit_euler_step(f, xₖ, Δt, t)
-function implicit_euler_step(f::Function, xₖ::AbstractArray, h::AbstractFloat, t::AbstractFloat)
-    t_new = t + h
-    #Initial Guess via exp Euler
-    x_guess = forward_euler_step(f, xₖ, h, t)
-
-    #Imp euler 
-    return implicit_newton_solve(f, x_guess, xₖ, 1.0, h, t_new)
-end
-
 #Extra solvers
 compute_step(::MagnusLeapfrog, f, U::AbstractMatrix, Δt, t) = magnus_leapfrog_step(f, U, Δt, t)
 #MagnusLeapfrog step

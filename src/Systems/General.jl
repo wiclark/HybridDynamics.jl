@@ -48,18 +48,18 @@ function apply_reset(sys::GeneralSystem, x::AbstractArray)
     return sys.Δ(x)
 end
 
-function take_step_general!(solver, prob::prob{S,I,T}, f, Δt, tol, sol; dense_out=true, stepper::AbstractODESolver=RK4(), event_method::AbstractEventLocator=LinearLocator(), guard_direction=default_guard_direction(prob.sys)) where {S<:GeneralSystem, I, T}
+function take_step_general!(solver, prob::prob{S,I,T}, f, Df, Δt, tol, sol; dense_out=true, stepper::AbstractODESolver=RK4(), event_method::AbstractEventLocator=LinearLocator(), guard_direction=default_guard_direction(prob.sys)) where {S<:GeneralSystem, I, T}
 
     xₖ = sol.x[end]
     tₖ = sol.t[end]
 
     sys = prob.sys
 
-    x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction)
+    x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, Df, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction)
 
     if eventtrigger
          
-        t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
+        t_star, x_star = locate_event(event_method, prob, solver, f, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
 
         if abs(guard(sys, x_star)) > 1e-3
             @warn "Event Location is not located on the guard."
@@ -132,7 +132,8 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
                tol = 1e-6,
                stepper::AbstractODESolver=RK4(),
-               guard_direction = prob.sys.direction
+               guard_direction = prob.sys.direction,
+               Df = nothing
                ) where {S<:GeneralSystem, I, T}
 
     sys = prob.sys
@@ -183,7 +184,7 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
 
         dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
-        _, _, Δt, terminate = take_step_general!(solver, prob, f, dt_step, tol, sol; dense_out=dense_out, stepper=stepper, event_method=event_method, guard_direction=guard_direction)
+        _, _, Δt, terminate = take_step_general!(solver, prob, f, Df, dt_step, tol, sol; dense_out=dense_out, stepper=stepper, event_method=event_method, guard_direction=guard_direction)
 
         if terminate
             break
