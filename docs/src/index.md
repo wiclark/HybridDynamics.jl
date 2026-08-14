@@ -4,14 +4,22 @@
 
 A Julia package for studying the dynamics of hybrid systems.
 
+## Documentation
+Documentation is available [here](https://wiclark.github.io/HybridDynamics.jl/dev/)
+
 ## Installation
 
 To install this package, run:
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/wiclark/HybridDynamics.jl")
+Pkg.add("HybridDynamics")
 ```
 in a Julia REPL.
+
+The package can then be loaded using the command:
+```julia
+import HybridDynamics as HD
+```
 
 ## Usage
 
