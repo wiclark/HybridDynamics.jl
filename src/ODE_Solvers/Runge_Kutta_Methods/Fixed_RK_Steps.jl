@@ -150,26 +150,33 @@ end
 backward_euler_step(f, xₖ, Δt, t; kwargs...) = backward_euler_step(f, nothing, xₖ, Δt, t; kwargs...)
 
 # Backward (implicit) Euler
-function backward_euler_step(f::Function, Df::Union{Function, Nothing}, xₖ::AbstractArray, Δt::AbstractFloat, t::AbstractFloat; maxIter::Int=10, tol::AbstractFloat=1e-3)
-	y = copy(xₖ)
+function backward_euler_step(f::Function, Df::Union{Function, Nothing}, xₖ::AbstractArray, Δt::AbstractFloat, t::AbstractFloat; maxIter::Int=10, tol::AbstractFloat=1e-9)
+    y = copy(xₖ)
     t_next = t + Δt
 
     for _ in 1:maxIter
         G = y .- xₖ .- Δt .* f(y, t_next)
         
-        # Early exit on convergence
-        if norm(G) < tol
+        # Absolute check to avoid Jacobians if we are at equilibrium
+        if norm(G) < 1e-14
             return y
         end
 
         J = eval_jacobian(f, Df, y, t_next)
         DG = I - Δt .* J
-        y = y .- DG \ G
+        update = DG \ G
+        y = y .- update
+        
+        # Exit when the Newton step stops meaningfully changing the state
+        # this is different from the original as it would cause us to fail to take any step in some cases.
+        if norm(update) < tol
+            return y
+        end
     end
 
     # Final residual check
     G_final = y .- xₖ .- Δt .* f(y, t_next)
-    if norm(G_final) > tol
+    if norm(G_final) > max(tol * 10, 1e-6)
         @warn "Backward Euler step did not converge."
     end
     return y
@@ -179,35 +186,42 @@ end
 implicit_trap_step(f, xₖ, Δt, t; kwargs...) = implicit_trap_step(f, nothing, xₖ, Δt, t; kwargs...)
 
 # The implicit trapezoid method (Lobatto IIIA, order 2)
-function implicit_trap_step(f::Function, Df::Union{Function, Nothing}, xₖ::AbstractArray, Δt::AbstractFloat, t::AbstractFloat; maxIter::Int=10, tol::AbstractFloat=1e-3)
-	y = copy(xₖ)
-	t_next = t + Δt
-	fₖ = f(xₖ, t)
+function implicit_trap_step(f::Function, Df::Union{Function, Nothing}, xₖ::AbstractArray, Δt::AbstractFloat, t::AbstractFloat; maxIter::Int=10, tol::AbstractFloat=1e-9)
+    y = copy(xₖ)
+    t_next = t + Δt
+    fₖ = f(xₖ, t)
 
-	for _ in 1:maxIter
-		G = y .- xₖ .- 1/2 .* Δt .* (fₖ .+ f(y, t_next))
+    for _ in 1:maxIter
+        G = y .- xₖ .- 1/2 .* Δt .* (fₖ .+ f(y, t_next))
 
-		if norm(G) < tol
-			return y
-		end
+        if norm(G) < 1e-14
+            return y
+        end
 
-		J = eval_jacobian(f, Df, y, t_next)
-		DG = I - 1/2 .* Δt .* J
-		y = y .- DG \ G
-	end
+        J = eval_jacobian(f, Df, y, t_next)
+        DG = I - 1/2 .* Δt .* J
+        update = DG \ G
+        y = y .- update
 
-	G_final = y .- xₖ .- 1/2 .* Δt .* (fₖ .+ f(y, t_next))
-	if norm(G_final) > tol
-		@warn "Implicit Trapezoid step did not converge."
-	end
-	return y
+        # Exit when the Newton step stops meaningfully changing the state
+        # this is different from the original as it would cause us to fail to take any step in some cases.
+        if norm(update) < tol
+            return y
+        end
+    end
+
+    G_final = y .- xₖ .- 1/2 .* Δt .* (fₖ .+ f(y, t_next))
+    if norm(G_final) > max(tol * 10, 1e-6)
+        @warn "Implicit Trapezoid step did not converge."
+    end
+    return y
 end
 
 # Radau IIA when DF is omitted.
 radauiia_step(f, xₖ, Δt, t; kwargs...) = radauiia_step(f, nothing, xₖ, Δt, t; kwargs...)
 
 # The Radau IIA method (2 stages, order 3)
-function radauiia_step(f, Df::Union{Function, Nothing}, xₖ, Δt, t; maxIter::Int=10, tol=1e-6)
+function radauiia_step(f, Df::Union{Function, Nothing}, xₖ, Δt, t; maxIter::Int=10, tol=1e-9)
     n = length(xₖ)
     t1 = t + Δt / 3
     t2 = t + Δt
@@ -227,7 +241,7 @@ function radauiia_step(f, Df::Union{Function, Nothing}, xₖ, Δt, t; maxIter::I
         G2 = k2 .- f(z2, t2)
         G = vcat(G1, G2)
 
-        if norm(G) < tol
+        if norm(G) < 1e-14
             return xₖ .+ Δt .* ((3/4) .* k1 .+ (1/4) .* k2)
         end
 
@@ -241,7 +255,14 @@ function radauiia_step(f, Df::Union{Function, Nothing}, xₖ, Δt, t; maxIter::I
         DG22 = In .- (1/4 * Δt) .* J2
 
         DG = [DG11 DG12; DG21 DG22]
-        k = k .- DG \ G
+        update = DG \ G
+        k = k .- update
+
+        # Exit when the Newton step stops meaningfully changing the state
+        # this is different from the original as it would cause us to fail to take any step in some cases.
+        if norm(update) < tol
+            break
+        end
     end
 
     k1 = k[1:n]
@@ -250,7 +271,7 @@ function radauiia_step(f, Df::Union{Function, Nothing}, xₖ, Δt, t; maxIter::I
     z2 = xₖ .+ Δt .* ((3/4) .* k1 .+ (1/4) .* k2)
     G_final = vcat(k1 .- f(z1, t1), k2 .- f(z2, t2))
 
-    if norm(G_final) > tol
+    if norm(G_final) > max(tol * 10, 1e-6)
         @warn "Implicit Radau IIA step did not converge."
     end
 
