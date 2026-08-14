@@ -51,7 +51,7 @@ export NonholonomicSystem
 #Linear/Affine System/Problem structs
 export LinearSystem, AffineSystem
 #General System/Problem structs
-export GeneralSystem
+export GeneralSystem, TimeTriggeredGeneral
 
 ########
 #ODE Step solvers - Interpolation with Fixed Step size
