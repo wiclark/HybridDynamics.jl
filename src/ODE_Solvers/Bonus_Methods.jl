@@ -1,7 +1,85 @@
 """
 Exact exponential solver for linear and affine systems.
 """
-struct ExponentialSolver <: AbstractODESolver end
+mutable struct ExponentialSolver <: AbstractODESolver
+    last_dt::Float64
+    ExpA::Matrix{Float64}
+    A_tilde::Matrix{Float64} # used for Affine part
+
+    # default constructor sets empty caches
+    ExponentialSolver() = new(NaN, Matrix{Float64}(undef, 0, 0), Matrix{Float64}(undef, 0, 0)) 
+end
+
+function take_step(solver::ExponentialSolver, prob::AbstractHybridProblem, f, Df, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint();
+    check=true, guard_direction=default_guard_direction(prob.sys))
+
+    sys = prob.sys
+        
+    # check to make sure we only use if Linear/Affine 
+    if !(sys isa LinearSystem || sys isa AffineSystem)
+        throw(ArgumentError("ExponentialSolver is exact and can ONLY be used with LinearSystem or AffineSystem types."))
+    end
+
+    n = length(xₖ)
+    is_affine = hasproperty(sys, :b)
+    dim = is_affine ? n + 1 : n
+
+    # Initialize caches if they are empty or size mismatched.
+    if size(solver.ExpA, 1) != dim
+        solver.ExpA = zeros(Float64, dim, dim)
+        if is_affine
+            solver.A_tilde = zeros(Float64, dim, dim)
+            solver.A_tilde[1:n, 1:n] .= sys.A
+            solver.A_tilde[1:n, end] .= sys.b
+            #last row is zero
+        end
+    end
+
+    # update exp only if Δt changed. This should help with memory issues
+    if solver.last_dt != Δt
+        if is_affine
+            solver.ExpA .= exp(solver.A_tilde .* Δt)
+        else
+            solver.ExpA .= exp(sys.A .* Δt)
+        end
+        solver.last_dt = Δt
+    end
+
+    # compute x_predict
+    if is_affine
+        # we want x_predict = (ExpA * [xₖ; 1])[1:n] but we do manually to save memory
+        x_predict = similar(xₖ)
+        mul!(x_predict, view(solver.ExpA, 1:n, 1:n), xₖ)    # Linear part
+        x_predict .+= view(solver.ExpA, 1:n, dim)           # Affine part
+    else
+        x_predict = solver.ExpA * xₖ
+    end
+
+    # Guard check 
+    if check
+        h_now = guard(sys, xₖ)
+        h_next = guard(sys, x_predict)
+
+        idx = max(1, length(sol.x) - 1)
+        t_prev = sol.t[idx]
+        x_prev = sol.x[idx]
+        h_prev = guard(sys, x_prev)
+
+        eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
+
+        if eventtrigger
+            if (t_root - tₖ) < (1e-4 * Δt)
+                eventtrigger = false
+                t_root = tₖ + Δt
+            end
+        end
+
+        return x_predict, eventtrigger, t_root, Δt, Δt
+    else
+        return x_predict, false, NaN, Δt, Δt
+    end
+end
+
 
 """
 Second order Magnus Leapfrog method.
