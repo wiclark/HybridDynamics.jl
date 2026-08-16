@@ -93,36 +93,6 @@ function apply_reset(sys::AffineSystem, x::AbstractArray)
     return x_new
 end
 
-#Exact Linear Flow (matrix exponential)
-#The goal is to instead of using numerical approximations for linear systems we can get exact solutions. 
-struct LinearFlow{TM<:AbstractMatrix{Float64}}
-    A::TM #dx/dt = Ax
-end
-
-#Internal
-#Constructor with numerical/structural checks
-function LinearFlow(A::AbstractMatrix)
-    #Make sure matrix is square
-    m, n = size(A)
-    if m != n
-        throw(DimensionMismatch("State matrix A must be square, but got ($m × $n) matrix."))
-    end
-
-    return LinearFlow(Float64.(A))
-end
-
-function flow(flowmap::LinearFlow, τ::Real, x::AbstractVector)
-    #check matrix and state vector match dim 
-    n = size(flowmap.A, 1)
-    if length(x) != n
-        throw(DimensionMismatch("State vector length ($(length(x))) does not match system matrix dimension ($n)."))
-    end
-
-    #Computes exact state x(t+τ) = exp(A*τ) * x(t)
-    #This is very memory instensive as of now. Fixing will come later
-    return exp(flowmap.A .* τ) * x
-end
-
 #Solution Initialization
 #Goal is to setup the empty memory containers before solver starts running. 
 #pre-allocating the vectors with the exact starting conditions ensures that the solver loop is stable 
