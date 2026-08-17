@@ -345,6 +345,8 @@ function solve(prob::prob{S, I, T},
         end
         # Terminate if the remaining time is below machine precision
         if t_end - sol.t[end] <= eps(t_end)
+            sol.t[end] = t_end
+            @info "Final step below minimum step size. Snapping final time to t = $t_end."
             break
         end
 

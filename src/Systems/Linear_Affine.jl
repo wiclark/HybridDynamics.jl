@@ -428,7 +428,8 @@ function solve(prob::prob{S, I, T},
 
         # Terminate if time is below machine precision
         if t_end - sol.t[end] < dt_min
-            @info "Time to end of simulation below minimum time step. Ending simulation at t = $(sol.t[end])"
+            sol.t[end] = t_end
+            @info "Time to end of simulation below minimum time step. Snapping final time to t = $t_end."
             break
         end
 

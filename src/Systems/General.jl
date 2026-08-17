@@ -194,7 +194,8 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
         end
 
         if t_end - sol.t[end] < dt_min
-            @info "Time to end of simulation below minimum time step. Ending simulation at t = $(sol.t[end])"
+            sol.t[end] = t_end  # Snap the final recorded time exactly to the end of tspan
+            @info "Time to end of simulation below minimum time step. Snapping final time to t = $t_end"
             break 
         end
 

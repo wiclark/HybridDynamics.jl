@@ -25,52 +25,48 @@ function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem)
     T_events = sol.event_times
     # Create the tangent vector field
     A(t) = ForwardDiff.jacobian(y->sys.f(y,t), sol(t))
-    # As well as the augmented differential
-    # ****sol(impact_time) returns the state immedeately post-impact****
-    #     I want a way to get the state immedeately pre-impact.
-    #     The code below is wrong (as it's using the post-impact values)
-    ϵ=1e-5 # <- I want this gone
-    Δ_star(t) = ForwardDiff.jacobian(y->sys.Δ(y), sol(t-ϵ))
-    f⁻(t) = sys.f(sol(t-ϵ), t)
-    f⁺(t) = sys.f(sys.Δ(sol(t-ϵ)), t)
-    dh⁻(t) = ForwardDiff.gradient(sys.h, sol(t-ϵ))
-    Δ_augmented(t) = Δ_star(t)*(I-(f⁻(t)*dh⁻(t)')./dot(dh⁻(t), f⁻(t))) + (f⁺(t)*dh⁻(t)')./dot(dh⁻(t), f⁻(t))
-    # We want to solve the temporally-triggered system
-    #   Φ' = A(t)Φ,           t ̸∈ T_events
-    #   Φ⁺ = Δ_augmented(t)Φ, t ∈ T_events
-    # We want to return Φ(sol.t[end])
-    # return A, Δ_augmented
-    # The initial condition is the identity matrix
-    Φ = Matrix( I(size(A(0))[1]) )
-    # Let's just take 100 steps between each event
-    t_past = sol.t[1] # <- The initial time
-    pre_mature = false
-    for t_e ∈ T_events
-        if t_e - t_past < 1e-4 # <- Strange things happen if we allow faster switching
-                               #    I think this has to do with ϵ above
-            pre_mature = true
-            println([t_past, t_e])
-            break
-        end
-        times_segment = LinRange(t_past, t_e, 1_000)
-        dt = times_segment[2] - times_segment[1]
+    
+    Φ = Matrix(I(size(A(0))[1]))
+    t_past = sol.t[1]
+
+    # Loop through events using their index to get pre/post states
+    for k in 1:length(T_events)
+        t_e = T_events[k]
+
+        times_segments = LinRange(t_past, t_e, 1_000)
+        dt = times_segments[2] - times_segments[1]
         for i ∈ 1:999
-            Φ = exp_step(A, Φ, dt, times_segment[i])
+            Φ = exp_step(A, Φ, dt, times_segments[i])
         end
-        Φ = Δ_augmented(t_e) * Φ
+
+        # Exact staes at the event boundary
+        idx = sol.event_indices[k]
+        x⁻ = sol.x[idx-1]   # pre-impact state
+        x⁺ = sol.x[idx]     # post-impact state
+
+
+        # Eval augmented diff matrices at the event
+        Δ_star_val = ForwardDiff.jacobian(y -> sys.Δ(y), x⁻)
+        f⁻_val = sys.f(x⁻, t_e)
+        f⁺_val = sys.f(x⁺, t_e)
+        dh⁻_val = ForwardDiff.gradient(sys.h, x⁻)
+
+        Δ_augmented = Δ_star_val * (I - (f⁻_val * dh⁻_val') ./ dot(dh⁻_val, f⁻_val)) 
+        + (f⁺_val * dh⁻_val') ./ dot(dh⁻_val, f⁻_val)
+
+        Φ = Δ_augmented * Φ
         t_past = t_e
     end
-    # Determine the tail. Notice that T_events may be empty
-    if !pre_mature
-        t_current = isempty(T_events) ? sol.t[1] : T_events[end]
-        t_final = sol.t[end]
-        times_segment = LinRange(t_current, t_final, 1_000)
-        dt = times_segment[2] - times_segment[1]
-        for i ∈ 1:999
-            Φ = exp_step(A, Φ, dt, times_segment[i])
-        end
+
+    # Determine the tail
+    t_current = isempty(T_events) ? sol.t[1] : T_events[end]
+    t_final = sol.t[end]
+    times_segment = LinRange(t_current, t_final, 1_000)
+    dt = times_segment[2] - times_segment[1]
+    for i ∈ 1:999
+        Φ = exp_step(A, Φ, dt, times_segment[i])
     end
-    return Φ, pre_mature
+    return Φ
 end
 
 ## The list of Lyapunov exponents
@@ -93,10 +89,7 @@ function LyapunovExponents(sys::GeneralSystem, x0::AbstractArray; run_length::Ab
         prob_iter = prob(sys, x0, (current_time, current_time+run_length))
         sol_iter  = solve(prob_iter, RK45(), tol=1e-9)
         x0 = sol_iter(sol_iter.t[end])
-        Φ_iter, pre_mature = tangent_dynamics(sol_iter, sys)
-        if pre_mature
-            @warn "Unable to complete trajectory"
-        end
+        Φ_iter = tangent_dynamics(sol_iter, sys)
         Φ = Φ_iter * Φ
         # The QR decomposition
         F = qr(Φ)
