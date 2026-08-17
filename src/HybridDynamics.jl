@@ -1,3 +1,6 @@
+"""
+A Julia package for studying the dynamics of hybrid systems.
+"""
 module HybridDynamics
 
 using LinearAlgebra
