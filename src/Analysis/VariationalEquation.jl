@@ -26,7 +26,7 @@ function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem)
     # Create the tangent vector field
     A(t) = ForwardDiff.jacobian(y->sys.f(y,t), sol(t))
     
-    Φ = Matrix(I(size(A(0))[1]))
+    Φ = Matrix(I(size(A(sol.t[end]))[1]))
     t_past = sol.t[1]
 
     # Loop through events using their index to get pre/post states
@@ -51,8 +51,7 @@ function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem)
         f⁺_val = sys.f(x⁺, t_e)
         dh⁻_val = ForwardDiff.gradient(sys.h, x⁻)
 
-        Δ_augmented = Δ_star_val * (I - (f⁻_val * dh⁻_val') ./ dot(dh⁻_val, f⁻_val)) 
-        + (f⁺_val * dh⁻_val') ./ dot(dh⁻_val, f⁻_val)
+        Δ_augmented = Δ_star_val * (I - (f⁻_val * dh⁻_val') ./ dot(dh⁻_val, f⁻_val)) + (f⁺_val * dh⁻_val') ./ dot(dh⁻_val, f⁻_val)
 
         Φ = Δ_augmented * Φ
         t_past = t_e
