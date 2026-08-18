@@ -14,12 +14,17 @@ function (sol::AbstractHybridSolution)(t::Real)
     # Safties to make sure it usually works
     isempty(sol.dx) && error("Solution struct did not return dense output")
 
-    t < sol.t[1] && throw(BoundsError(sol, t))
-    t > sol.t[end] && throw(BoundsError(sol, t))
-
+    if t < sol.t[1]
+        @warn("BoundsError(sol, t). Out of bounds: constant extrapolation used.")
+        return sol.x[1]
+    end
     t == sol.t[1] && return sol.x[1]
     t == sol.t[end] && return sol.x[end]
-
+    if t > sol.t[end]
+        @warn("BoundsError(sol, t). Out of bounds: constant extrapolation used.")
+        return sol.x[end]
+    end
+    
     # Find the index of interest
     i = searchsortedlast(sol.t, t)
 
