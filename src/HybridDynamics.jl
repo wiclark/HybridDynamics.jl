@@ -89,7 +89,7 @@ export LinearLocator, BisectionLocator, QuadraticLocator, NewtonLocator
 export beating_and_blocking_sets, is_trivially_blocking
 
 #Variational Equation
-export variational_vector_field, compute_pushforward, apply_variational_jump
+export LyapunovExponents
 
 #Plotting Help
 export split_jumps, extract_jumps

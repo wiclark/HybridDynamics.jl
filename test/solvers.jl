@@ -98,6 +98,24 @@ end
     @test length(solG_RichardsonExtrapolation.event_times) == 1
     @test solG_RichardsonExtrapolation.event_times[1] ≈ solevent atol=soltol
 
+    solG_BackwardEuler = HD.solve(probG, HD.BackwardEuler())
+    @test solG_BackwardEuler(1) ≈ sol1 atol=soltol
+    @test solG_BackwardEuler(1.75)[1] ≈ sol2 atol=soltol
+    @test length(solG_BackwardEuler.event_times) == 1
+    @test solG_BackwardEuler.event_times[1] ≈ solevent atol=soltol
+
+    solG_ImplicitTrap = HD.solve(probG, HD.ImplicitTrap())
+    @test solG_ImplicitTrap(1) ≈ sol1 atol=soltol
+    @test solG_ImplicitTrap(1.75)[1] ≈ sol2 atol=soltol
+    @test length(solG_ImplicitTrap.event_times) == 1
+    @test solG_ImplicitTrap.event_times[1] ≈ solevent atol=soltol
+
+    solG_RadauIIA = HD.solve(probG, HD.RadauIIA())
+    @test solG_RadauIIA(1) ≈ sol1 atol=soltol
+    @test solG_RadauIIA(1.75)[1] ≈ sol2 atol=soltol
+    @test length(solG_RadauIIA.event_times) == 1
+    @test solG_RadauIIA.event_times[1] ≈ solevent atol=soltol
+
 end
 
 @testset "AdaptiveRK" begin

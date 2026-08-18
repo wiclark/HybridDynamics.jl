@@ -297,7 +297,8 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
         end
 
         if t_end - sol.t[end] <= eps(t_end)
-            @info "Time step below minimum threshold $dt_min. Terminating."
+            sol.t[end] = t_end
+            @info "Time step below minimum threshold $dt_min. Snapping final time to t = $t_end."
             break
         end
 
