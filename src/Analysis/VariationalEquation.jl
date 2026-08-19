@@ -20,23 +20,24 @@ end
 # Outputs:
 #   Φ, the state-transition matrix at the terminal time (with I as the initial condition)
 #   pre_mature, if switchings become too fast, integration will halt and this will be true
-function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem)
+function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem; A = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000)
     # Extract out the event times
     T_events = sol.event_times
+
     # Create the tangent vector field
-    A(t) = ForwardDiff.jacobian(y->sys.f(y,t), sol(t))
+    A_int(t) =  isnothing(A) ? ForwardDiff.jacobian(y->sys.f(y,t), sol(t)) : A(t)
     
-    Φ = Matrix(I(size(A(sol.t[end]))[1]))
+    Φ = Matrix(I(size(A_int(sol.t[end]))[1]))
     t_past = sol.t[1]
 
     # Loop through events using their index to get pre/post states
     for k in 1:length(T_events)
         t_e = T_events[k]
 
-        times_segments = LinRange(t_past, t_e, 1_000)
+        times_segments = LinRange(t_past, t_e, t_s)
         dt = times_segments[2] - times_segments[1]
-        for i ∈ 1:999
-            Φ = exp_step(A, Φ, dt, times_segments[i])
+        for i ∈ 1:t_s -1
+            Φ = exp_step(A_int, Φ, dt, times_segments[i])
         end
 
         # Exact staes at the event boundary
@@ -46,10 +47,10 @@ function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem)
 
 
         # Eval augmented diff matrices at the event
-        Δ_star_val = ForwardDiff.jacobian(y -> sys.Δ(y), x⁻)
+        Δ_star_val = isnothing(res_deriv) ? ForwardDiff.jacobian(y -> sys.Δ(y), x⁻) : res_deriv
         f⁻_val = sys.f(x⁻, t_e)
         f⁺_val = sys.f(x⁺, t_e)
-        dh⁻_val = ForwardDiff.gradient(sys.h, x⁻)
+        dh⁻_val = isnothing(guard_deriv) ? ForwardDiff.gradient(sys.h, x⁻) : guard_deriv
 
         Δ_augmented = Δ_star_val * (I - (f⁻_val * dh⁻_val') ./ dot(dh⁻_val, f⁻_val)) + (f⁺_val * dh⁻_val') ./ dot(dh⁻_val, f⁻_val)
 
@@ -60,10 +61,10 @@ function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem)
     # Determine the tail
     t_current = isempty(T_events) ? sol.t[1] : T_events[end]
     t_final = sol.t[end]
-    times_segment = LinRange(t_current, t_final, 1_000)
+    times_segment = LinRange(t_current, t_final, t_s)
     dt = times_segment[2] - times_segment[1]
-    for i ∈ 1:999
-        Φ = exp_step(A, Φ, dt, times_segment[i])
+    for i ∈ 1:t_s -1
+        Φ = exp_step(A_int, Φ, dt, times_segment[i])
     end
     return Φ
 end
@@ -72,7 +73,7 @@ end
 # Inputs: The system and initial condition
 #         The rest of the inputs are performance parameters
 # Outputs: The vector of Lyapunov exponents
-function LyapunovExponents(sys::GeneralSystem, x0::AbstractArray; run_length::AbstractFloat=1.0, run_iter::Int=Int(1e4), transient::AbstractFloat=0.0)
+function LyapunovExponents(sys::GeneralSystem, x0::AbstractArray; A = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000, run_length::AbstractFloat=1.0, run_iter::Int=Int(1e4), transient::AbstractFloat=0.0)
     # Discard the transient
     if transient > 0.0
         prob_transient = prob(sys, x0, (0.0, transient))
@@ -88,7 +89,7 @@ function LyapunovExponents(sys::GeneralSystem, x0::AbstractArray; run_length::Ab
         prob_iter = prob(sys, x0, (current_time, current_time+run_length))
         sol_iter  = solve(prob_iter, RK45(), tol=1e-9)
         x0 = sol_iter(sol_iter.t[end])
-        Φ_iter = tangent_dynamics(sol_iter, sys)
+        Φ_iter = tangent_dynamics(sol_iter, sys; A, res_deriv, guard_deriv, t_s)
         Φ = Φ_iter * Φ
         # The QR decomposition
         F = qr(Φ)
