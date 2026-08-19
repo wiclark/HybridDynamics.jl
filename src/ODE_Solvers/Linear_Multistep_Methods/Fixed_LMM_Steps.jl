@@ -17,10 +17,10 @@ lmm_order(::AdamsBashforth2) = 2
 lmm_order(::AdamsBashforth3) = 3
 lmm_order(::BDF2) = 2
 
-function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = RK4(); check=true, guard_direction=default_guard_direction(prob.sys))
+function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, Df, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = RK4(); check=true, guard_direction=default_guard_direction(prob.sys))
 
     if !check
-        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=false, guard_direction=guard_direction)
+        return take_step(stepper, prob, f, Df, xₖ, tₖ, Δt, tol, sol, stepper; check=false, guard_direction=guard_direction)
     end
 
     sys = prob.sys
@@ -29,8 +29,9 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
     # Determine how many continuous steps we have since the last jump
     history_len = isempty(sol.event_indices) ? length(sol.x) : (length(sol.x) - sol.event_indices[end])
 
-    if history_len <= k
-        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
+    # Must be strictly less than k so we shift to LMM immediately when we have enough history
+    if history_len < k
+        return take_step(stepper, prob, f, Df, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
     end
 
     # Multistep phase: We do have history so we extract prev states. 
@@ -40,11 +41,11 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
     time_diffs = diff(vcat(t_history, tₖ))
 
     if any(time_diffs .<= 1e-12)
-        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
+        return take_step(stepper, prob, f, Df, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
     end
 
     # Pass history arrays forward
-    x_predict = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
+    x_predict = compute_lmm_step(solver, f, Df, xₖ, tₖ, Δt, x_history, t_history)
     
     if check 
         h_now = guard(sys, xₖ)
@@ -68,7 +69,7 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, xₖ, tₖ,
     end
 end
 
-function compute_lmm_step(::AdamsBashforth2, f, xₖ, tₖ, Δt, x_history, t_history)
+function compute_lmm_step(::AdamsBashforth2, f, Df, xₖ, tₖ, Δt, x_history, t_history)
     x_prev = x_history[end]
     t_prev = t_history[end]
 
@@ -84,7 +85,7 @@ function compute_lmm_step(::AdamsBashforth2, f, xₖ, tₖ, Δt, x_history, t_hi
     return xₖ .+ β0 .* fₖ .+ β1 .* f_minus1
 end
 
-function compute_lmm_step(::AdamsBashforth3, f, xₖ, tₖ, Δt, x_history, t_history)
+function compute_lmm_step(::AdamsBashforth3, f, Df, xₖ, tₖ, Δt, x_history, t_history)
     # x_history[end] is x_{k-1}, x_history[end-1] is x_{k-2}
     x_prev1 = x_history[end]
     t_prev1 = t_history[end]
@@ -96,21 +97,29 @@ function compute_lmm_step(::AdamsBashforth3, f, xₖ, tₖ, Δt, x_history, t_hi
     f_prev1 = f(x_prev1, t_prev1)
     f_prev2 = f(x_prev2, t_prev2)
     
-    return xₖ .+ Δt .* ( (23/12) .* fₖ .- (16/12) .* f_prev1 .+ (5/12) .* f_prev2)
+    return xₖ .+ Δt .* ((23/12) .* fₖ .- (16/12) .* f_prev1 .+ (5/12) .* f_prev2)
 end
 
-function compute_lmm_step(::BDF2, f, xₖ, tₖ, Δt, x_history, t_history)
-    #retrieve state at previous time step.
+function compute_lmm_step(::BDF2, f, Df, xₖ, tₖ, Δt, x_history, t_history)
     x_prev = x_history[end]
+    t_prev = t_history[end]
     t_new = tₖ + Δt
 
-    #doing some algebra to isolate the implicit part of BDF2 and "c" is the right side
-    c = (4.0 / 3.0) .* xₖ .- (1.0 / 3.0) .* x_prev
-    #coeff scaling step size 
-    α = 2.0 / 3.0
+    # Calculate step ratio ρ
+    h0 = Δt
+    h1 = tₖ - t_prev
+    ρ = h0 / h1
 
-    #Gen initial guess using Exp Euler to help the Newton Root finder
+    # Compute variable-step BDF2 coefficients (for if we cut a step short due to an event)
+    c0 = (1.0 + ρ)^2 / (1.0 + 2.0 * ρ)
+    c1 = (ρ^2) / (1.0 + 2.0 * ρ)
+    c = c0 .* xₖ .- c1 .* x_prev
+    
+    # Implicit scaling coefficient
+    α = (1.0 + ρ) / (1.0 + 2.0 * ρ)
+
+    # Initial guess using Forward Euler
     x_guess = xₖ .+ Δt .* f(xₖ, tₖ)
-    #solve implicit system G(z) = 0 using Newtons
+    
     return implicit_newton_solve(f, x_guess, c, α, Δt, t_new)
 end

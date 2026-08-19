@@ -50,7 +50,7 @@ function NonholonomicSystem(M, V;
 end
 
 # General solution struct for nonholonomic systems
-struct NonholonomicSol{T, X, DX, I, E, EI, Z}
+struct NonholonomicSol{T, X, DX, I, E, EI, Z} <: AbstractHybridSolution
     t::T     # Time data
     x::X     # x = (q,p), the state and momentum
     dx::DX   # f(x) derivatve at each state x - only filled out when dense_out = true
@@ -140,7 +140,7 @@ end
 
 ##############################################################
 
-function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Δt,
+function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Df, Δt,
     tol, ztol, sol; stepper::AbstractODESolver=ModifiedMidpoint(), dense_out=true, event_method=AbstractEventLocator=LinearLocator(),
     guard_direction=default_guard_direction(prob.sys)) where {S<:NonholonomicSystem, I, T}
     # Extract out the state
@@ -184,7 +184,7 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Δt,
         # To what degree does λ preserve the holonomic constraint?
         function guard_error_nh(Λ)
             F(z, t) = f_λ(z[1:n], z[n+1:end], λ_free(z[1:n], z[n+1:end]), Λ)
-            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false)
+            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F, Df, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false)
             q_next, p_next = x_predict[1:n], x_predict[n+1:end]
             # (Tangent) constraint violation
             return dot(∇h(q_next), M(q_next) \ p_next)
@@ -192,7 +192,7 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Δt,
         # If ∇h(q)̇q>0 with λ=0, then we are escaping the guard (inwards) and are escaping the sliding mode
         if guard_error_nh(0.0) > 0
             F(z, t) = f_λ(z[1:n], z[n+1:end], λ_free(z[1:n], z[n+1:end]), 0.0)
-            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false)
+            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F, Df, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false)
             # Record the derivative
             if dense_out
                 push!(sol.dx, F(x_predict, tₖ+dt_used))
@@ -200,7 +200,7 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Δt,
         else
             # We have the augmented multiplier
             F2(z, t) = f_λ(z[1:n], z[n+1:end], λ_free(z[1:n], z[n+1:end]), λ_dh(z[1:n], z[n+1:end])[end])
-            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F2, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false)
+            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F2, Df, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false)
             # Record the derivative
             if dense_out
                 push!(sol.dx, F2(x_predict, tₖ+dt_used))
@@ -213,10 +213,10 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Δt,
         return x_predict, dt_used, dt_next, true
     else # No Zeno stuff is present
         f(z, t) = f_λ(z[1:n], z[n+1:end], λ_free(z[1:n], z[n+1:end]), 0.0)
-        x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(solver, prob, f, vcat(qₖ, pₖ), tₖ, Δt, tol, sol)
+        x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(solver, prob, f, Df, vcat(qₖ, pₖ), tₖ, Δt, tol, sol)
         # Was there an impact?
         if eventtrigger
-            t_star, x_star = locate_event(event_method, prob, solver, f, vcat(qₖ, pₖ), tₖ, Δt, guard(sys, xₖ), tol, sol, stepper)
+            t_star, x_star = locate_event(event_method, prob, solver, f, Df, vcat(qₖ, pₖ), tₖ, Δt, guard(sys, xₖ), tol, sol, stepper)
             x⁺ = Δ(x_star, M, A, ∇h, sys)
             push!(sol.t, t_star)
             push!(sol.x, x_star)
@@ -264,6 +264,7 @@ function solve(prob::prob{S, I, T},
                dt_initial = 0.01, max_iter = 10^6, 
                tol = 1e-6, ztol = 1e-3,
                guard_direction = default_guard_direction(prob.sys),
+               Df = nothing,
                kwargs...) where {S<:NonholonomicSystem, I, T}
     
     sys = prob.sys
@@ -344,6 +345,8 @@ function solve(prob::prob{S, I, T},
         end
         # Terminate if the remaining time is below machine precision
         if t_end - sol.t[end] <= eps(t_end)
+            sol.t[end] = t_end
+            @info "Final step below minimum step size. Snapping final time to t = $t_end."
             break
         end
 
@@ -351,7 +354,7 @@ function solve(prob::prob{S, I, T},
         Δt = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
         # Perform the step
-        _, _, Δt, _ = take_step_nonholonomic!(solver, prob, f_λ, Δt, tol, ztol, sol; 
+        _, _, Δt, _ = take_step_nonholonomic!(solver, prob, f_λ, Df, Δt, tol, ztol, sol; 
                         dense_out = dense_out, event_method=event_method, guard_direction = guard_direction)
     end
 

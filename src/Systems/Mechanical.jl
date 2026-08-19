@@ -134,7 +134,7 @@ function guard(sys::MechanicalSystem, x::AbstractArray)
 end
 
 ###############################################
-function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Δt,
+function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Df, Δt,
     tol, ztol, sol; stepper::AbstractODESolver=ModifiedMidpoint(), dense_out = true, event_method::AbstractEventLocator=LinearLocator(), 
     guard_direction=default_guard_direction(prob.sys)) where {S<:MechanicalSystem, I, T}
     # Extract out the state
@@ -172,7 +172,7 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Δt,
         # To what degree does λ preserve the holonomic constraint?
         function guard_error(λ)
             F(z, t) = f_λ(z[1:n], z[n+1:end], λ)
-            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F, vcat(qₖ,pₖ), tₖ, Δt, tol, sol; check=false)
+            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F, Df, vcat(qₖ,pₖ), tₖ, Δt, tol, sol; check=false)
             q_next, p_next = x_predict[1:n], x_predict[n+1:end]
             # (Tangent) constraint violation
             return dot(∇h(q_next), M(q_next) \ p_next)
@@ -180,7 +180,7 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Δt,
         # If ∇h(q)̇q>0 with λ=0, then we are escaping the guard (inwards) and are escaping the sliding mode
         if guard_error(0.0) > 0
             F(z, t) = f_λ(z[1:n], z[n+1:end], 0.0)
-            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F, vcat(qₖ,pₖ), tₖ, Δt, tol, sol; check=false)
+            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F, Df, vcat(qₖ,pₖ), tₖ, Δt, tol, sol; check=false)
             # Record the derivative
             if dense_out
                 push!(sol.dx, F(x_predict, tₖ+dt_used))
@@ -189,7 +189,7 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Δt,
             # We have the expression for the multiplier
             λ_constrained = find_multiplier(prob)
             F2(z, t) = f_λ(z[1:n], z[n+1:end], λ_constrained(z[1:n], z[n+1:end]))
-            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F2, vcat(qₖ,pₖ), tₖ, Δt, tol, sol; check=false)
+            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F2, Df, vcat(qₖ,pₖ), tₖ, Δt, tol, sol; check=false)
             # Record the derivative
             if dense_out
                 push!(sol.dx, F2(x_predict, tₖ+dt_used))
@@ -207,10 +207,10 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Δt,
         return x_predict, dt_used, dt_next, true
     else # No Zeno stuff is present
         f(z, t) = f_λ(z[1:n], z[n+1:end], 0.0)
-        x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(solver, prob, f, vcat(qₖ, pₖ), tₖ, Δt, tol, sol)
+        x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(solver, prob, f, Df, vcat(qₖ, pₖ), tₖ, Δt, tol, sol)
         # Was there an impact?
         if eventtrigger
-            t_star, x_star = locate_event(event_method, prob, solver, f, vcat(qₖ, pₖ), tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
+            t_star, x_star = locate_event(event_method, prob, solver, f, Df, vcat(qₖ, pₖ), tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
             x_predict = Δ(x_star, M, ∇h, sys)
 
             push!(sol.event_times, t_star)
@@ -250,6 +250,7 @@ function solve(prob::prob{S, I, T},
                dt_initial = 0.01, max_iter = 10^6, 
                tol = 1e-6, ztol = 1e-3,
                guard_direction = default_guard_direction(prob.sys),
+               Df = nothing,
                kwargs...) where {S<:MechanicalSystem, I, T}
     
     sys = prob.sys
@@ -312,6 +313,8 @@ function solve(prob::prob{S, I, T},
         end
         # Terminate if the remaining time is below machine precision
         if t_end - sol.t[end] <= eps(t_end)
+            sol.t[end] = t_end
+            @info "Final time step below minimum step size. Snapping final time to t = $t_end."
             break
         end
 
@@ -319,7 +322,7 @@ function solve(prob::prob{S, I, T},
         Δt = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
         # Perform the step
-        _, _, Δt, _ = take_step_mechanical!(solver, prob, f_λ, Δt, tol, ztol, sol; 
+        _, _, Δt, _ = take_step_mechanical!(solver, prob, f_λ, Df, Δt, tol, ztol, sol; 
                         dense_out = dense_out, event_method=event_method, guard_direction = guard_direction)
     end
 

@@ -36,11 +36,11 @@ WHY I DID THINGS:
 We use Milne's device for error est because it is easy to compute. Since we already are performing an explicit prediction and an implicit correction, the difference serves as a solid estimate.
 """
 #user can specify if they want RK4 here
-function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, tₖ, Δt, tol, sol, stepper::RK=RK4(); check=true, guard_direction=default_guard_direction(prob.sys))
+function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, Df, xₖ, tₖ, Δt, tol, sol, stepper::RK=RK4(); check=true, guard_direction=default_guard_direction(prob.sys))
     
     # Probing Override: If checking is disabled, LMM history assumptions are violated. Route to RK stepper.
     if !check
-        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=false, guard_direction=guard_direction)
+        return take_step(stepper, prob, f, Df, xₖ, tₖ, Δt, tol, sol, stepper; check=false, guard_direction=guard_direction)
     end
 
     sys = prob.sys
@@ -61,7 +61,7 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
                 Δt = min(Δt, h_startup)
             end
         end
-        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
+        return take_step(stepper, prob, f, Df, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
     end
 
     # Extract history for LMM
@@ -71,7 +71,7 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
     time_diffs = diff(vcat(t_history, tₖ))
 
     if any(time_diffs .<= 1e-12)
-        return take_step(stepper, prob, f, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
+        return take_step(stepper, prob, f, Df, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
     end
 
     h_last = time_diffs[end]
@@ -83,11 +83,11 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
     # Adaptive step loop
     while true
         # Compute step and retrieve LTE 
-        x_next, x_predict, LTE = compute_lmm_step(solver, f, xₖ, tₖ, Δt, x_history, t_history)
+        x_next, x_predict, LTE = compute_lmm_step(solver, f, Df, xₖ, tₖ, Δt, x_history, t_history)
 
         # Safeguard against numerical explosions with fancy guards or weird history details.  
         if any(isnan, x_next) || any(isinf, x_next) || any(isnan, x_predict) || any(isinf, x_predict)
-            return take_step(stepper, prob, f, xₖ, tₖ, Δt * 0.5, tol, sol, stepper; check=false, guard_direction=guard_direction)
+            return take_step(stepper, prob, f, Df, xₖ, tₖ, Δt * 0.5, tol, sol, stepper; check=false, guard_direction=guard_direction)
         end
 
         # Guard boundary rejection logic. 
@@ -189,7 +189,7 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, xₖ, t�
     end
 end
 
-function compute_lmm_step(::AdaptiveABM2, f, xₖ, tₖ, Δt, x_history, t_history)
+function compute_lmm_step(::AdaptiveABM2, f, Df, xₖ, tₖ, Δt, x_history, t_history)
     x_prev = x_history[end]
     t_prev = t_history[end]
 
@@ -219,7 +219,7 @@ function compute_lmm_step(::AdaptiveABM2, f, xₖ, tₖ, Δt, x_history, t_histo
     return x_correct, x_predict, LTE
 end
 
-function compute_lmm_step(::AdaptiveABM3, f, xₖ, tₖ, Δt, x_history, t_history)
+function compute_lmm_step(::AdaptiveABM3, f, Df, xₖ, tₖ, Δt, x_history, t_history)
     x_prev1 = x_history[end]
     t_prev1 = t_history[end]
 

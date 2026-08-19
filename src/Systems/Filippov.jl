@@ -82,7 +82,7 @@ function filippov_vector_field(sys::FilippovSystem, x; Ftol=1e-7, atol=1e-7)
 end
 
 
-function take_step_filippov!(solver, prob::prob{S,I,T}, Δt, tol, sol; 
+function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol; 
     dense_out=true, stepper::AbstractODESolver=RK4(), 
     event_method::AbstractEventLocator=LinearLocator(), guard_direction=0, boundary_tol, track_sliding) where {S<:FilippovSystem, I, T}
 
@@ -121,7 +121,7 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Δt, tol, sol;
     end
 
     # Delegate the numerical integration to the active solver
-    x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(active_solver, active_prob, vf, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction)
+    x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(active_solver, active_prob, vf, Df, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction)
 
     # If a solver reports a very small step while sliding, it is likely caught
     # in a rejection cycle. We force a conservative step to keep things moving. 
@@ -178,7 +178,7 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Δt, tol, sol;
 
     # Handle event detection
     if eventtrigger
-        t_star, x_star = locate_event(event_method, prob, solver, vf, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
+        t_star, x_star = locate_event(event_method, prob, solver, vf, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
         push!(sol.event_times, t_star)
         push!(sol.t, t_star)
         push!(sol.x, x_star)
@@ -190,7 +190,7 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Δt, tol, sol;
         exit_prob = HybridDynamics.prob(exit_sys, prob.init, prob.tspan)
 
         # locate exit
-        t_star, x_star = locate_event(event_method, exit_prob, solver, vf, xₖ, tₖ, dt_used, exit_guard_fun(xₖ), tol, sol, stepper)
+        t_star, x_star = locate_event(event_method, exit_prob, solver, vf, Df, xₖ, tₖ, dt_used, exit_guard_fun(xₖ), tol, sol, stepper)
 
         # Iterative Newton re-projection to main switch surface
         for _ in 1:10
@@ -243,7 +243,8 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                tol = 1e-6, boundary_tol = 10,
                stepper::AbstractODESolver=RK4(),
                guard_direction = 0,
-               track_sliding=:enter 
+               track_sliding=:enter,
+               Df = nothing
                ) where {S<:FilippovSystem, I, T}
     sys = prob.sys
     sol = FilippovSol(prob)
@@ -296,13 +297,14 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
         end
 
         if t_end - sol.t[end] <= eps(t_end)
-            @info "Time step below minimum threshold $dt_min. Terminating."
+            sol.t[end] = t_end
+            @info "Time step below minimum threshold $dt_min. Snapping final time to t = $t_end."
             break
         end
 
         Δt = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
-        _, _, Δt, terminate, sliding_now = take_step_filippov!(solver, prob, Δt, tol, sol; dense_out=dense_out, stepper=stepper, event_method=event_method, guard_direction=guard_direction, boundary_tol=boundary_tol, track_sliding=track_sliding)
+        _, _, Δt, terminate, sliding_now = take_step_filippov!(solver, prob, Df, Δt, tol, sol; dense_out=dense_out, stepper=stepper, event_method=event_method, guard_direction=guard_direction, boundary_tol=boundary_tol, track_sliding=track_sliding)
 
         #handle sliding tracking 
         if sliding_now && !sliding_prev

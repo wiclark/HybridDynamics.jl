@@ -3,6 +3,8 @@
 
 """
 RK4 specific to nonholonomic systems.
+!!! compat
+    Use only for solving nonholonomic systems.
 """
 struct NH_RK4 <: NH end
 

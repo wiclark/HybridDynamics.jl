@@ -11,8 +11,7 @@ soltol = 0.5
     include("mechanical.jl")
     include("nonholonomic.jl")
     include("stochastic.jl")
-    # include("filippov.jl")
+    include("filippov.jl")
 
     include("solvers.jl")
-
 end

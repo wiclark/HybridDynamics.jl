@@ -3,7 +3,6 @@
     split_jumps(sol::AbstractHybridSolution)
 
 Inserts NaNs to separate jumps in plots
-
 """
 function split_jumps(sol::AbstractHybridSolution) 
     states = sol.x
@@ -58,4 +57,36 @@ function extract_jumps(sol::AbstractHybridSolution)
         end
     end
     return t_list, data_list
+end
+
+# Input time and get out how many jumps have occurred up to that time
+function jump_count(sol::AbstractHybridSolution, t::Real)
+    # Ensure the requested time is within the simulation
+    if isempty(sol.event_times) || t < first(sol.t)
+        return 0
+    end
+
+    # searchsortedlast returns the index of the last element in the array
+    return searchsortedlast(sol.event_times, t)
+end
+
+# Returns the interval '(t_start, t_end)' that contains the jump k
+function jump_interval(sol::AbstractHybridSolution, k::Int)
+    if k<0
+        throw(ArgumentError("Jump count `k` must be non-negative."))
+    end
+
+    n_jumps = length(sol.event_times)
+
+    if k > n_jumps
+        throw(ArgumentError("Jump count `k` exceeds the number of jumps in the solution."))
+    end
+
+    # if k = 0, the intervals starts at the sims initial time
+    t_start = k == 0 ? first(sol.t) : sol.event_times[k]
+
+    # if k is max number of jumps reached, the interval ends at the sim final time. 
+    t_end = k == n_jumps ? last(sol.t) : sol.event_times[k+1]
+
+    return (t_start, t_end)
 end

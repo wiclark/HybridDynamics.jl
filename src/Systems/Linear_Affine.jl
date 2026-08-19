@@ -93,36 +93,6 @@ function apply_reset(sys::AffineSystem, x::AbstractArray)
     return x_new
 end
 
-#Exact Linear Flow (matrix exponential)
-#The goal is to instead of using numerical approximations for linear systems we can get exact solutions. 
-struct LinearFlow{TM<:AbstractMatrix{Float64}}
-    A::TM #dx/dt = Ax
-end
-
-#Internal
-#Constructor with numerical/structural checks
-function LinearFlow(A::AbstractMatrix)
-    #Make sure matrix is square
-    m, n = size(A)
-    if m != n
-        throw(DimensionMismatch("State matrix A must be square, but got ($m × $n) matrix."))
-    end
-
-    return LinearFlow(Float64.(A))
-end
-
-function flow(flowmap::LinearFlow, τ::Real, x::AbstractVector)
-    #check matrix and state vector match dim 
-    n = size(flowmap.A, 1)
-    if length(x) != n
-        throw(DimensionMismatch("State vector length ($(length(x))) does not match system matrix dimension ($n)."))
-    end
-
-    #Computes exact state x(t+τ) = exp(A*τ) * x(t)
-    #This is very memory instensive as of now. Fixing will come later
-    return exp(flowmap.A .* τ) * x
-end
-
 #Solution Initialization
 #Goal is to setup the empty memory containers before solver starts running. 
 #pre-allocating the vectors with the exact starting conditions ensures that the solver loop is stable 
@@ -211,10 +181,10 @@ function is_trivially_blocking(sys::Union{LinearSystem, AffineSystem})
     n = length(sys.λ)
 
     #check full rank AND the point is the oriign
-    return rank(analysis.blocking_set) == n && isapprox(norm(analysis.blocking_offsets))
+    return rank(analysis.blocking_set) == n && isapprox(norm(analysis.blocking_offsets), 0.0, atol=1e-10)
 end
 
-function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Δt, tol, sol; dense_out=true, stepper::AbstractODESolver=RK45(), event_method::AbstractEventLocator=LinearLocator(), guard_direction=prob.sys.direction, event_before_flow=false,
+function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Df, Δt, tol, sol; dense_out=true, stepper::AbstractODESolver=RK45(), event_method::AbstractEventLocator=LinearLocator(), guard_direction=prob.sys.direction, event_before_flow=false,
     #Pathology
     last_jump_time, last_intervals, zeno_count,
     instant_jump_count, zeno_ratio,
@@ -276,10 +246,10 @@ function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Δt, tol, sol;
     end
     =#
     
-    x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
+    x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, Df, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
 
     if eventtrigger
-        t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
+        t_star, x_star = locate_event(event_method, prob, solver, f, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
 
         jump_interval = t_star - last_jump_time
 
@@ -382,6 +352,7 @@ function solve(prob::prob{S, I, T},
                max_buffer_size=5,
                max_instant_jumps = 5,
                guard_direction = prob.sys.direction,
+               Df = (x, t) -> prob.sys.A,
                #Tunable pathology tolerance parameters
                min_zeno_history = 2,
                zeno_floor_mult = 2.0,
@@ -406,7 +377,6 @@ function solve(prob::prob{S, I, T},
                 dx .+= sys.b
             end
         end
-
         return dx
     end
 
@@ -458,13 +428,14 @@ function solve(prob::prob{S, I, T},
 
         # Terminate if time is below machine precision
         if t_end - sol.t[end] < dt_min
-            @info "Time to end of simulation below minimum time step. Ending simulation at t = $(sol.t[end])"
+            sol.t[end] = t_end
+            @info "Time to end of simulation below minimum time step. Snapping final time to t = $t_end."
             break
         end
 
         # Truncate time step if we overshoot the final time
         _, _, Δt, terminate, last_jump_time, zeno_count, instant_jump_count = take_step_linear_affine!(
-            solver, prob, f, Δt, tol, sol; dense_out=dense_out,
+            solver, prob, f, Df, Δt, tol, sol; dense_out=dense_out,
             stepper=stepper, event_method=event_method, guard_direction=guard_direction,
             event_before_flow,
             last_jump_time=last_jump_time, last_intervals=last_intervals, zeno_count=zeno_count,

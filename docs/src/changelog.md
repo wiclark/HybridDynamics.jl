@@ -1,4 +1,20 @@
-# Changelog
+# Change Log
+
+## v1.x.x
+
+### New functionality
+* New utility functions, `jump_interval` and `jump_count`, added. `jump_interval` takes an event index as input and returns a time interval where that event took place. `jump_count` has you input a time and outputs the amount of events that have happened at up to that time.
+- New analysis function, 'LyapunovExponents()', added.
+* New Solvers: `ExponentialSolver` has been added to the Linear and Affine system types. We have also added 3 new implicit solvers, `BackwardEuler`, `ImplicitTrap` and `RadauIIA`. 
+* New "system" type. Added `GeneralTimeTriggered` which acts as a General system that inputs a set of times in place of the guard function. This allows you to indicate the times you want events to take place rather than utilizing a guard function. 
+
+### Updates to old functionality
+- Updated the Hermite interpolation's search for indicies around events and boundary conditions.
+
+### Infrastructure
+- Tests added for Filippov systems
+- Various additions and improvements to documentation, including an "Analysis" section.
+
 
 ## v1.0.1
 

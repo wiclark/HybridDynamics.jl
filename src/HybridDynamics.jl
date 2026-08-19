@@ -1,3 +1,6 @@
+"""
+A Julia package for studying the dynamics of hybrid systems.
+"""
 module HybridDynamics
 
 using LinearAlgebra
@@ -51,11 +54,14 @@ export NonholonomicSystem
 #Linear/Affine System/Problem structs
 export LinearSystem, AffineSystem
 #General System/Problem structs
-export GeneralSystem
+export GeneralSystem, TimeTriggeredGeneral
 
 ########
 #ODE Step solvers - Interpolation with Fixed Step size
-export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver, RichardsonExtrapolation, BackwardEuler, RK4
+export solve, ForwardEuler, ModifiedTrap, ModifiedMidpoint, ExponentialSolver, RichardsonExtrapolation, RK4
+
+# implicit fixed RK
+export BackwardEuler, ImplicitTrap, RadauIIA
 #With Adaptive step size
 export RK23, RK45
 
@@ -83,10 +89,13 @@ export LinearLocator, BisectionLocator, QuadraticLocator, NewtonLocator
 export beating_and_blocking_sets, is_trivially_blocking
 
 #Variational Equation
-export variational_vector_field, compute_pushforward, apply_variational_jump
+export LyapunovExponents
 
 #Plotting Help
 export split_jumps, extract_jumps
+
+# Utilities for things
+export jump_count, jump_interval
 end
 
 

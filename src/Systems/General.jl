@@ -18,6 +18,22 @@ function GeneralSystem(f, h, Δ; direction::Int=0)
     return GeneralSystem(f, h, Δ, direction)
 end
 
+struct TimeTriggeredGeneral{F, V<:AbstractVector, D} <: AbstractHybridSystem
+    f::F            # Continuous Dynamics
+    event_times::V  # Times for jumps
+    Δ::D            # Reset map x->x⁺
+end
+
+# Overload GeneralSystem constructor so the syntax Clark wanted works.
+function GeneralSystem(f, times::AbstractVector, Δ)
+    return TimeTriggeredGeneral(f, times, Δ)
+end
+
+# Dummy guard to make this work with our solvers with no headache - Maybe make it smarter later? - DS
+function guard(sys::TimeTriggeredGeneral, x::AbstractArray)
+    return 1.0 # Always positive, meaning it never crosses a 0-boundary
+end
+
 struct GeneralSol{T, X, DX} <: AbstractHybridSolution
     t::T                        #Time points of sim
     x::X                        #State traj: T is generic to support varying state types
@@ -27,7 +43,7 @@ struct GeneralSol{T, X, DX} <: AbstractHybridSolution
 end
 
 #Internal - to initialize the solution struct
-function GeneralSol(prob::prob{S, I, T}) where {S<:GeneralSystem, I, T}
+function GeneralSol(prob::prob{S, I, T}) where {S<:Union{GeneralSystem, TimeTriggeredGeneral}, I, T}
     return GeneralSol([prob.tspan[1]], 
         [prob.init], 
         Vector{Vector{Float64}}(),
@@ -48,18 +64,18 @@ function apply_reset(sys::GeneralSystem, x::AbstractArray)
     return sys.Δ(x)
 end
 
-function take_step_general!(solver, prob::prob{S,I,T}, f, Δt, tol, sol; dense_out=true, stepper::AbstractODESolver=RK4(), event_method::AbstractEventLocator=LinearLocator(), guard_direction=default_guard_direction(prob.sys)) where {S<:GeneralSystem, I, T}
+function take_step_general!(solver, prob::prob{S,I,T}, f, Df, Δt, tol, sol; dense_out=true, stepper::AbstractODESolver=RK4(), event_method::AbstractEventLocator=LinearLocator(), guard_direction=default_guard_direction(prob.sys)) where {S<:GeneralSystem, I, T}
 
     xₖ = sol.x[end]
     tₖ = sol.t[end]
 
     sys = prob.sys
 
-    x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction)
+    x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, Df, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction)
 
     if eventtrigger
          
-        t_star, x_star = locate_event(event_method, prob, solver, f, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
+        t_star, x_star = locate_event(event_method, prob, solver, f, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
 
         if abs(guard(sys, x_star)) > 1e-3
             @warn "Event Location is not located on the guard."
@@ -132,7 +148,8 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
                tol = 1e-6,
                stepper::AbstractODESolver=RK4(),
-               guard_direction = prob.sys.direction
+               guard_direction = prob.sys.direction,
+               Df = nothing
                ) where {S<:GeneralSystem, I, T}
 
     sys = prob.sys
@@ -177,18 +194,101 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
         end
 
         if t_end - sol.t[end] < dt_min
-            @info "Time to end of simulation below minimum time step. Ending simulation at t = $(sol.t[end])"
+            sol.t[end] = t_end  # Snap the final recorded time exactly to the end of tspan
+            @info "Time to end of simulation below minimum time step. Snapping final time to t = $t_end"
             break 
         end
 
         dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
-        _, _, Δt, terminate = take_step_general!(solver, prob, f, dt_step, tol, sol; dense_out=dense_out, stepper=stepper, event_method=event_method, guard_direction=guard_direction)
+        _, _, Δt, terminate = take_step_general!(solver, prob, f, Df, dt_step, tol, sol; dense_out=dense_out, stepper=stepper, event_method=event_method, guard_direction=guard_direction)
 
         if terminate
             break
         end
 
     end
+    return sol
+end
+
+function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
+               dense_out = true,
+               dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
+               tol = 1e-6,
+               Df = nothing
+               ) where {S<:TimeTriggeredGeneral, I, T}
+
+    sys = prob.sys
+    f = sys.f
+    sol = GeneralSol(prob)
+    t_start, t_end = prob.tspan
+    Δt = dt_initial
+    iter = 0
+
+    # filter the specified times for events
+    # orders and gets rid of any outside of tspan. Very useful!
+    valid_times = filter(t -> t_start < t < t_end, sys.event_times)
+    sort!(valid_times)
+    targets = [valid_times; t_end]
+
+    if dense_out
+        push!(sol.dx, f(prob.init, t_start))
+    end
+
+    current_t = t_start
+    current_x = prob.init
+
+    # main loop
+    for target_t in targets
+        
+        # Inner loop: continuous integration up to the next target
+        while current_t < target_t - 1e-12
+            iter += 1
+            if iter > max_iter 
+                @info "Maximum iterations $max_iter reached."
+                return sol
+            end
+
+            # Do not overshoot the target time
+            dt_step = min(Δt, target_t - current_t)
+
+            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, f, Df, current_x, current_t, dt_step, tol, sol; check=false)
+
+            current_t += dt_used
+            current_x = x_predict
+            Δt = dt_next
+
+            if dense_out
+                push!(sol.dx, f(current_x, current_t))
+            end
+
+            push!(sol.t, current_t)
+            push!(sol.x, current_x)
+        end
+
+        # Force exact alignment with the target time to prevent drift/infinite loops.
+        # This became an issue when running certain tests. It may be gotten rid of later? - DS
+        if current_t < target_t
+            current_t = target_t
+        end
+
+        # Apply Jump
+        if target_t != t_end
+            x⁺ = sys.Δ(current_x)
+            
+            push!(sol.t, target_t)
+            push!(sol.x, x⁺)
+            push!(sol.event_times, target_t)
+            push!(sol.event_indices, length(sol.t))
+
+            if dense_out
+                push!(sol.dx, f(current_x, target_t))
+                push!(sol.dx, f(x⁺, target_t))
+            end
+            
+            current_x = x⁺
+        end
+    end
+
     return sol
 end
