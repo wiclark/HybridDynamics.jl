@@ -1,7 +1,7 @@
 name = "HybridDynamics"
 uuid = "6b3332bd-f7e8-4dca-bbbd-4128c12b268e"
 repo = "https://github.com/wiclark/HybridDynamics.jl.git"
-version = "1.0.1"
+version = "1.1.0"
 authors = ["William Clark"]
 
 [workspace]

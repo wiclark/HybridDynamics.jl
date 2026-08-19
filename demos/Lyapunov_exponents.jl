@@ -3,7 +3,7 @@ import ForwardDiff
 import Plots as plt
 using LinearAlgebra
 
-
+#=
 ## The elastic ball
 function f_ball(x, t)
 	g = 9.81
@@ -20,7 +20,7 @@ probG = HD.prob(sysG, [10.0, 0.0], (0.0, 10.0))
 solG = HD.solve(probG, HD.RK4(), dt_initial=1e-3)
 
 # λG = LyapunovExponents(sysG, [10.0, 0.0])
-
+=#
 ## Bouncing ball in a circle
 function f_circle(z, t)
     x, y, px, py = z

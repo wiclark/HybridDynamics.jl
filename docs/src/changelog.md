@@ -1,6 +1,6 @@
 # Change Log
 
-## v1.x.x
+## v1.1.0
 
 ### New functionality
 * New utility functions, `jump_interval` and `jump_count`, added. `jump_interval` takes an event index as input and returns a time interval where that event took place. `jump_count` has you input a time and outputs the amount of events that have happened at up to that time.
