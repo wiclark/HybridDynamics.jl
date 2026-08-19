@@ -9,7 +9,7 @@ Documentation is available [here](https://wiclark.github.io/HybridDynamics.jl/de
 
 ## Installation
 
-To install this package directly from this repo, run:
+To install this package, run:
 ```julia
 using Pkg
 Pkg.add("HybridDynamics")

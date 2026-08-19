@@ -20,6 +20,14 @@ end
 # Outputs:
 #   Φ, the state-transition matrix at the terminal time (with I as the initial condition)
 #   pre_mature, if switchings become too fast, integration will halt and this will be true
+"""
+    tangent_dynamics(sol::GeneralSol, sys::GeneralSystem; 
+            A = nothing, res_deriv = nothing, 
+            guard_deriv = nothing, t_s = 1000)
+
+Compute the state transition matrix across a trajectory from a General system.
+
+"""
 function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem; A = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000)
     # Extract out the event times
     T_events = sol.event_times
@@ -73,6 +81,16 @@ end
 # Inputs: The system and initial condition
 #         The rest of the inputs are performance parameters
 # Outputs: The vector of Lyapunov exponents
+"""
+    LyapunovExponents(sys::GeneralSystem, x0::AbstractArray; 
+                A = nothing, res_deriv = nothing, 
+                guard_deriv = nothing, t_s = 1000, 
+                run_length::AbstractFloat=1.0, 
+                run_iter::Int=Int(1e4), transient::AbstractFloat=0.0)
+
+Compute the Lyapunov exponents for a trajectory from a General system.
+
+"""
 function LyapunovExponents(sys::GeneralSystem, x0::AbstractArray; A = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000, run_length::AbstractFloat=1.0, run_iter::Int=Int(1e4), transient::AbstractFloat=0.0)
     # Discard the transient
     if transient > 0.0
