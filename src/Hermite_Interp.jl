@@ -26,8 +26,9 @@ function (sol::AbstractHybridSolution)(t::Real)
     end
     
     # Find the index of interest
-    i = searchsortedlast(sol.t, t)
-
+    j = searchsortedfirst(sol.t, t)
+    i = j - 1
+    
     t₁, t₂ = sol.t[i], sol.t[i+1]
     x₁, x₂ = sol.x[i], sol.x[i+1]
     f₁, f₂ = sol.dx[i], sol.dx[i+1]
