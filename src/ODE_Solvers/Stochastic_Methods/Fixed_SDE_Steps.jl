@@ -1,6 +1,8 @@
 # This is an implementation of the Euler–Maruyama method
 """
 Stochastic solver using the Euler–Maruyama method.
+!!! compat
+    Use only for solving stochastic systems.
 """
 struct EulerMaruyama <: STO end
 

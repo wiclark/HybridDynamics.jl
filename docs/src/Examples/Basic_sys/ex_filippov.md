@@ -1,7 +1,6 @@
 # Filippov Example
 
 
-
 ```@example fili
 import HybridDynamics as HD
 import Plots as plt

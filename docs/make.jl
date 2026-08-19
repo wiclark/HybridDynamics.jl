@@ -22,14 +22,23 @@ makedocs(
             "Stochastic" => "System_Types/Stochastic.md",
             "Filippov" => "System_Types/Filippov.md"
         ],
+        "Analysis" => Any[
+            "Utility Functions" => "Analysis/Utilities.md",
+            "Lyapunov Exponents" => "Analysis/Lyapunov_exp.md"
+        ],
         "Solver Algorithms" => "Solver_Algorithms/all.md",
         "Examples" => Any[
-            "General" => "Examples/ex_general.md",
-            "Linear and Affine" => "Examples/ex_linear_affine.md",
-            "Mechanical" => "Examples/ex_mechanical.md",
-            "Nonholonomic" => "Examples/ex_nonholonomic.md",
-            "Stochastic" => "Examples/ex_stochastic.md",
-            "Filippov" => "Examples/ex_filippov.md"
+            "Basic Systems" => Any[
+                "General" => "Examples/Basic_sys/ex_general.md",
+                "Linear and Affine" => "Examples/Basic_sys/ex_linear_affine.md",
+                "Mechanical" => "Examples/Basic_sys/ex_mechanical.md",
+                "Nonholonomic" => "Examples/Basic_sys/ex_nonholonomic.md",
+                "Stochastic" => "Examples/Basic_sys/ex_stochastic.md",
+                "Filippov" => "Examples/Basic_sys/ex_filippov.md"
+            ],
+            "Advanced" => Any[
+                "Lyapunov Exponents" => "Examples/Advanced/ex_lyapunovexp.md"
+            ]
         ],
         "Change Log" => "changelog.md",
         "Known Bugs" => "knownissues.md"

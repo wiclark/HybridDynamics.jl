@@ -1,5 +1,9 @@
 """
-Exact exponential solver for linear and affine systems.
+Exact exponential solver.
+
+!!! compat
+    Use only for solving linear and affine systems.
+
 """
 mutable struct ExponentialSolver <: AbstractODESolver
     last_dt::Float64
