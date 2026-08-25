@@ -28,12 +28,12 @@ end
 Compute the state transition matrix across a trajectory from a General system.
 
 """
-function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem; A = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000)
+function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem; Df = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000)
     # Extract out the event times
     T_events = sol.event_times
 
     # Create the tangent vector field
-    A_int(t) =  isnothing(A) ? ForwardDiff.jacobian(y->sys.f(y,t), sol(t)) : A(t)
+    A_int(t) =  isnothing(Df) ? ForwardDiff.jacobian(y->sys.f(y,t), sol(t)) : Df(sol(t))
     
     Φ = Matrix(I(size(A_int(sol.t[end]))[1]))
     t_past = sol.t[1]
@@ -78,7 +78,19 @@ function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem; A = nothing, res_
 end
 
 ## Tangent dynamics for a Filippov system
-function tangent_dynamics(sol::FilippovSolSol, sys::FilippovSystem; A = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000)
+function tangent_dynamics(sol::FilippovSolSol, sys::FilippovSystem; Df = nothing, Dg = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000)
+    # Depending on the mode we're in, we have three different variations
+    if current_mode == :f
+        A_int(t) =  isnothing(A) ? ForwardDiff.jacobian(y->sys.f(y,t), sol(t)) : Df(sol(t))
+    elseif current_mode == :g
+        A_int(t) =  isnothing(A) ? ForwardDiff.jacobian(y->sys.g(y,t), sol(t)) : Dg(sol(t))
+    elseif current_mode == :k
+        # I really don't want to figure out how to differentiate this
+        dh(y) = isnothing(guard_deriv) ? ForwardDiff.gradient(sys.h, y) : guard_deriv(y)
+        λ(y, t) = dot(sys.g(y,t), dh(y)) / (dot(sys.g(y,t), dh(y)) - dot(sys.f(y,t), dh(y)))
+        k(y, t) = λ(y, t) * sys.f(y,t) + (1-λ(y,t)) * sys.g(y,t)
+        A_int(t) = ForwardDiff.jacobian(y->sys.k(y,t), sol(t))
+    end
     # There are 6 distinct possibilities for the augmented diff matrix. 
     # A Filippov system returns the mode ∈ {:f, :g, :k}. :k means sliding mode.
     dh_val = isnothing(guard_deriv) ? ForwardDiff.gradient(sys.h, x) : guard_deriv(x)
