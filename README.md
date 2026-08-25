@@ -100,3 +100,6 @@ The demonstrations require the pacakges: Plots, LaTeXStrings, Printf (only 'Test
 
     Optional inputs:
     - ``N``: Normal to the guard
+
+## Acknowledgments
+This work was supported by AFOSR grant FA9550-32-0400.

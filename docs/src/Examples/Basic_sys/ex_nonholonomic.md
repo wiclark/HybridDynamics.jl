@@ -1,5 +1,5 @@
-# A Nonholonomic Example
-#### The Chaplygin sleigh
+## A Nonholonomic Example
+The Chaplygin sleigh is a nonholonomic system on $(x,y,\theta) \in \mathbb{R}^2\times \mathbb{S}^1$ with mass matrix
 ```math
 	M(q) = \begin{bmatrix}
 		m & 0 & -ma\sin\theta \\
@@ -7,11 +7,13 @@
 		-ma\sin\theta & ma\cos\theta & I+ma^2
 	\end{bmatrix}
 ```
+potential energy $V = 0$, and constraint matrix
 ```math
 	A(q) = \begin{bmatrix}
 		-\sin\theta & \cos\theta & 0
-	\end{bmatrix}
+	\end{bmatrix}.
 ```
+Creating a 'nonholonomic billiard' with a circular table makes the event function
 ```math
 	h(x,y) = 1 - (x^2+y^2) \geq 0.
 ```

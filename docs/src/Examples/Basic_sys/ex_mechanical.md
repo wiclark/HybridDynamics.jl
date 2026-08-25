@@ -40,3 +40,9 @@ plt.plot(xm, ym, label="Ball Trajectory", lw=2)
 θ = LinRange(0, 2π, 100)
 plt.plot!(cos.(θ), sin.(θ), label="", lc=:black, aspect_ratio=1)
 ```
+
+The first time the state becomes Zeno can be found.
+
+```@example mech
+solM.zeno[1]
+```

@@ -35,5 +35,5 @@ solST = HD.solve(probST)
 ```@example stoch
 ts, ss = HD.split_jumps(solST)
 plt.plot(ts, getindex.(ss, 1), label="", lw=2, lc=:blue)
-plt.plot!(title = "Stochastic Bouncing ball", xlabel = "Time", grid = true)
+plt.plot!(title = "Stochastic example", xlabel = "Time", grid = true)
 ```
