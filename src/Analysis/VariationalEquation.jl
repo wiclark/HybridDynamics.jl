@@ -55,10 +55,10 @@ function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem; A = nothing, res_
 
 
         # Eval augmented diff matrices at the event
-        Δ_star_val = isnothing(res_deriv) ? ForwardDiff.jacobian(y -> sys.Δ(y), x⁻) : res_deriv
+        Δ_star_val = isnothing(res_deriv) ? ForwardDiff.jacobian(y -> sys.Δ(y), x⁻) : res_deriv(x⁻)
         f⁻_val = sys.f(x⁻, t_e)
         f⁺_val = sys.f(x⁺, t_e)
-        dh⁻_val = isnothing(guard_deriv) ? ForwardDiff.gradient(sys.h, x⁻) : guard_deriv
+        dh⁻_val = isnothing(guard_deriv) ? ForwardDiff.gradient(sys.h, x⁻) : guard_deriv(x⁻)
 
         Δ_augmented = Δ_star_val * (I - (f⁻_val * dh⁻_val') ./ dot(dh⁻_val, f⁻_val)) + (f⁺_val * dh⁻_val') ./ dot(dh⁻_val, f⁻_val)
 
@@ -75,6 +75,24 @@ function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem; A = nothing, res_
         Φ = exp_step(A_int, Φ, dt, times_segment[i])
     end
     return Φ
+end
+
+## Tangent dynamics for a Filippov system
+function tangent_dynamics(sol::FilippovSolSol, sys::FilippovSystem; A = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000)
+    # There are 6 distinct possibilities for the augmented diff matrix. 
+    # A Filippov system returns the mode ∈ {:f, :g, :k}. :k means sliding mode.
+    dh_val = isnothing(guard_deriv) ? ForwardDiff.gradient(sys.h, x) : guard_deriv(x)
+    if (past_mode == :f) && (next_mode == :g)
+        Δ_augmented = I - 1/dot(dh_val, f_val)*(g_val-f_val) * dh_val'
+    elseif (past_mode == :g) && (next_mode == :f)
+        Δ_augmented = I - 1/dot(dh_val, g_val)*(f_val-g_val) * dh_val'
+    elseif (past_mode == :f) && (next_mode == :k)
+        Δ_augmented = I - 1/dot(dh_val, f_val)*(k_val-f_val) * dh_val'
+    elseif (past_mode == :g) && (next_mode == :k)
+        Δ_augmented = I - 1/dot(dh_val, g_val)*(k_val-g_val) * dh_val'
+    elseif past_mode == :k # <- It doesn't matter what we move to
+        Δ_augmented = I
+    end
 end
 
 ## The list of Lyapunov exponents
@@ -106,6 +124,7 @@ function LyapunovExponents(sys::GeneralSystem, x0::AbstractArray; A = nothing, r
         # Collect the STM for each run
         prob_iter = prob(sys, x0, (current_time, current_time+run_length))
         sol_iter  = solve(prob_iter, RK45(), tol=1e-9)
+        current_time = current_time + run_length
         x0 = sol_iter(sol_iter.t[end])
         Φ_iter = tangent_dynamics(sol_iter, sys; A, res_deriv, guard_deriv, t_s)
         Φ = Φ_iter * Φ

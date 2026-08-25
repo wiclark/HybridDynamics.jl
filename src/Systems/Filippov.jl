@@ -18,13 +18,14 @@ function FilippovSystem(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
     return FilippovSystem(F, G, H, N)
 end
 
-struct FilippovSol{T, X, DX, S, E, EI} <: AbstractHybridSolution
+struct FilippovSol{T, X, DX, S, E, EI, MO} <: AbstractHybridSolution
     t::T                # Time data
     x::X                # Position data
     dx::DX              # f(x) Derivative at each state x - only filled when dense_out = true
     s::S                # Time indices while sliding (this still needs added)
     event_times::E      # Times of where events take place
     event_indices::EI   # Indices of times where events take place
+    mode::MO            # The mode the dynamics are in (a symbol)
 end
 
 function FilippovSol(prob::prob{S, I, T}) where {S<:FilippovSystem, I, T}
@@ -33,7 +34,8 @@ function FilippovSol(prob::prob{S, I, T}) where {S<:FilippovSystem, I, T}
         Vector{Vector{Float64}}(),
         Float64[],
         Float64[],
-        Int64[])
+        Int64[],
+        Symbol[])
 end
 
 function guard(sys::FilippovSystem, x::AbstractArray)
@@ -53,9 +55,9 @@ function filippov_vector_field(sys::FilippovSystem, x; Ftol=1e-7, atol=1e-7)
     N_val = sys.N
 
     if h_val > Ftol
-        return y -> F(y), false
+        return y -> F(y), :f
     elseif h_val < -Ftol
-        return y -> G(y), false
+        return y -> G(y), :g
     end
 
     # Near the guard (Sliding mode check)
@@ -68,16 +70,16 @@ function filippov_vector_field(sys::FilippovSystem, x; Ftol=1e-7, atol=1e-7)
 
     if a_x < -atol && b_x > atol
         λ(y) = a(y) / (a(y) - b(y))
-        return y -> (1 - λ(y)) * F(y) + λ(y) * G(y), true
+        return y -> (1 - λ(y)) * F(y) + λ(y) * G(y), :k
     elseif a_x < atol && b_x < atol
         # Both point down (or one is tangent), enter H < 0 safely
-        return y -> G(y), false
+        return y -> G(y), :g
     elseif a_x > -atol && b_x > -atol
         # Both point up (or one is tangent), enter H > 0 safely
-        return y -> F(y), false
+        return y -> F(y), :f
     else
         # Repulsive boundary fallback
-        return h_val >= 0.0 ? (y -> F(y), false) : (y -> G(y), false)
+        return h_val >= 0.0 ? (y -> F(y), :f) : (y -> G(y), :g)
     end
 end
 
@@ -97,7 +99,12 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
     boundary_layer = guard_tol * boundary_tol
 
     # Retrieve the active Filippov vector field and determine if we are sliding or not
-    vf_fun, sliding_now = filippov_vector_field(sys, xₖ; Ftol=boundary_layer, atol=guard_tol)
+    vf_fun, sliding_mode = filippov_vector_field(sys, xₖ; Ftol=boundary_layer, atol=guard_tol)
+    if sliding_mode ∈ [:f, :g]
+        sliding_now = true
+    else
+        sliding_now = false
+    end
     # Wrap the vector field for use in ODE solvers
     vf(x, t) = vf_fun(x)
 
@@ -183,6 +190,7 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
         push!(sol.t, t_star)
         push!(sol.x, x_star)
         push!(sol.event_indices, length(sol.t))
+        push!(sol.mode, sliding_mode)
         if dense_out; push!(sol.dx, vf(x_star, t_star)); end
     elseif sliding_exit_trigger
         # create dummy system targeting the sliding exit condition 
@@ -209,13 +217,15 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
         push!(sol.t, t_star)
         push!(sol.x, x_star)
         push!(sol.event_indices, length(sol.t))
+        push!(sol.mode, sliding_mode)
 
         if dense_out; push!(sol.dx, vf(x_star, t_star)); end
-        dt_used = t_star - tₖ
-        x_predict = x_star
-    else
-        push!(sol.t, tₖ + dt_used)
-        push!(sol.x, x_predict)
+            dt_used = t_star - tₖ
+            x_predict = x_star
+        else
+            push!(sol.t, tₖ + dt_used)
+            push!(sol.x, x_predict)
+            push!(sol.mode, sliding_mode)
         if dense_out; push!(sol.dx, vf(x_predict, tₖ + dt_used)); end
     end
     final_sliding_state = sliding_exit_trigger ? false : sliding_now
