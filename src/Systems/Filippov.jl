@@ -18,13 +18,14 @@ function FilippovSystem(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
     return FilippovSystem(F, G, H, N)
 end
 
-struct FilippovSol{T, X, DX, S, E, EI, MO} <: AbstractHybridSolution
+struct FilippovSol{T, X, DX, S, E, EI, ET, MO} <: AbstractHybridSolution
     t::T                # Time data
     x::X                # Position data
     dx::DX              # f(x) Derivative at each state x - only filled when dense_out = true
     s::S                # Time indices while sliding (this still needs added)
     event_times::E      # Times of where events take place
     event_indices::EI   # Indices of times where events take place
+    event_types::ET     # The type of transition that occurred 
     mode::MO            # The mode the dynamics are in (a symbol)
 end
 
@@ -35,7 +36,8 @@ function FilippovSol(prob::prob{S, I, T}) where {S<:FilippovSystem, I, T}
         Float64[],
         Float64[],
         Int64[],
-        Symbol[])
+        Symbol[], 
+        Symbol[])       
 end
 
 function guard(sys::FilippovSystem, x::AbstractArray)
@@ -99,12 +101,14 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
     boundary_layer = guard_tol * boundary_tol
 
     # Retrieve the active Filippov vector field and determine if we are sliding or not
-    vf_fun, sliding_mode = filippov_vector_field(sys, xₖ; Ftol=boundary_layer, atol=guard_tol)
-    if sliding_mode ∈ [:f, :g]
+    vf_fun, current_mode = filippov_vector_field(sys, xₖ; Ftol=boundary_layer, atol=guard_tol)
+
+    if current_mode == :k
         sliding_now = true
     else
         sliding_now = false
     end
+
     # Wrap the vector field for use in ODE solvers
     vf(x, t) = vf_fun(x)
 
@@ -184,14 +188,21 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
     end
 
     # Handle event detection
+    t_next = tₖ + dt_used
+    x_next = x_predict
+    mode_next = current_mode
+    is_event = false
+    event_type = nothing
+
     if eventtrigger
         t_star, x_star = locate_event(event_method, prob, solver, vf, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
-        push!(sol.event_times, t_star)
-        push!(sol.t, t_star)
-        push!(sol.x, x_star)
-        push!(sol.event_indices, length(sol.t))
-        push!(sol.mode, sliding_mode)
-        if dense_out; push!(sol.dx, vf(x_star, t_star)); end
+
+        _, mode_next = filippov_vector_field(sys, x_star; Ftol=boundary_layer, atol=guard_tol)
+        event_type = Symbol(current_mode, :_to_, mode_next) # e.g. :f_to_g or :f_to_k
+        
+        t_next, x_next = t_star, x_star
+        is_event = true
+
     elseif sliding_exit_trigger
         # create dummy system targeting the sliding exit condition 
         exit_sys = FilippovSystem(sys.F, sys.G, exit_guard_fun, sys.N)
@@ -212,24 +223,33 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
                 break
             end
         end
-
-        push!(sol.event_times, t_star)
-        push!(sol.t, t_star)
-        push!(sol.x, x_star)
-        push!(sol.event_indices, length(sol.t))
-        push!(sol.mode, sliding_mode)
-
-        if dense_out; push!(sol.dx, vf(x_star, t_star)); end
-            dt_used = t_star - tₖ
-            x_predict = x_star
-        else
-            push!(sol.t, tₖ + dt_used)
-            push!(sol.x, x_predict)
-            push!(sol.mode, sliding_mode)
-        if dense_out; push!(sol.dx, vf(x_predict, tₖ + dt_used)); end
+        
+        _, mode_next = filippov_vector_field(sys, x_star; Ftol=boundary_layer, atol=guard_tol)
+        event_type = Symbol(:k_to_, mode_next)
+        
+        t_next, x_next = t_star, x_star
+        is_event = true
+        
+        dt_used = t_star - tₖ
+        x_predict = x_star
     end
-    final_sliding_state = sliding_exit_trigger ? false : sliding_now
+
+    # Unified pushing
+    push!(sol.t, t_next)
+    push!(sol.x, x_next)
+    push!(sol.mode, mode_next)
     
+    if is_event
+        push!(sol.event_times, t_next)
+        push!(sol.event_indices, length(sol.t))
+        push!(sol.event_types, event_type)
+    end
+
+    if dense_out
+        push!(sol.dx, vf(x_next, t_next))
+    end
+    
+    final_sliding_state = sliding_exit_trigger ? false : sliding_now
     return x_predict, dt_used, dt_next, false, final_sliding_state
 end
 
@@ -276,21 +296,23 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
     boundary_layer = guard_tol * boundary_tol
     
     h_val = guard(sys, x₀)
-    vf_fun, sliding_start = filippov_vector_field(sys, x₀; Ftol=boundary_layer, atol=guard_tol)
+    vf_fun, initial_mode = filippov_vector_field(sys, x₀; Ftol=boundary_layer, atol=guard_tol)
+
+    push!(sol.mode, initial_mode)
 
     # Check if we start exactly on the switching surface
     if !isnothing(h_val) && abs(h_val) <= guard_tol
         @info "System started on the guard at t = $t₀."
         push!(sol.event_times, t₀)
         push!(sol.event_indices, length(sol.t))
+        push!(sol.event_types, Symbol(:start_on_, initial_mode))
         
-        # Check if this initial guard state triggers sliding mode immediately
-        if sliding_start
+        if initial_mode == :k 
             if track_sliding in (:both, :enter)
                 @info "Sliding mode entered at t = $t₀"
             end
             push!(sol.s, t₀)
-            sliding_prev = true # Prevents the while loop from redundantly logging the entry
+            sliding_prev = true 
         end
     end
 
@@ -316,23 +338,21 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
 
         _, _, Δt, terminate, sliding_now = take_step_filippov!(solver, prob, Df, Δt, tol, sol; dense_out=dense_out, stepper=stepper, event_method=event_method, guard_direction=guard_direction, boundary_tol=boundary_tol, track_sliding=track_sliding)
 
-        #handle sliding tracking 
         if sliding_now && !sliding_prev
             if track_sliding in (:both, :enter)
                 @info "Sliding mode entered at t = $(sol.t[end])"
             end
-            push!(sol.event_indices, length(sol.x))
         elseif !sliding_now && sliding_prev
             if track_sliding in (:both, :exit)
                 @info "Sliding mode exited at t = $(sol.t[end])"
             end
-            push!(sol.event_indices, length(sol.x))
         end
 
         if sliding_now
             push!(sol.s, sol.t[end])
         end
         sliding_prev = sliding_now
+        
         if terminate
             break
         end

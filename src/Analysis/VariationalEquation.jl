@@ -78,7 +78,7 @@ function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem; Df = nothing, res
 end
 
 ## Tangent dynamics for a Filippov system
-function tangent_dynamics(sol::FilippovSolSol, sys::FilippovSystem; Df = nothing, Dg = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000)
+function tangent_dynamics(sol::FilippovSol, sys::FilippovSystem; Df = nothing, Dg = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000)
     # Depending on the mode we're in, we have three different variations
     if current_mode == :f
         A_int(t) =  isnothing(A) ? ForwardDiff.jacobian(y->sys.f(y,t), sol(t)) : Df(sol(t))
