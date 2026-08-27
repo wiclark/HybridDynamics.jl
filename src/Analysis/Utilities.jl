@@ -30,6 +30,11 @@ function split_jumps(sol::AbstractHybridSolution)
 end
 
 # Isolate only the jump transitions
+"""
+    extract_jumps(sol::AbstractHybridSolution)
+
+Isolate the times/states when a jump occurs.
+"""
 function extract_jumps(sol::AbstractHybridSolution)
     states = sol.x
 
@@ -60,6 +65,11 @@ function extract_jumps(sol::AbstractHybridSolution)
 end
 
 # Input time and get out how many jumps have occurred up to that time
+"""
+    jump_count(sol::AbstractHybridSolution, t::Real)
+
+Counts how many jumps/events have occured up to time t.
+"""
 function jump_count(sol::AbstractHybridSolution, t::Real)
     # Ensure the requested time is within the simulation
     if isempty(sol.event_times) || t < first(sol.t)
@@ -71,6 +81,11 @@ function jump_count(sol::AbstractHybridSolution, t::Real)
 end
 
 # Returns the interval '(t_start, t_end)' that contains the jump k
+"""
+    jump_interval(sol::AbstractHybridSolution, k::Int)
+
+Returns the time interval between events k and k+1.
+"""
 function jump_interval(sol::AbstractHybridSolution, k::Int)
     if k<0
         throw(ArgumentError("Jump count `k` must be non-negative."))

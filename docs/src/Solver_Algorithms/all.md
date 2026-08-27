@@ -34,8 +34,6 @@ Pages = ["ODE_Solvers/Runge_Kutta_Methods/Adaptive_RK_Steps.jl"]
 ### Miscelaneous
 ```@docs
 ExponentialSolver
-SymplecticEuler
-NH_RK4
 EulerMaruyama
 MagnusLeapfrog
 ```

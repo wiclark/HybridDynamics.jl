@@ -24,8 +24,8 @@ include("ODE_Solvers/Linear_Multistep_Methods/Adaptive_LMM_Steps.jl")
 include("ODE_Solvers/Linear_Multistep_Methods/Fixed_LMM_Steps.jl")
 include("ODE_Solvers/Runge_Kutta_Methods/Fixed_RK_Steps.jl")
 include("ODE_Solvers/Runge_Kutta_Methods/Adaptive_RK_Steps.jl")
-include("ODE_Solvers/Mechanical_Methods/Fixed_Mechanical_Steps.jl")
-include("ODE_Solvers/Mechanical_Methods/Nonholonomic_Steps.jl")
+# include("ODE_Solvers/Mechanical_Methods/Fixed_Mechanical_Steps.jl")
+# include("ODE_Solvers/Mechanical_Methods/Nonholonomic_Steps.jl")
 include("ODE_Solvers/Stochastic_Methods/Fixed_SDE_Steps.jl")
 include("ODE_Solvers/Bonus_Methods.jl")
 include("ODE_Solvers/Event_Locators.jl")
@@ -69,10 +69,10 @@ export RK23, RK45
 export EulerMaruyama
 
 # Symplectic solver
-export SymplecticEuler
+# export SymplecticEuler
 
 # For the sake of getting in the docs now:
-export NH_RK4
+# export NH_RK4
 
 #Fixed LMM
 export AdamsBashforth2, AdamsBashforth3, BDF2
