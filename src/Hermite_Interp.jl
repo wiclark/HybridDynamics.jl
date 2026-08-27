@@ -15,13 +15,17 @@ function (sol::AbstractHybridSolution)(t::Real)
     isempty(sol.dx) && error("Solution struct did not return dense output")
 
     if t < sol.t[1]
-        @warn("BoundsError(sol, t). Out of bounds: constant extrapolation used.")
+        if abs(t-sol.t[1]) > 1e-6
+            @warn("BoundsError(sol, t). Out of bounds: constant extrapolation used.")
+        end
         return sol.x[1]
     end
     t == sol.t[1] && return sol.x[1]
     t == sol.t[end] && return sol.x[end]
     if t > sol.t[end]
-        @warn("BoundsError(sol, t). Out of bounds: constant extrapolation used.")
+        if abs(t-sol.t[end]) > 1e-6
+            @warn("BoundsError(sol, t). Out of bounds: constant extrapolation used.")
+        end
         return sol.x[end]
     end
     

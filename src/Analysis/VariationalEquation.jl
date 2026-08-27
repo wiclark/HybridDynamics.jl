@@ -28,7 +28,7 @@ end
 Compute the state transition matrix across a trajectory from a General system.
 
 """
-function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem; Df = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000)
+function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem; Df = nothing, Dg = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000)
     # Extract out the event times
     T_events = sol.event_times
 
@@ -48,7 +48,7 @@ function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem; Df = nothing, res
             Φ = exp_step(A_int, Φ, dt, times_segments[i])
         end
 
-        # Exact staes at the event boundary
+        # Exact states at the event boundary
         idx = sol.event_indices[k]
         x⁻ = sol.x[idx-1]   # pre-impact state
         x⁺ = sol.x[idx]     # post-impact state
@@ -79,32 +79,106 @@ end
 
 ## Tangent dynamics for a Filippov system
 function tangent_dynamics(sol::FilippovSol, sys::FilippovSystem; Df = nothing, Dg = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000)
+    # Extract out the event times
+    T_events = sol.event_times
+
     # Depending on the mode we're in, we have three different variations
-    if current_mode == :f
-        A_int(t) =  isnothing(A) ? ForwardDiff.jacobian(y->sys.f(y,t), sol(t)) : Df(sol(t))
-    elseif current_mode == :g
-        A_int(t) =  isnothing(A) ? ForwardDiff.jacobian(y->sys.g(y,t), sol(t)) : Dg(sol(t))
-    elseif current_mode == :k
-        # I really don't want to figure out how to differentiate this
-        dh(y) = isnothing(guard_deriv) ? ForwardDiff.gradient(sys.h, y) : guard_deriv(y)
-        λ(y, t) = dot(sys.g(y,t), dh(y)) / (dot(sys.g(y,t), dh(y)) - dot(sys.f(y,t), dh(y)))
-        k(y, t) = λ(y, t) * sys.f(y,t) + (1-λ(y,t)) * sys.g(y,t)
-        A_int(t) = ForwardDiff.jacobian(y->sys.k(y,t), sol(t))
+    # Mode 'f'
+    A_f(t) = isnothing(Df) ? ForwardDiff.jacobian(y->sys.F(y), sol(t)) : Df(sol(t))
+    # Mode 'g'
+    A_g(t) = isnothing(Dg) ? ForwardDiff.jacobian(y->sys.G(y), sol(t)) : Dg(sol(t))
+    # Mode 'k'. This version is dependent on ForwardDiff
+    dh(y) = isnothing(guard_deriv) ? ForwardDiff.gradient(sys.h, y) : guard_deriv(y)
+    λ(y) = dot(sys.G(y), dh(y)) / (dot(sys.G(y), dh(y)) - dot(sys.F(y), dh(y)))
+    k_vf(y) = λ(y) * sys.F(y) + (1-λ(y)) * sys.G(y)
+    A_k(t) = ForwardDiff.jacobian(y->k_vf(y), sol(t))
+    
+    # Initialize the variational matrix and time
+    Φ = Matrix(I(size(A_f(sol.t[end]))[1]))
+    t_past = sol.t[1]
+
+    # Loop through events using their index to get pre/post states (these should be equal for Filippov)
+    for k in 1:length(T_events)
+        # The next event
+        t_e = T_events[k]
+
+        # The time timesegment
+        times_segments = LinRange(t_past, t_e, t_s)
+        dt = times_segments[2] - times_segments[1]
+
+        # What mode are we in?
+        idx = sol.event_indices[k]
+        if idx == 1
+            current_mode = sol.mode[idx]
+        else
+            current_mode = sol.mode[idx-1]
+        end
+        
+        # Integrate the corresponding trajectory
+        if current_mode == :f
+            for i ∈ 1:t_s -1
+                Φ = exp_step(A_f, Φ, dt, times_segments[i])
+            end
+        elseif current_mode == :g
+            for i ∈ 1:t_s -1
+                Φ = exp_step(A_g, Φ, dt, times_segments[i])
+            end
+        elseif current_mode == :k
+            for i ∈ 1:t_s -1
+                Φ = exp_step(A_k, Φ, dt, times_segments[i])
+            end
+        else
+            error("Unknown mode type")
+        end
+
+        # Extract states/type at the event boundary
+        x_hit = sol.x[idx]
+        cross_type = sol.event_types[k]
+
+        # Determine the correct differential
+        dh_val = isnothing(guard_deriv) ? ForwardDiff.gradient(sys.h, x_hit) : guard_deriv(x_hit)
+        if cross_type == :f_to_g
+            Δ_augmented = I - 1/dot(dh_val, sys.F(x_hit))*(sys.G(x_hit)-sys.F(x_hit)) * dh_val'
+        elseif cross_type == :f_to_k
+            Δ_augmented = I - 1/dot(dh_val, sys.F(x_hit))*(k_vf(x_hit)-sys.F(x_hit)) * dh_val'
+        elseif cross_type == :g_to_f
+            Δ_augmented = I - 1/dot(dh_val, sys.G(x_hit))*(sys.F(x_hit)-sys.G(x_hit)) * dh_val'
+        elseif cross_type == :g_to_k
+            Δ_augmented = I - 1/dot(dh_val, sys.G(x_hit))*(k_vf(x_hit)-sys.G(x_hit)) * dh_val'
+        else
+            Δ_augmented = I
+        end
+
+        # Apply the transition and update time
+        Φ = Δ_augmented * Φ
+        t_past = t_e
+
     end
-    # There are 6 distinct possibilities for the augmented diff matrix. 
-    # A Filippov system returns the mode ∈ {:f, :g, :k}. :k means sliding mode.
-    dh_val = isnothing(guard_deriv) ? ForwardDiff.gradient(sys.h, x) : guard_deriv(x)
-    if (past_mode == :f) && (next_mode == :g)
-        Δ_augmented = I - 1/dot(dh_val, f_val)*(g_val-f_val) * dh_val'
-    elseif (past_mode == :g) && (next_mode == :f)
-        Δ_augmented = I - 1/dot(dh_val, g_val)*(f_val-g_val) * dh_val'
-    elseif (past_mode == :f) && (next_mode == :k)
-        Δ_augmented = I - 1/dot(dh_val, f_val)*(k_val-f_val) * dh_val'
-    elseif (past_mode == :g) && (next_mode == :k)
-        Δ_augmented = I - 1/dot(dh_val, g_val)*(k_val-g_val) * dh_val'
-    elseif past_mode == :k # <- It doesn't matter what we move to
-        Δ_augmented = I
+
+    # Determine the tail
+    t_current = isempty(T_events) ? sol.t[1] : T_events[end]
+    t_final = sol.t[end]
+    times_segment = LinRange(t_current, t_final, t_s)
+    dt = times_segment[2] - times_segment[1]
+    final_mode = sol.mode[end]
+    # Integrate
+    if final_mode == :f
+        for i ∈ 1:t_s -1
+            Φ = exp_step(A_f, Φ, dt, times_segment[i])
+        end
+    elseif final_mode == :g
+        for i ∈ 1:t_s -1
+            Φ = exp_step(A_g, Φ, dt, times_segment[i])
+        end
+    elseif final_mode == :k
+        for i ∈ 1:t_s -1
+            Φ = exp_step(A_k, Φ, dt, times_segment[i])
+        end
+    else
+        error("Unknown mode type")
     end
+
+    return Φ
 end
 
 ## The list of Lyapunov exponents
@@ -121,7 +195,11 @@ end
 Compute the Lyapunov exponents for a trajectory from a General system.
 
 """
-function LyapunovExponents(sys::GeneralSystem, x0::AbstractArray; A = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000, run_length::AbstractFloat=1.0, run_iter::Int=Int(1e4), transient::AbstractFloat=0.0)
+function LyapunovExponents(sys::Union{GeneralSystem, FilippovSystem}, x0::AbstractArray; 
+    Df = nothing, Dg = nothing, res_deriv = nothing, guard_deriv = nothing, 
+    t_s = 1000, run_length::AbstractFloat=1.0, 
+    run_iter::Int=Int(1e4), transient::AbstractFloat=0.0)
+
     # Discard the transient
     if transient > 0.0
         prob_transient = prob(sys, x0, (0.0, transient))
@@ -138,7 +216,7 @@ function LyapunovExponents(sys::GeneralSystem, x0::AbstractArray; A = nothing, r
         sol_iter  = solve(prob_iter, RK45(), tol=1e-9)
         current_time = current_time + run_length
         x0 = sol_iter(sol_iter.t[end])
-        Φ_iter = tangent_dynamics(sol_iter, sys; A, res_deriv, guard_deriv, t_s)
+        Φ_iter = tangent_dynamics(sol_iter, sys; Df, Dg, res_deriv, guard_deriv, t_s)
         Φ = Φ_iter * Φ
         # The QR decomposition
         F = qr(Φ)

@@ -273,7 +273,7 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                tol = 1e-6, boundary_tol = 10,
                stepper::AbstractODESolver=RK4(),
                guard_direction = 0,
-               track_sliding=:enter,
+               track_sliding=:none,
                Df = nothing
                ) where {S<:FilippovSystem, I, T}
     sys = prob.sys
@@ -302,7 +302,8 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
 
     # Check if we start exactly on the switching surface
     if !isnothing(h_val) && abs(h_val) <= guard_tol
-        @info "System started on the guard at t = $t₀."
+        # This really just means that we can start out sliding. This shouldn't be an issue.
+        # @info "System started on the guard at t = $t₀."
         push!(sol.event_times, t₀)
         push!(sol.event_indices, length(sol.t))
         push!(sol.event_types, Symbol(:start_on_, initial_mode))
