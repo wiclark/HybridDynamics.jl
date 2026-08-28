@@ -5,8 +5,14 @@
 	1. .$M(q)$ is the mass matrix.
 	2. .$V(q)$ is the potential energy.
 	3. .$G(q)$ is the event location function.
-	4. .$R(q) = dG(q)$ is the normal direction.
-	5. .$E$ is the coefficient of restitution.
+	4. .$N(q)$ is the normal to the guard.
+	5. .$R(q)$ is the reset/impact map.
+	6. .$E$ is the coefficient of restitution.
+	The mechanical system has the Hamiltonian
+	```math
+		H(q,p) = \frac{1}{2}p^\top M^{-1}(q) p + V(q).
+	```
+	If the reset map is not specified, specular reflection is used.
 
 ```math
 	H(x,y,p_x,p_y) = \frac{1}{2}(p_x^2+p_y^2) + y

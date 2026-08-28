@@ -1,4 +1,25 @@
 ## A Nonholonomic Example
+
+!!! info "A Nonholonomic Problem"
+	A nonholonomic system contains the data $(M, V, A, G, N, R, E)$
+	1. .$M(q)$ is the mass matrix.
+	2. .$V(q)$ is the potential energy.
+	3. .$A(q)$ is the Pfaffian constraint matrix.
+	4. .$G(q)$ is the event location function.
+	5. .$N(q)$ is the normal to the guard.
+	6. .$R(q)$ is the reset/impact map.
+	7. .$E$ is the coefficient of restitution.
+	The nonholonomic system has the Hamiltonian
+	```math
+		H(q,p) = \frac{1}{2}p^\top M^{-1}(q)p + V(q),
+	```
+	with the constraints
+	```math
+		A(q)\dot{q} = 0.
+	```
+	If a reset map is not specified, (nonholonomic) specular reflection is used.
+
+
 The Chaplygin sleigh is a nonholonomic system on $(x,y,\theta) \in \mathbb{R}^2\times \mathbb{S}^1$ with mass matrix
 ```math
 	M(q) = \begin{bmatrix}

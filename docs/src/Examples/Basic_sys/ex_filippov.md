@@ -1,5 +1,17 @@
 ## Filippov Example
 
+!!! info "A Filippov Problem"
+    A Filippov system contains the data $(F, G, H, N)$
+    1. .$F(x)$ is the 'top' vector field.
+    2. .$G(x)$ is the 'bottom' vector field.
+    3. .$H(x)$ is the switching function.
+    4. .$N(x)$ is the normal to the switching surface.
+    ```math
+        \begin{cases}
+            \dot{x} = F(x), & H(x) > 0 \\
+            \dot{x} = G(x), & H(x) < 0.
+        \end{cases}
+    ```
 
 ```@example fili
 import HybridDynamics as HD
