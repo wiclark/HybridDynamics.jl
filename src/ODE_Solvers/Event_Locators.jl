@@ -176,6 +176,9 @@ function locate_event(::LinearLocator, prob, solver::AbstractODESolver, f, Df, x
             x_star = x_m
             break
         end
+        # Safeguard?
+        τ_star = τ_m
+        x_star = x_m
 
         # keep root bracketed
         # If the sign at the left boudnary is diff form the sign at the new point, root is in left half 

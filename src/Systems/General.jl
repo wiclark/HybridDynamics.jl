@@ -68,7 +68,10 @@ function apply_reset(sys::GeneralSystem, x::AbstractArray)
     return sys.Δ(x)
 end
 
-function take_step_general!(solver, prob::prob{S,I,T}, f, Df, Δt, tol, sol; dense_out=true, stepper::AbstractODESolver=RK4(), event_method::AbstractEventLocator=LinearLocator(), guard_direction=default_guard_direction(prob.sys)) where {S<:GeneralSystem, I, T}
+function take_step_general!(solver, prob::prob{S,I,T}, f, Df, Δt, tol, sol; 
+    dense_out=true, stepper::AbstractODESolver=RK4(), 
+    event_method::AbstractEventLocator=LinearLocator(), 
+    guard_direction=default_guard_direction(prob.sys)) where {S<:GeneralSystem, I, T}
 
     xₖ = sol.x[end]
     tₖ = sol.t[end]
@@ -79,10 +82,11 @@ function take_step_general!(solver, prob::prob{S,I,T}, f, Df, Δt, tol, sol; den
 
     if eventtrigger
          
-        t_star, x_star = locate_event(event_method, prob, solver, f, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
+        t_star, x_star = locate_event(event_method, prob, stepper, f, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
 
         if abs(guard(sys, x_star)) > 1e-3
-            @warn "Event Location is not located on the guard."
+            wrong_ness = guard(sys, x_star)
+            @warn "Event Location is not located on the guard. h(x) = $wrong_ness at t = $t_star"
         end
 
         x⁺ = apply_reset(sys, x_star)
@@ -135,7 +139,7 @@ Solve a general hybrid system.
 ## Optional:
 
 ### Simulation and Step Controls:
-* 'dt_initial' (Float64, default '0.01'): The starting time step for the continuous solver.
+* 'dt_initial' (Float64, default '1e-3'): The starting time step for the continuous solver.
 * 'dt_min' (Float64, default '1e-6'): The absolute minimum allowable time step. If the solver tries to go below this, the simulation terminates.
 * 'max_iter' (Int, default '10^6'): The maximum number of continuous integration steps allowed before forcing a timeout.
 - 'tol' (Float64, default '1e-6'): The baseline numerical tolerance used across the solver. Acts as the foundational unit for multipliers below.
@@ -149,7 +153,7 @@ Solve a general hybrid system.
 function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                event_method::AbstractEventLocator=LinearLocator(),
                dense_out = true,
-               dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
+               dt_initial=1e-3, dt_min = 1e-6, max_iter = 10^6,
                tol = 1e-6,
                stepper::AbstractODESolver=RK4(),
                guard_direction = prob.sys.direction,
@@ -217,7 +221,7 @@ end
 
 function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                dense_out = true,
-               dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
+               dt_initial=1e-3, dt_min = 1e-6, max_iter = 10^6,
                tol = 1e-6,
                Df = nothing
                ) where {S<:TimeTriggeredGeneral, I, T}

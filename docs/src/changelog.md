@@ -6,9 +6,11 @@
 * The function `LyapunovExponents()` now includes `FilippovSystems`.
 
 ### Updates to old functionality
-* Fixed crossing logic in `LyapunovExponents()`.
 * Added event type and mode information to solutions to Filippov systems.
 * Removed surperfluous warnings arising from dense outputs.
+* Updated event locator logic to enforce step sizes.
+* Fixed crossing logic in `LyapunovExponents()`.
+* `LyapunovExponents()` will return `NaN` if Zeno is detected. 
 
 ## v1.1.0
 

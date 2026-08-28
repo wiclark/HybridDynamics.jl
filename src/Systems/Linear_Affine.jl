@@ -50,8 +50,8 @@ Construct an affine hybrid system of the form:
 ```math
 	\\mathcal{AH} = 
 	\\begin{cases}
-		\\dot x = Ax + b, λx + a \\neq 0, \\\\
-		x^+ = Cx + κ, λx + a = 0.
+		\\dot x = Ax + b, & λx + a \\neq 0, \\\\
+		x^+ = Cx + κ, & λx + a = 0.
 	\\end{cases}
 ```
 """

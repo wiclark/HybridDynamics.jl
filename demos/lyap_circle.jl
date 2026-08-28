@@ -19,14 +19,15 @@ function exponent_circle(x, y)
     if x^2+y^2 >= 1
         return NaN
     else
-        return maximum(HD.LyapunovExponents(sys, [x, y, 0.0, 0.0]; run_length=10.0, run_iter=Int(1e3), transient=2000.0))
+        return maximum(HD.LyapunovExponents(sys, [x, y, 0.0, 0.0]; run_length=10.0, run_iter=Int(1e2), transient=0.0))
     end
 end
 
-res = 8
+res = 12
 X = LinRange(-1, 1, res)
 Y = LinRange(-1, 1, res)
 Z = zeros(res, res)
+
 
 @time Threads.@threads for i ∈ 1:res
     for j ∈ 1:res

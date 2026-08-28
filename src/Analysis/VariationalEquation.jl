@@ -195,7 +195,8 @@ end
 # Outputs: The vector of Lyapunov exponents
 """
     LyapunovExponents(sys::Union{GeneralSystem, FilippovSystem}, x0::AbstractArray; 
-                A = nothing, res_deriv = nothing, 
+                solver::AbstractODESolver=RK45(),
+                Df = nothing, Dg = nothing, res_deriv = nothing, 
                 guard_deriv = nothing, t_s = 1000, 
                 run_length::AbstractFloat=1.0, 
                 run_iter::Int=Int(1e4), transient::AbstractFloat=0.0)
@@ -204,6 +205,7 @@ Compute the Lyapunov exponents for a trajectory from a General or Filippov syste
 
 """
 function LyapunovExponents(sys::Union{GeneralSystem, FilippovSystem}, x0::AbstractArray; 
+    solver::AbstractODESolver=RK45(), tol = 1e-6, dt_initial=1e-3,
     Df = nothing, Dg = nothing, res_deriv = nothing, guard_deriv = nothing, 
     t_s = 1000, run_length::AbstractFloat=1.0, 
     run_iter::Int=Int(1e4), transient::AbstractFloat=0.0)
@@ -211,7 +213,11 @@ function LyapunovExponents(sys::Union{GeneralSystem, FilippovSystem}, x0::Abstra
     # Discard the transient
     if transient > 0.0
         prob_transient = prob(sys, x0, (0.0, transient))
-        sol_transient  = solve(prob_transient)
+        sol_transient  = solve(prob_transient, solver, tol=tol, dt_initial=dt_initial)
+        # If the solution cannot reach the end, we terminate and declare NaN exponents.
+        if sol_transient.t[end] < transient
+            return fill(NaN, length(x0))
+        end
         x0 = sol_transient(transient)
     end
     # Loop through solutions and collect the exponents
@@ -221,7 +227,11 @@ function LyapunovExponents(sys::Union{GeneralSystem, FilippovSystem}, x0::Abstra
     for n ∈ 1:run_iter
         # Collect the STM for each run
         prob_iter = prob(sys, x0, (current_time, current_time+run_length))
-        sol_iter  = solve(prob_iter, RK45(), tol=1e-9)
+        sol_iter  = solve(prob_iter, solver, tol=tol, dt_initial=dt_initial)
+        # Exit early if solution doesn't exist
+        if sol_iter.t[end] < current_time+run_length
+            return fill(NaN, length(x0))
+        end
         current_time = current_time + run_length
         x0 = sol_iter(sol_iter.t[end])
         Φ_iter = tangent_dynamics(sol_iter, sys; Df, Dg, res_deriv, guard_deriv, t_s)
