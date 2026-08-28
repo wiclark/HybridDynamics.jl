@@ -16,7 +16,13 @@ end
     LinearSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix; direction::Int=0)
 
 Construct a linear hybrid system of the form:
-
+```math
+	\\mathcal{LH} = 
+	\begin{cases}
+		\\dot x = Ax, & λx \neq 0, \\
+		x^+ = Cx, & λx = 0.
+	\end{cases}
+```
 """
 function LinearSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix; direction::Int=0)
     return LinearSystem(Float64.(A), Float64.(λ), Float64.(C), direction)
@@ -41,7 +47,13 @@ end
     AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector; direction::Int=0)
 
 Construct an affine hybrid system of the form:
-
+```math
+	\\mathcal{AH} = 
+	\\begin{cases}
+		\\dot x = Ax + b, λx + a \\neq 0, \\
+		x^+ = Cx + κ, λx + a = 0.
+	\\end{cases}
+```
 """
 function AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, a::Real, C::AbstractMatrix, κ::AbstractVector; direction::Int=0)
     return AffineSystem(Float64.(A), Float64.(b), Float64.(λ), Float64(a), Float64.(C), Float64.(κ), direction)

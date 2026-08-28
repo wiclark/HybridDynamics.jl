@@ -26,7 +26,9 @@ end
                         direction = -1)
 
 Construct a nonholonomic hybrid system of the form:
-
+```math
+	H(q,p) = \\frac{1}{2}p^\\top M^{-1}(q)p + V(q), \\quad A(q)\\dot{q} = 0, \\quad h(x) > 0
+```
 """
 function NonholonomicSystem(M, V;
                         A = nothing,

@@ -11,8 +11,12 @@ end
     FilippovSystem(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
 
 Construct a Filippov system of the form:
-
-
+```math
+	\\begin{cases}
+        \\dot{x} = F(x), & H(x) > 0 \\
+        \\dot{x} = G(x), & H(x) < 0
+    \\end{cases}
+```
 """
 function FilippovSystem(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
     return FilippovSystem(F, G, H, N)

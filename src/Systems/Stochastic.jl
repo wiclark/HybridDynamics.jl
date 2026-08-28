@@ -17,6 +17,13 @@ end
 Construct a stochastic system. `f` represents the continuous flow/drift dynamics, `g` is the diffusion term,
 `h` is the guard, and `Δ` is the reset map.
 
+```math
+    \\begin{cases}
+        dx = f(x,t) dt + g(x,t) dW, & h(x) \\ne 0 \\
+        x^+ = \\Delta(x), & h(x) = 0
+    \\end{cases}
+```
+
 If not provided, the normal to the guard, `normal`, will be found using ForwardDiff.
 The event detection direction, `direction`, is set to be bidirectional.
 

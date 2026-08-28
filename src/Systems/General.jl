@@ -8,11 +8,15 @@ end
 
 #Constructor for above
 """
-    GeneralSystem(f, h, Δ; direction::Int=0)
+    GeneralSystem(f::Function, h::Function, Δ::Function; direction::Int=0)
 
 Construct a general hybrid system of the form:
-
-
+```math
+    \\begin{cases}
+        \\dot{x} = f(x, t), & h(x) \\ne 0 \\
+        x^+ = \\Delta(x), & h(x) = 0
+    \\end{cases}
+```
 """
 function GeneralSystem(f, h, Δ; direction::Int=0)
     return GeneralSystem(f, h, Δ, direction)

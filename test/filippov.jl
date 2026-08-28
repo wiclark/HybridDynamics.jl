@@ -22,6 +22,6 @@
     @test solF(2.625) ≈ [1, 0.5] atol=soltol
 
     # Throws sliding info
-    @test_logs (:info,) HD.solve(probF, HD.RK4())
+    @test_logs (:info, r"Sliding mode entered at t = .*") (:info, r"Sliding mode exited at t = .*") HD.solve(probF, HD.RK4(); track_sliding=:both)
 
 end

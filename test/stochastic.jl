@@ -8,7 +8,7 @@ function f_ball(x, t)
     q, v = x
     return [v, -g]
 end
-w(x, t) = [0.0; 0.2;;]
+w(x, t) = [0.0; 0.02;;]
 h_ball(x) = x[1]
 Δ_ball(x) = [abs(x[1]), -0.8*x[2]]
 
