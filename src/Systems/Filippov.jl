@@ -13,7 +13,7 @@ end
 Construct a Filippov system of the form:
 ```math
 	\\begin{cases}
-        \\dot{x} = F(x), & H(x) > 0 \\
+        \\dot{x} = F(x), & H(x) > 0 \\\\
         \\dot{x} = G(x), & H(x) < 0
     \\end{cases}
 ```

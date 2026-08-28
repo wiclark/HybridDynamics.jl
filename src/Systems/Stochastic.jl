@@ -19,7 +19,7 @@ Construct a stochastic system. `f` represents the continuous flow/drift dynamics
 
 ```math
     \\begin{cases}
-        dx = f(x,t) dt + g(x,t) dW, & h(x) \\ne 0 \\
+        dx = f(x,t) dt + g(x,t) dW, & h(x) \\ne 0 \\\\
         x^+ = \\Delta(x), & h(x) = 0
     \\end{cases}
 ```

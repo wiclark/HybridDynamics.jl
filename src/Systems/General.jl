@@ -13,7 +13,7 @@ end
 Construct a general hybrid system of the form:
 ```math
     \\begin{cases}
-        \\dot{x} = f(x, t), & h(x) \\ne 0 \\
+        \\dot{x} = f(x, t), & h(x) \\ne 0 \\\\
         x^+ = \\Delta(x), & h(x) = 0
     \\end{cases}
 ```

@@ -18,10 +18,10 @@ end
 Construct a linear hybrid system of the form:
 ```math
 	\\mathcal{LH} = 
-	\begin{cases}
-		\\dot x = Ax, & λx \neq 0, \\
+	\\begin{cases}
+		\\dot x = Ax, & λx \\neq 0, \\\\
 		x^+ = Cx, & λx = 0.
-	\end{cases}
+	\\end{cases}
 ```
 """
 function LinearSystem(A::AbstractMatrix, λ::AbstractVector, C::AbstractMatrix; direction::Int=0)
@@ -50,7 +50,7 @@ Construct an affine hybrid system of the form:
 ```math
 	\\mathcal{AH} = 
 	\\begin{cases}
-		\\dot x = Ax + b, λx + a \\neq 0, \\
+		\\dot x = Ax + b, λx + a \\neq 0, \\\\
 		x^+ = Cx + κ, λx + a = 0.
 	\\end{cases}
 ```
