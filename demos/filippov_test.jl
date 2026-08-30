@@ -11,4 +11,4 @@ probF = HD.prob(sysF, [0.0, 1.0], (0.0, 10.0))
 solF = HD.solve(probF, HD.RK45())
 
 # Try out Lyapunov!
-λ = HD.LyapunovExponents(sysF, [0.0, 1.0]; run_iter = 100, transient=100.0)
+λ = HD.LyapunovExponents(sysF, [0.0, 1.0]; transient=100.0)

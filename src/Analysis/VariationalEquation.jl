@@ -146,13 +146,13 @@ function tangent_dynamics(sol::FilippovSol, sys::FilippovSystem; Df = nothing, D
         # Determine the correct differential
         dh_val = isnothing(guard_deriv) ? ForwardDiff.gradient(sys.h, x_hit) : guard_deriv(x_hit)
         if cross_type == :f_to_g
-            Δ_augmented = I - 1/dot(dh_val, sys.F(x_hit))*(sys.G(x_hit)-sys.F(x_hit)) * dh_val'
+            Δ_augmented = I + 1/dot(dh_val, sys.F(x_hit))*(sys.G(x_hit)-sys.F(x_hit)) * dh_val'
         elseif cross_type == :f_to_k
-            Δ_augmented = I - 1/dot(dh_val, sys.F(x_hit))*(k_vf(x_hit)-sys.F(x_hit)) * dh_val'
+            Δ_augmented = I + 1/dot(dh_val, sys.F(x_hit))*(k_vf(x_hit)-sys.F(x_hit)) * dh_val'
         elseif cross_type == :g_to_f
-            Δ_augmented = I - 1/dot(dh_val, sys.G(x_hit))*(sys.F(x_hit)-sys.G(x_hit)) * dh_val'
+            Δ_augmented = I + 1/dot(dh_val, sys.G(x_hit))*(sys.F(x_hit)-sys.G(x_hit)) * dh_val'
         elseif cross_type == :g_to_k
-            Δ_augmented = I - 1/dot(dh_val, sys.G(x_hit))*(k_vf(x_hit)-sys.G(x_hit)) * dh_val'
+            Δ_augmented = I + 1/dot(dh_val, sys.G(x_hit))*(k_vf(x_hit)-sys.G(x_hit)) * dh_val'
         else
             Δ_augmented = I
         end
