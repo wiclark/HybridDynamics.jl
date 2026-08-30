@@ -214,6 +214,7 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Df, Δt,
             x_predict = Δ(x_star, M, ∇h, sys)
 
             push!(sol.event_times, t_star)
+            push!(sol.event_indices, length(sol.t))
 
             push!(sol.t, t_star)
             push!(sol.x, x_predict)

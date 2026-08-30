@@ -1,5 +1,14 @@
 # Change Log
 
+## v1.1.2
+
+### New functionality
+* The function `LyapunovExponents()` now indluces `MechanicalSystems` when Zeno is not present.
+* Created a mechanical dispatch for `tangent_dynamics`.
+
+### Updates to old funcitonality
+* Fixed error in `tangent_dynamics` for Filippov.
+
 ## v1.1.1
 
 ### New functionality
@@ -52,7 +61,7 @@
 
 ### Known Bugs
 
-**Adaptive Solvers:** Adaptive solvers currently do not work as intended for `Mechanical`, `Filippov` and `General` systems. The fault lies in the more complicated guard structure. That in mind, the solvers should be more than reasonable for any non-hybrid applications as well as our other system types. These will be fixed in the next update. 
+**Adaptive Solvers:** Adaptive solvers currently do not work as intended for `Mechanical`, `Filippov` and `General` systems. The fault lies in the more complicated guard structure. That in mind, the solvers should be more than reasonable for any non-hybrid applications as well as our other system types. These will be fixed in the next update. The mechanical dispatch of `LyapunovExponents` does not work with the default solver, `RK45`. 
 
 ## v0.4.0
 

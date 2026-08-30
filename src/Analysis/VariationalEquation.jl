@@ -38,6 +38,12 @@ function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem; Df = nothing, Dg 
     Φ = Matrix(I(size(A_int(sol.t[end]))[1]))
     t_past = sol.t[1]
 
+    # Create the augmented differential matrix
+    Δ_star(x) = ForwardDiff.jacobian(y->sys.Δ(y), x)
+    adjust_vector(x,t) = sys.f(sys.Δ(x),t) - Δ_star(x)*sys.f(x,t)
+    adjust_covector(x) = ForwardDiff.gradient(sys.h, x)'
+    Δ_augmented_f(x,t) = Δ_star(x) .+ 1/(adjust_covector(x) * sys.f(x,t)) * (adjust_vector(x,t)*adjust_covector(x))
+
     # Loop through events using their index to get pre/post states
     for k in 1:length(T_events)
         t_e = T_events[k]
@@ -51,16 +57,9 @@ function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem; Df = nothing, Dg 
         # Exact states at the event boundary
         idx = sol.event_indices[k]
         x⁻ = sol.x[idx-1]   # pre-impact state
-        x⁺ = sol.x[idx]     # post-impact state
-
 
         # Eval augmented diff matrices at the event
-        Δ_star_val = isnothing(res_deriv) ? ForwardDiff.jacobian(y -> sys.Δ(y), x⁻) : res_deriv(x⁻)
-        f⁻_val = sys.f(x⁻, t_e)
-        f⁺_val = sys.f(x⁺, t_e)
-        dh⁻_val = isnothing(guard_deriv) ? ForwardDiff.gradient(sys.h, x⁻) : guard_deriv(x⁻)
-
-        Δ_augmented = Δ_star_val * (I - (f⁻_val * dh⁻_val') ./ dot(dh⁻_val, f⁻_val)) + (f⁺_val * dh⁻_val') ./ dot(dh⁻_val, f⁻_val)
+        Δ_augmented = Δ_augmented_f(x⁻, t_e)
 
         Φ = Δ_augmented * Φ
         t_past = t_e
@@ -73,6 +72,82 @@ function tangent_dynamics(sol::GeneralSol, sys::GeneralSystem; Df = nothing, Dg 
     dt = times_segment[2] - times_segment[1]
     for i ∈ 1:t_s -1
         Φ = exp_step(A_int, Φ, dt, times_segment[i])
+    end
+    return Φ
+end
+
+## Tangent map for mechanical systems. Zeno does not currently work
+"""
+    tangent_dynamics(sol::MechanicalSol, sys::MechanicalSystem; 
+            Df = nothing, res_deriv = nothing, 
+            guard_deriv = nothing, t_s = 1000)
+
+Compute the state transition matrix across a trajectory from a Mechanical system.
+
+"""
+function tangent_dynamics(sol::MechanicalSol, sys::MechanicalSystem; Df = nothing, Dg = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000)
+    # Extract out the event times
+    T_events = sol.event_times
+
+    # Before we compute the variations across this trajectory, we check for Zeno
+    if length(sol.zeno) > 0
+        Φ = fill(NaN, size(A_int(sol.t[end])))
+    end
+
+    n = Int(length(sol(sol.t[1])) / 2)
+
+    # We need the vector field as well as its Jacobian
+    M(q) = sys.M(q)
+    V(q) = sys.V(q)
+    H(q,p) = 1/2*dot(p, M(q) \ p) + V(q)
+    q_dot(q, p) = ForwardDiff.gradient(p -> H(q,p),p)
+    p_dot(q, p) = ForwardDiff.gradient(q -> -H(q,p), q)
+    f(y) = [q_dot(y[1:n],y[n+1:end]); p_dot(y[1:n],y[n+1:end])]
+
+    # Create the tangent vector field
+    A_int(t) =  isnothing(Df) ? ForwardDiff.jacobian(y->f(y), sol(t)) : Df(sol(t))
+    
+    Φ = Matrix(I(size(A_int(sol.t[end]))[1]))
+    t_past = sol.t[1]
+
+    # Create the augmented differential matrix
+    Δ(x) = sys.reset(x, sys.M, sys.normal, sys)
+    Δ_star(x) = ForwardDiff.jacobian(y->Δ(y), x)
+    adjust_vector(x) = f(Δ(x)) - Δ_star(x)*f(x)
+    adjust_covector(x) = ForwardDiff.gradient(sys.guard, x)'
+    Δ_augmented_f(x) = Δ_star(x) .+ 1/(adjust_covector(x) * f(x)) * (adjust_vector(x)*adjust_covector(x))
+
+    # Loop through events using their index to get pre/post states
+    for k in 1:length(T_events)
+        t_e = T_events[k]
+
+        times_segments = LinRange(t_past, t_e, t_s)
+        dt = times_segments[2] - times_segments[1]
+        for i ∈ 1:t_s -1
+            Φ = exp_step(A_int, Φ, dt, times_segments[i])
+        end
+
+        # Exact states at the event boundary
+        idx = sol.event_indices[k]
+        x⁻ = sol.x[idx]   # pre-impact state (indexing is different from General)
+
+        # Eval augmented diff matrices at the event
+        Δ_augmented = Δ_augmented_f(x⁻)
+        Φ = Δ_augmented * Φ
+        t_past = t_e
+    end
+
+    # Determine the tail
+    t_current = isempty(T_events) ? sol.t[1] : T_events[end]
+    t_final = sol.t[end]
+    times_segment = LinRange(t_current, t_final, t_s)
+    dt = times_segment[2] - times_segment[1]
+    for i ∈ 1:t_s -1
+        Φ = exp_step(A_int, Φ, dt, times_segment[i])
+    end
+    # The STM should always have determinate 1 (if elastic)
+    if abs(det(Φ)-1) > 0.1 && sys.e == 1.0
+        @warn "The STM does not have determinate 1."
     end
     return Φ
 end
@@ -204,7 +279,7 @@ end
 Compute the Lyapunov exponents for a trajectory from a General or Filippov system.
 
 """
-function LyapunovExponents(sys::Union{GeneralSystem, FilippovSystem}, x0::AbstractArray; 
+function LyapunovExponents(sys::Union{GeneralSystem, FilippovSystem, MechanicalSystem}, x0::AbstractArray; 
     solver::AbstractODESolver=RK45(), tol = 1e-6, dt_initial=1e-3,
     Df = nothing, Dg = nothing, res_deriv = nothing, guard_deriv = nothing, 
     t_s = 1000, run_length::AbstractFloat=1.0, 
