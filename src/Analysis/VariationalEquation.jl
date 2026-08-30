@@ -269,7 +269,7 @@ end
 #         The rest of the inputs are performance parameters
 # Outputs: The vector of Lyapunov exponents
 """
-    LyapunovExponents(sys::Union{GeneralSystem, FilippovSystem}, x0::AbstractArray; 
+    LyapunovExponents(sys::Union{GeneralSystem, FilippovSystem, MechanicalSystem}, x0::AbstractArray; 
                 solver::AbstractODESolver=RK45(),
                 Df = nothing, Dg = nothing, res_deriv = nothing, 
                 guard_deriv = nothing, t_s = 1000, 
