@@ -158,7 +158,7 @@ end
             Df = nothing, Dg = nothing, 
             guard_deriv = nothing, t_s = 1000)
 
-Compute the state transition matrix across a trajectory from a General system.
+Compute the state transition matrix across a trajectory from a Filippov system.
 
 """
 function tangent_dynamics(sol::FilippovSol, sys::FilippovSystem; Df = nothing, Dg = nothing, res_deriv = nothing, guard_deriv = nothing, t_s = 1000)
