@@ -11,72 +11,123 @@ default_guard_direction(sys::StochasticSystem) = sys.direction
 default_guard_direction(sys) = 0
 
 #Wrapper function to interface between the system state and core logic
+#HERMITE VERSION
 function crossed_guard(sys, h_now, h_next, hp_now, hp_next, t_now, t_next; 
                        tol=1e-6, direction=default_guard_direction(sys))   
     # new call for the hermite locator
     return evaluate_crossing(h_now, h_next, hp_now, hp_next, t_now, t_next, direction; tol=tol)
 end
 
+#OLD VERSION
+#=
+function crossed_guard(sys, h_prev, h_now, h_next, t_prev, t_now, t_next;
+                       tol=1e-6, direction=default_guard_direction(sys))  
+    # Calls evaluator with the directionality
+    return evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, direction; tol=tol)
+
+end 
+=#
+
 #Calcs dh/dt = ∇h(x) * dx
 function guard_derivatives(sys, x, dx, h_val; ε=1e-7)
     return (guard(sys, x .+ ε .* dx) - h_val) / ε
 end
 
-# Uses third-order Hermite interpolation to determine whether or not a crossing happened
-# This should replace 'evaluate_crossing'
+#HERMITE VERSION
 function evaluate_crossing(h_now, h_next, hp_now, hp_next, t_now, t_next, direction::Int; tol=1e-6)
+    Δt = t_next - t_now
+    #maybe useful?
+    if Δt <= 0
+        return false, NaN, NaN
+    end
     # The first check is simply the linear crossing - this guarantees a crossing by the MVT
     valid_linear(h1, h2) = 
         (direction == 0 && h1 * h2 < 0) ||
         (direction == -1 && h1 > 0 && h2 < 0) ||
         (direction == 1 && h1 < 0 && h2 > 0)
+
+    #I rewrote the formulas here but they are the same. Just happened as I was bugfixing - DS
+    α = (3 * (h_next - h_now) - (2 * hp_now + hp_next) * Δt) / (Δt^2)
+    β = (2 * (h_now - h_next) + (hp_now + hp_next) * Δt) / (Δt^3)
+
+    # The original code used linear secant lines to approximate the root.
+    # Because we already have the Hermite coefficients, we can solve the cubic polynomial - DS
+    function find_cubic_root(τ_a, τ_b)
+        p(τ) = h_now + hp_now * τ + α * τ^2 + β * τ^3
+        dp(τ) = hp_now + 2 * α * τ + 3 * β * τ^2
+        
+        h_a, h_b = p(τ_a), p(τ_b)
+        τ = clamp(τ_a + (τ_b - τ_a) * (-h_a / (h_b - h_a)), τ_a, τ_b) # Initial secant guess
+        for _ in 1:6
+            der = dp(τ)
+            abs(der) < 1e-14 && break
+            τ = clamp(τ - p(τ) / der, τ_a, τ_b)
+        end
+        return τ
+    end
+
     # The next function attempts to find an event based off of Hermite interpolation
     function valid_hermite()
-        Δt = t_next - t_now
-        α = -1/Δt^2*(3*h_now-3*h_next+2*Δt*hp_now+Δt*hp_next)
-        β = 1/Δt^3*(2*h_now-2*h_next+Δt*hp_now+Δt*hp_next)
-        D = 4*α^2-12*β*hp_now
-        if D < 0 # Negative discriminant <- No real roots
+        # If the system trajectory is purely quadratic (constant acceleration), β = 0.
+        # The original code calculated (6*β) in the denominator, which produced NaN and missed events. - DS
+        if abs(β) < 1e-12
+            if abs(α) > 1e-12
+                R1 = -hp_now / (2 * α) # Quadratic vertex formula
+                if 0 < R1 < Δt
+                    y1 = h_now + hp_now * R1 + α * R1^2
+                    if valid_linear(h_now, y1)
+                        return true, find_cubic_root(0.0, R1)
+                    end
+                end
+            end
+            return false, NaN
+        end
+
+        D = 4 * α^2 - 12 * β * hp_now
+        if D < 0 # Negative discriminant <- No real roots of the derivative
             return false, NaN
         else
-            # Is there a (or two) root(s) within the interval?
-            r1 = (-2*α+sqrt(D)) / (6*β)
-            r2 = (-2*α-sqrt(D)) / (6*β)
+            # Is there a (or two) turning point(s) within the interval?
+            r1 = (-2 * α + sqrt(D)) / (6 * β)
+            r2 = (-2 * α - sqrt(D)) / (6 * β)
             R1 = minimum([r1, r2])
             R2 = maximum([r1, r2])
             if 0 < R1 < Δt
-                # Find the value at the first root
-                # This expression uses the interpolation to find the crossing
-                # I suspect that a 'smarter' version would be to use 'take_step'
-                y1 = h_now + hp_now*R1 + α*R1^2 + β*R1^3
-                root_approx = -h_now * R1 / (y1 - h_now)
-                return valid_linear(h_now, y1), root_approx
-            elseif 0 < R2 < Δt
-                # Find the value at the first root
-                y1 = h_now + hp_now*R2 + α*R2^2 + β*R2^3
-                root_approx = -h_now * R2 / (y1 - h_now)
-                return valid_linear(h_now, y1), root_approx
-            else
-                return false, NaN
+                # Find the value at the first turning point
+                y1 = h_now + hp_now * R1 + α * R1^2 + β * R1^3
+                if valid_linear(h_now, y1)
+                    return true, find_cubic_root(0.0, R1)
+                end
             end
+            if 0 < R2 < Δt
+                # Find the value at the second turning point
+                y2 = h_now + hp_now * R2 + α * R2^2 + β * R2^3
+                if valid_linear(h_now, y2)
+                    start_τ = (0 < R1 < Δt) ? R1 : 0.0
+                    return true, find_cubic_root(start_τ, R2)
+                end
+            end 
+            return false, NaN
         end 
     end
     # Do we suspect a crossing?
     if valid_linear(h_now, h_next)
-        t_root = t_now - h_now * (t_next - t_now) / (h_next - h_now)
-        return true, t_root, NaN
+        #I replaced the linear secant root finder with the cubic one - DS
+        τ_root = find_cubic_root(0.0, Δt)
+        return true, t_now + τ_root, NaN
     else
         is_valid, offset = valid_hermite()
         if is_valid
             return true, t_now + offset, NaN
-        else 
+        else
             return false, NaN, NaN
         end
     end
 end
 
-#Core engine: determines if/when the guard function 'h' changes sign. 
-function evaluate_crossing_old(h_prev, h_now, h_next, t_prev, t_now, t_next, direction::Int; tol=1e-6)
+#OLD VERSION MAYBE GET RID OF ONCE GOOD ON HERMITE? 
+#=
+function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, direction::Int; tol=1e-6)
     #Helper to validate a linear sign change based on the required direction
     valid_linear(h1, h2) = 
         (direction == 0 && h1 * h2 < 0) ||
@@ -139,7 +190,7 @@ function evaluate_crossing_old(h_prev, h_now, h_next, t_prev, t_now, t_next, dir
     end
     return false, NaN, NaN
 end
-
+=#
 #Locator Dispatches
 #Isolates the root finding mathematics inside each one. This gets rid of global helpers so when we add new locators its really easy
 
@@ -236,7 +287,7 @@ end
 function locate_event(::HermiteLocator, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
     sys = prob.sys
     
-    #left boundary setup
+    # Boundary setup
     τ_l, τ_r = 0.0, Δt
     x_l = xₖ
     h_l = h_now
@@ -247,53 +298,54 @@ function locate_event(::HermiteLocator, prob, solver::AbstractODESolver, f, Df, 
         return tₖ, xₖ
     end
 
-    #Right boundary setup
     x_r, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_r, tol, sol, stepper; check=false)
     h_r = guard(sys, x_r)
     dx_r = f(x_r, tₖ + Δt)
     hp_r = guard_derivatives(sys, x_r, dx_r, h_r)
 
-    # return step if no root is bracketed
+    # Return step if no root is bracketed
     if signbit(h_l) == signbit(h_r)
         return tₖ + Δt, x_r
     end
 
-    τ_star = Δt
-    x_star = x_r
+    τ_m = 0.5 * Δt
+    x_m = x_r
 
     for _ in 1:100
         dτ = τ_r - τ_l
-
-        # hermite poly coeffs
-        α = -1 / dτ^2 * (3*hp_l - 3*hp_r + 2*dτ*hp_l + dτ*hp_r)
-        β = 1 / dτ^3 * (2*h_l - 2*h_r + dτ*hp_l + dτ*hp_r)
-
-        #initial guess
-        p_end = h_l + hp_l*dτ + α*dτ^2 + β*dτ^3
-        τ_m = (abs(p_end - h_l) > tol) ? -h_l * dτ / (p_end - h_l) : 0.5 * dτ
-        τ_m = clamp(τ_m, 0.05 * dτ, 0.95 * dτ)
-        
-        for _ in 1:3
-            val = h_l + hp_l*τ_m + α*τ_m^2 + β*τ_m^3
-            deriv = hp_l + 2*α*τ_m + 3*β*τ_m^2
-            abs(deriv) < tol && break
-            τ_m = clamp(τ_m - val / deriv, 0.0, dτ)
+        if dτ < 1e-12
+            break
         end
 
-        τ_m = τ_l + τ_m
+        # Hermite Coeffs rewritten
+        α = (3 * (h_r - h_l) - (2 * hp_l + hp_r) * dτ) / (dτ^2)
+        β = (2 * (h_l - h_r) + (hp_l + hp_r) * dτ) / (dτ^3)
 
-        # step solver to offset τ_m
-        x_m, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_m, tol, sol, stepper, check=false)
+        p(τ) = h_l + hp_l * τ + α * τ^2 + β * τ^3
+        dp(τ) = hp_l + 2 * α * τ + 3 * β * τ^2
+
+        # Initial secant guess
+        τ_step = clamp(dτ * (-h_l / (h_r - h_l)), 0.05 * dτ, 0.95 * dτ)
+
+        # Newton refinement
+        for _ in 1:5
+            val = p(τ_step)
+            der = dp(τ_step)
+            abs(der) < 1e-14 && break
+            τ_step = clamp(τ_step - val / der, 0.0, dτ)
+        end
+
+        τ_m = τ_l + τ_step
+
+        # Step ODE solver to intermediate candidate point
+        x_m, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_m, tol, sol, stepper; check=false)
         h_m = guard(sys, x_m)
 
         if abs(h_m) < tol
             return tₖ + τ_m, x_m
         end
 
-        τ_star = τ_m
-        x_star = x_m
-
-        #update bracket and boundary derivs
+        # Update bracket and boundary derivatives
         dx_m = f(x_m, tₖ + τ_m)
         hp_m = guard_derivatives(sys, x_m, dx_m, h_m)
 
@@ -302,10 +354,9 @@ function locate_event(::HermiteLocator, prob, solver::AbstractODESolver, f, Df, 
         else
             τ_l, x_l, h_l, hp_l = τ_m, x_m, h_m, hp_m
         end
-
-        return tₖ + τ_star, x_star
-
     end
+
+    return tₖ + τ_m, x_m
 end
 
 #Bisection Method (Iterative)
