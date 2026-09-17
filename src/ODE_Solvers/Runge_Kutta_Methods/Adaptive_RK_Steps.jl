@@ -28,12 +28,11 @@ function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, Df, xₖ,
         h_now  = guard(sys, xₖ)
         h_next = guard(sys, x_predict)
 
-        idx = max(1, length(sol.x) - 1)
-        t_prev = sol.t[idx]
-        x_prev = sol.x[idx]
-        h_prev = guard(sys, x_prev)
-        # Use cross guard check
-        eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
+        dx_now = f(xₖ, tₖ)
+        hp_now = guard_derivatives(sys, xₖ, dx_now, h_now)
+        dx_next = f(x_predict, tₖ + Δt)
+        hp_next = guard_derivatives(sys, x_predict, dx_next, h_next)
+        eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_next, hp_now, hp_next, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
 
         if eventtrigger
             if (t_root - tₖ) < (1e-4 * Δt)

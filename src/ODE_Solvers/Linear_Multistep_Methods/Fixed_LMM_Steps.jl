@@ -50,18 +50,11 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, Df, xₖ, t
     if check 
         h_now = guard(sys, xₖ)
         h_next = guard(sys, x_predict)
-
-        if history_len > 1
-            idx = length(sol.x) - 1
-            t_prev = sol.t[idx]
-            h_prev = guard(sys, sol.x[idx])
-        else
-            t_prev = tₖ - Δt
-            h_prev = h_now
-        end
-
-        eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol = tol, direction=guard_direction)
-    
+        dx_now = f(xₖ, tₖ)
+        hp_now = guard_derivatives(sys, xₖ, dx_now, h_now)
+        dx_next = f(x_predict, tₖ + Δt)
+        hp_next = guard_derivatives(sys, x_predict, dx_next, h_next)
+        eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_next, hp_now, hp_next, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
         return x_predict, eventtrigger, t_root, Δt, Δt
     else
         # Fallback (Structurally unreachable due to top delegation)

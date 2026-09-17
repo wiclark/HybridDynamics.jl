@@ -153,26 +153,11 @@ function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, Df, xₖ
 
         if LTE < tol
             if check
-                # Evaluate looking back to previous accepted step
-                # for the event locator.
-                if length(sol.x) >= 2
-                    idx = max(1, length(sol.x) - 1)
-
-                    t_prev = sol.t[idx]
-                    h_prev = guard(sys, sol.x[idx])
-
-                    # Prevent degenerate quadratic interpolation if things get small. 
-                    if (tₖ - t_prev) > 10 * Δt
-                        t_prev = tₖ - Δt
-                        # Linear backward extrapolation gives the locator a stable local bracket.
-                        h_prev = h_now - (h_end - h_now)
-                    end
-                else
-                    t_prev = tₖ - Δt
-                    h_prev = h_now
-                end
-
-                eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_end, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
+                dx_now = f(xₖ, tₖ)
+                hp_now = guard_derivatives(sys, xₖ, dx_now, h_now)
+                dx_next = f(x_next, tₖ + Δt)
+                hp_next = guard_derivatives(sys, x_next, dx_next, h_end)
+                eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_end, hp_now, hp_next, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
                 return x_next, eventtrigger, t_root, Δt, dt_next
             else
                 return x_next, false, NaN, Δt, dt_next

@@ -11,14 +11,72 @@ default_guard_direction(sys::StochasticSystem) = sys.direction
 default_guard_direction(sys) = 0
 
 #Wrapper function to interface between the system state and core logic
-function crossed_guard(sys, h_prev, h_now, h_next, t_prev, t_now, t_next; 
+function crossed_guard(sys, h_now, h_next, hp_now, hp_next, t_now, t_next; 
                        tol=1e-6, direction=default_guard_direction(sys))   
-    # Calls evaluator with the directionality
-    return evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, direction; tol=tol)
+    # new call for the hermite locator
+    return evaluate_crossing(h_now, h_next, hp_now, hp_next, t_now, t_next, direction; tol=tol)
+end
+
+#Calcs dh/dt = ∇h(x) * dx
+function guard_derivatives(sys, x, dx, h_val; ε=1e-7)
+    return (guard(sys, x .+ ε .* dx) - h_val) / ε
+end
+
+# Uses third-order Hermite interpolation to determine whether or not a crossing happened
+# This should replace 'evaluate_crossing'
+function evaluate_crossing(h_now, h_next, hp_now, hp_next, t_now, t_next, direction::Int; tol=1e-6)
+    # The first check is simply the linear crossing - this guarantees a crossing by the MVT
+    valid_linear(h1, h2) = 
+        (direction == 0 && h1 * h2 < 0) ||
+        (direction == -1 && h1 > 0 && h2 < 0) ||
+        (direction == 1 && h1 < 0 && h2 > 0)
+    # The next function attempts to find an event based off of Hermite interpolation
+    function valid_hermite()
+        Δt = t_next - t_now
+        α = -1/Δt^2*(3*h_now-3*h_next+2*Δt*hp_now+Δt*hp_next)
+        β = 1/Δt^3*(2*h_now-2*h_next+Δt*hp_now+Δt*hp_next)
+        D = 4*α^2-12*β*hp_now
+        if D < 0 # Negative discriminant <- No real roots
+            return false, NaN
+        else
+            # Is there a (or two) root(s) within the interval?
+            r1 = (-2*α+sqrt(D)) / (6*β)
+            r2 = (-2*α-sqrt(D)) / (6*β)
+            R1 = minimum([r1, r2])
+            R2 = maximum([r1, r2])
+            if 0 < R1 < Δt
+                # Find the value at the first root
+                # This expression uses the interpolation to find the crossing
+                # I suspect that a 'smarter' version would be to use 'take_step'
+                y1 = h_now + hp_now*R1 + α*R1^2 + β*R1^3
+                root_approx = -h_now * R1 / (y1 - h_now)
+                return valid_linear(h_now, y1), root_approx
+            elseif 0 < R2 < Δt
+                # Find the value at the first root
+                y1 = h_now + hp_now*R2 + α*R2^2 + β*R2^3
+                root_approx = -h_now * R2 / (y1 - h_now)
+                return valid_linear(h_now, y1), root_approx
+            else
+                return false, NaN
+            end
+        end 
+    end
+    # Do we suspect a crossing?
+    if valid_linear(h_now, h_next)
+        t_root = t_now - h_now * (t_next - t_now) / (h_next - h_now)
+        return true, t_root, NaN
+    else
+        is_valid, offset = valid_hermite()
+        if is_valid
+            return true, t_now + offset, NaN
+        else 
+            return false, NaN, NaN
+        end
+    end
 end
 
 #Core engine: determines if/when the guard function 'h' changes sign. 
-function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, direction::Int; tol=1e-6)
+function evaluate_crossing_old(h_prev, h_now, h_next, t_prev, t_now, t_next, direction::Int; tol=1e-6)
     #Helper to validate a linear sign change based on the required direction
     valid_linear(h1, h2) = 
         (direction == 0 && h1 * h2 < 0) ||
@@ -101,34 +159,9 @@ struct QuadraticLocator <: AbstractEventLocator end
 #Tag to use Newtons method for event locators
 struct NewtonLocator <: AbstractEventLocator end
 
-#Bisection Method (Iterative)
+#Tage to use Hermite locator
+struct HermiteLocator <: AbstractEventLocator end
 
-function locate_event(::BisectionLocator, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
-    sys = prob.sys
-    τ_l, τ_r = 0.0, Δt
-    h_l = h_now
-    
-    for _ in 1:100 # max_iter
-        if (τ_r - τ_l) < tol break end
-
-        #test midpoint
-        τ_m = (τ_l + τ_r) / 2.0
-
-        x_m, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_m, tol, sol, stepper; check=false)
-        h_m = guard(sys, x_m)
-    
-        if signbit(h_l) != signbit(h_m)
-            τ_r = τ_m
-        else
-            τ_l = τ_m
-            h_l = h_m
-        end
-    end
-    
-    t_star = tₖ + τ_l
-    x_star, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_l, tol, sol, stepper; check=false)
-    return t_star, x_star
-end
 #Linear Interpolation
 
 function locate_event(::LinearLocator, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
@@ -196,6 +229,110 @@ function locate_event(::LinearLocator, prob, solver::AbstractODESolver, f, Df, x
     # Calc absolute time of the event by adding base time to the found offset
     t_star = tₖ + τ_star
     # return abs time and its corresponding state. 
+    return t_star, x_star
+end
+
+#Hermite Locator
+function locate_event(::HermiteLocator, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
+    sys = prob.sys
+    
+    #left boundary setup
+    τ_l, τ_r = 0.0, Δt
+    x_l = xₖ
+    h_l = h_now
+    dx_l = f(x_l, tₖ)
+    hp_l = guard_derivatives(sys, x_l, dx_l, h_l)
+
+    if abs(h_now) < tol
+        return tₖ, xₖ
+    end
+
+    #Right boundary setup
+    x_r, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_r, tol, sol, stepper; check=false)
+    h_r = guard(sys, x_r)
+    dx_r = f(x_r, tₖ + Δt)
+    hp_r = guard_derivatives(sys, x_r, dx_r, h_r)
+
+    # return step if no root is bracketed
+    if signbit(h_l) == signbit(h_r)
+        return tₖ + Δt, x_r
+    end
+
+    τ_star = Δt
+    x_star = x_r
+
+    for _ in 1:100
+        dτ = τ_r - τ_l
+
+        # hermite poly coeffs
+        α = -1 / dτ^2 * (3*hp_l - 3*hp_r + 2*dτ*hp_l + dτ*hp_r)
+        β = 1 / dτ^3 * (2*h_l - 2*h_r + dτ*hp_l + dτ*hp_r)
+
+        #initial guess
+        p_end = h_l + hp_l*dτ + α*dτ^2 + β*dτ^3
+        τ_m = (abs(p_end - h_l) > tol) ? -h_l * dτ / (p_end - h_l) : 0.5 * dτ
+        τ_m = clamp(τ_m, 0.05 * dτ, 0.95 * dτ)
+        
+        for _ in 1:3
+            val = h_l + hp_l*τ_m + α*τ_m^2 + β*τ_m^3
+            deriv = hp_l + 2*α*τ_m + 3*β*τ_m^2
+            abs(deriv) < tol && break
+            τ_m = clamp(τ_m - val / deriv, 0.0, dτ)
+        end
+
+        τ_m = τ_l + τ_m
+
+        # step solver to offset τ_m
+        x_m, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_m, tol, sol, stepper, check=false)
+        h_m = guard(sys, x_m)
+
+        if abs(h_m) < tol
+            return tₖ + τ_m, x_m
+        end
+
+        τ_star = τ_m
+        x_star = x_m
+
+        #update bracket and boundary derivs
+        dx_m = f(x_m, tₖ + τ_m)
+        hp_m = guard_derivatives(sys, x_m, dx_m, h_m)
+
+        if signbit(h_l) != signbit(h_m)
+            τ_r, x_r, h_r, hp_r = τ_m, x_m, h_m, hp_m
+        else
+            τ_l, x_l, h_l, hp_l = τ_m, x_m, h_m, hp_m
+        end
+
+        return tₖ + τ_star, x_star
+
+    end
+end
+
+#Bisection Method (Iterative)
+function locate_event(::BisectionLocator, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
+    sys = prob.sys
+    τ_l, τ_r = 0.0, Δt
+    h_l = h_now
+    
+    for _ in 1:100 # max_iter
+        if (τ_r - τ_l) < tol break end
+
+        #test midpoint
+        τ_m = (τ_l + τ_r) / 2.0
+
+        x_m, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_m, tol, sol, stepper; check=false)
+        h_m = guard(sys, x_m)
+    
+        if signbit(h_l) != signbit(h_m)
+            τ_r = τ_m
+        else
+            τ_l = τ_m
+            h_l = h_m
+        end
+    end
+    
+    t_star = tₖ + τ_l
+    x_star, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_l, tol, sol, stepper; check=false)
     return t_star, x_star
 end
 

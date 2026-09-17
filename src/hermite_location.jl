@@ -1,5 +1,6 @@
 # Uses third-order Hermite interpolation to determine whether or not a crossing happened
 # This should replace 'evaluate_crossing'
+#=
 function evaluate_crossing(h_now, h_next, hp_now, hp_next, t_now, t_next, direction::Int; tol=1e-6)
     # The first check is simply the linear crossing - this guarantees a crossing by the MVT
     valid_linear(h1, h2) = 
@@ -45,3 +46,4 @@ function evaluate_crossing(h_now, h_next, hp_now, hp_next, t_now, t_next, direct
         return false, NaN, NaN
     end
 end
+=#

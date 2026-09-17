@@ -92,7 +92,7 @@ end
 
 function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol; 
     dense_out=true, stepper::AbstractODESolver=RK4(), 
-    event_method::AbstractEventLocator=LinearLocator(), guard_direction=0, boundary_tol, track_sliding) where {S<:FilippovSystem, I, T}
+    event_method::AbstractEventLocator=HermiteLocator(), guard_direction=0, boundary_tol, track_sliding) where {S<:FilippovSystem, I, T}
 
     # Extract current sim state and time
     xₖ = sol.x[end]
@@ -259,7 +259,7 @@ end
 
 """
     solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
-               event_method::AbstractEventLocator=LinearLocator(),
+               event_method::AbstractEventLocator=HermiteLocator(),
                dense_out = true,
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
                tol = 1e-6, boundary_tol = 10,
@@ -271,7 +271,7 @@ Solve a Filippov system.
 
 """
 function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
-               event_method::AbstractEventLocator=LinearLocator(),
+               event_method::AbstractEventLocator=HermiteLocator(),
                dense_out = true,
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
                tol = 1e-6, boundary_tol = 10,

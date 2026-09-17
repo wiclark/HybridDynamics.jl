@@ -135,7 +135,7 @@ end
 
 ###############################################
 function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Df, Δt,
-    tol, ztol, sol; stepper::AbstractODESolver=ModifiedMidpoint(), dense_out = true, event_method::AbstractEventLocator=LinearLocator(), 
+    tol, ztol, sol; stepper::AbstractODESolver=ModifiedMidpoint(), dense_out = true, event_method::AbstractEventLocator=HermiteLocator(), 
     guard_direction=default_guard_direction(prob.sys)) where {S<:MechanicalSystem, I, T}
     # Extract out the state
     xₖ, tₖ = sol.x[end], sol.t[end]
@@ -246,7 +246,7 @@ Solve a mechanical hybrid system.
 """
 function solve(prob::prob{S, I, T},
                solver::AbstractODESolver=RK4();
-               event_method::AbstractEventLocator=LinearLocator(),
+               event_method::AbstractEventLocator=HermiteLocator(),
                dense_out = true,
                dt_initial = 0.01, max_iter = 10^6, 
                tol = 1e-6, ztol = 1e-3,
