@@ -35,7 +35,6 @@ the step is delegated to the single-step stepper (default RK4).
 WHY I DID THINGS:
 We use Milne's device for error est because it is easy to compute. Since we already are performing an explicit prediction and an implicit correction, the difference serves as a solid estimate.
 """
-
 function take_step(solver::AdaptiveLMM, prob::AbstractHybridProblem, f, Df, xₖ, tₖ, Δt, tol, sol, stepper::RK=RK4(); check=true, guard_direction=default_guard_direction(prob.sys), event_method=LinearHermite())
 
     # Probing Override: If checking is disabled, LMM history assumptions are violated. Route to RK stepper.
