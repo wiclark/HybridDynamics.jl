@@ -16,7 +16,7 @@ compute_step(::RK23, f, x, Δt, t, tf, sys, tol; adaptive=true) = rk_23_step(f, 
 compute_step(::RK45, f, x, Δt, t, tf, sys, tol; adaptive=true) = rk_45_step(f, x, Δt, t, tf, sys, tol)
 
 function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, Df, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint();
-        check=true, guard_direction=default_guard_direction(prob.sys))
+        check=true, guard_direction=default_guard_direction(prob.sys), event_method=LinearHermite())
     sys = prob.sys
     tf = prob.tspan[2] #terminal time
 
@@ -25,14 +25,7 @@ function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, Df, xₖ,
 
     if check
         # Evaluate guards
-        h_now  = guard(sys, xₖ)
-        h_next = guard(sys, x_predict)
-
-        dx_now = f(xₖ, tₖ)
-        hp_now = guard_derivatives(sys, xₖ, dx_now, h_now)
-        dx_next = f(x_predict, tₖ + Δt)
-        hp_next = guard_derivatives(sys, x_predict, dx_next, h_next)
-        eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_next, hp_now, hp_next, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
+        eventtrigger, t_root, _ = crossed_guard(event_method, sys, f, sol, xₖ, tₖ, x_predict, Δt; tol=tol, direction=guard_direction)
 
         if eventtrigger
             if (t_root - tₖ) < (1e-4 * Δt)

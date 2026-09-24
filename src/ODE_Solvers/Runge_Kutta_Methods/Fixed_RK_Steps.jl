@@ -55,26 +55,14 @@ compute_step(solver::RadauIIA, f, xₖ, Δt, t)     = radauiia_step(f, nothing, 
 
 #Note sol is not used, we do this to make using the function easier. We would need an if/else statement everytime we use this function without it
 function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, Df, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver=ModifiedMidpoint(); 
-        check=true, guard_direction=default_guard_direction(prob.sys)) 
+        check=true, guard_direction=default_guard_direction(prob.sys), event_method=LinearHermite()) 
         
     sys = prob.sys
     x_predict = compute_step(solver, f, Df, xₖ, Δt, tₖ)
     
     if check
         #Evaluate Guards
-        h_now  = guard(sys, xₖ)
-        h_next = guard(sys, x_predict)
-
-        # Get state velocities
-        dx_now = f(xₖ, tₖ)
-        dx_next = f(x_predict, tₖ + Δt)
-
-        #compute dh/dt
-        hp_now = guard_derivatives(sys, xₖ, dx_now, h_now)
-        hp_next = guard_derivatives(sys, x_predict, dx_next, h_next)
-
-        #Use cross guard check
-        eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_next, hp_now, hp_next, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
+        eventtrigger, t_root, _ = crossed_guard(event_method, sys, f, sol, xₖ, tₖ, x_predict, Δt; tol=tol, direction=guard_direction)
 
         if eventtrigger
             if (t_root - tₖ) < (1e-4 * Δt)

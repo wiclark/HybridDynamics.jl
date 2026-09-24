@@ -20,6 +20,14 @@ abstract type AbstractHybridProblem end
 #Parent Category for Solution types.
 abstract type AbstractHybridSolution end
 
+#LOCATOR TAGS Temp Location while I figure out where they can go in the include load order
+#Tag to use Linear Interpolation that uses quadratic interpolation if linear missed the event. 
+struct LinearQuadratic <: AbstractEventLocator end
+
+#Tage to use linear interpolation with Hermite interpolation if linear missed the event.
+struct LinearHermite <: AbstractEventLocator end
+
+
 struct prob{S <: AbstractHybridSystem, I  <: AbstractArray{Float64}, T <: Tuple{Float64, Float64}} <: AbstractHybridProblem
     sys::S
     init::I

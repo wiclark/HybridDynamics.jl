@@ -196,7 +196,8 @@ function is_trivially_blocking(sys::Union{LinearSystem, AffineSystem})
     return rank(analysis.blocking_set) == n && isapprox(norm(analysis.blocking_offsets), 0.0, atol=1e-10)
 end
 
-function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Df, Δt, tol, sol; dense_out=true, stepper::AbstractODESolver=RK45(), event_method::AbstractEventLocator=HermiteLocator(), guard_direction=prob.sys.direction, event_before_flow=false,
+function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Df, Δt, tol, sol; dense_out=true, stepper::AbstractODESolver=RK45(), 
+    event_method::AbstractEventLocator, guard_direction=prob.sys.direction, event_before_flow=false,
     #Pathology
     last_jump_time, last_intervals, zeno_count,
     instant_jump_count, zeno_ratio,
@@ -258,7 +259,7 @@ function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Df, Δt, tol, 
     end
     =#
     
-    x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, Df, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction)
+    x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, Df, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction, event_method=event_method)
 
     if eventtrigger
         t_star, x_star = locate_event(event_method, prob, solver, f, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
@@ -354,7 +355,7 @@ machine precision drops into beating blocks.
 """
 function solve(prob::prob{S, I, T},
                solver::AbstractODESolver=RK45();
-               event_method::AbstractEventLocator=HermiteLocator(),
+               event_method::AbstractEventLocator=LinearHermite(),
                event_before_flow = false,
                dense_out = true, 
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6, 

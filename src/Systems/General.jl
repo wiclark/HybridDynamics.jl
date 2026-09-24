@@ -70,7 +70,7 @@ end
 
 function take_step_general!(solver, prob::prob{S,I,T}, f, Df, Δt, tol, sol; 
     dense_out=true, stepper::AbstractODESolver=RK4(), 
-    event_method::AbstractEventLocator=HermiteLocator(), 
+    event_method::AbstractEventLocator, 
     guard_direction=default_guard_direction(prob.sys)) where {S<:GeneralSystem, I, T}
 
     xₖ = sol.x[end]
@@ -78,7 +78,7 @@ function take_step_general!(solver, prob::prob{S,I,T}, f, Df, Δt, tol, sol;
 
     sys = prob.sys
 
-    x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, Df, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction)
+    x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, Df, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction, event_method=event_method)
 
     if eventtrigger
          
@@ -145,13 +145,13 @@ Solve a general hybrid system.
 - 'tol' (Float64, default '1e-6'): The baseline numerical tolerance used across the solver. Acts as the foundational unit for multipliers below.
 
 ### Event Handling
-* 'event_method' (AbstractEventLocator, default 'LinearLocator()'): The algorithm used to pinpoint the exact time and state of a guard crossing.
+
 * 'stepper' (AbstractODESolver. default 'RK4()'): The secondary ODE solver used internally by the event detection locator to pinpoint the impact state.
 * 'guard\\_direction' (Int, default 'default\\_guard\\_direction(prob.sys)'): 0 -> detects crossings in either direction. 1 -> detects increasing crossings. -1 -> detects decreating crossings.
 
 """
 function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
-               event_method::AbstractEventLocator=HermiteLocator(),
+               event_method::AbstractEventLocator=LinearHermite(),
                dense_out = true,
                dt_initial=1e-3, dt_min = 1e-6, max_iter = 10^6,
                tol = 1e-6,

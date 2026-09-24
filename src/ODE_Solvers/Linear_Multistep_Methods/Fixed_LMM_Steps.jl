@@ -17,7 +17,7 @@ lmm_order(::AdamsBashforth2) = 2
 lmm_order(::AdamsBashforth3) = 3
 lmm_order(::BDF2) = 2
 
-function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, Df, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = RK4(); check=true, guard_direction=default_guard_direction(prob.sys))
+function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, Df, xₖ, tₖ, Δt, tol, sol, stepper::AbstractODESolver = RK4(); check=true, guard_direction=default_guard_direction(prob.sys), event_method=LinearHermite())
 
     if !check
         return take_step(stepper, prob, f, Df, xₖ, tₖ, Δt, tol, sol, stepper; check=false, guard_direction=guard_direction)
@@ -31,7 +31,7 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, Df, xₖ, t
 
     # Must be strictly less than k so we shift to LMM immediately when we have enough history
     if history_len < k
-        return take_step(stepper, prob, f, Df, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
+        return take_step(stepper, prob, f, Df, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction, event_method=event_method)
     end
 
     # Multistep phase: We do have history so we extract prev states. 
@@ -41,20 +41,14 @@ function take_step(solver::FixedLMM, prob::AbstractHybridProblem, f, Df, xₖ, t
     time_diffs = diff(vcat(t_history, tₖ))
 
     if any(time_diffs .<= 1e-12)
-        return take_step(stepper, prob, f, Df, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction)
+        return take_step(stepper, prob, f, Df, xₖ, tₖ, Δt, tol, sol, stepper; check=check, guard_direction=guard_direction, event_method=event_method)
     end
 
     # Pass history arrays forward
     x_predict = compute_lmm_step(solver, f, Df, xₖ, tₖ, Δt, x_history, t_history)
     
     if check 
-        h_now = guard(sys, xₖ)
-        h_next = guard(sys, x_predict)
-        dx_now = f(xₖ, tₖ)
-        hp_now = guard_derivatives(sys, xₖ, dx_now, h_now)
-        dx_next = f(x_predict, tₖ + Δt)
-        hp_next = guard_derivatives(sys, x_predict, dx_next, h_next)
-        eventtrigger, t_root, _ = crossed_guard(sys, h_now, h_next, hp_now, hp_next, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
+        eventtrigger, t_root, _ = crossed_guard(event_method, sys, f, sol, xₖ, tₖ, x_predict, Δt; tol=tol, direction=guard_direction)
         return x_predict, eventtrigger, t_root, Δt, Δt
     else
         # Fallback (Structurally unreachable due to top delegation)

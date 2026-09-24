@@ -10,23 +10,32 @@ default_guard_direction(sys::AffineSystem) = sys.direction
 default_guard_direction(sys::StochasticSystem) = sys.direction
 default_guard_direction(sys) = 0
 
-#Wrapper function to interface between the system state and core logic
-#HERMITE VERSION
-function crossed_guard(sys, h_now, h_next, hp_now, hp_next, t_now, t_next; 
-                       tol=1e-6, direction=default_guard_direction(sys))   
-    # new call for the hermite locator
-    return evaluate_crossing(h_now, h_next, hp_now, hp_next, t_now, t_next, direction; tol=tol)
+# HERMITE VERSION
+function crossed_guard(event_method::LinearHermite, sys, f, sol, xₖ, tₖ, x_next, Δt;
+                       tol=1e-6, direction=default_guard_direction(sys))
+    h_now  = guard(sys, xₖ)
+    h_next = guard(sys, x_next)
+
+    hp_now  = guard_derivatives(sys, xₖ,     f(xₖ, tₖ),          h_now)
+    hp_next = guard_derivatives(sys, x_next, f(x_next, tₖ + Δt), h_next)
+
+    return evaluate_crossing(event_method, h_now, h_next, hp_now, hp_next, tₖ, tₖ + Δt, direction; tol=tol)
 end
 
-#OLD VERSION
-#=
-function crossed_guard(sys, h_prev, h_now, h_next, t_prev, t_now, t_next;
-                       tol=1e-6, direction=default_guard_direction(sys))  
-    # Calls evaluator with the directionality
-    return evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, direction; tol=tol)
+# LINEAR/QUADRATIC VERSION
+function crossed_guard(event_method::LinearQuadratic, sys, f, sol, xₖ, tₖ, x_next, Δt;
+                       tol=1e-6, direction=default_guard_direction(sys))
+    h_now  = guard(sys, xₖ)
+    h_next = guard(sys, x_next)
 
-end 
-=#
+    # Needs the previous accepted point from the solution history
+    idx    = max(1, length(sol.x) - 1)
+    t_prev = sol.t[idx]
+    h_prev = guard(sys, sol.x[idx])
+
+    return evaluate_crossing(event_method, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt, direction; tol=tol)
+end
+
 
 #Calcs dh/dt = ∇h(x) * dx
 function guard_derivatives(sys, x, dx, h_val; ε=1e-7)
@@ -34,7 +43,7 @@ function guard_derivatives(sys, x, dx, h_val; ε=1e-7)
 end
 
 #HERMITE VERSION
-function evaluate_crossing(h_now, h_next, hp_now, hp_next, t_now, t_next, direction::Int; tol=1e-6)
+function evaluate_crossing(::LinearHermite, h_now, h_next, hp_now, hp_next, t_now, t_next, direction::Int; tol=1e-6)
     Δt = t_next - t_now
     #maybe useful?
     if Δt <= 0
@@ -126,9 +135,7 @@ function evaluate_crossing(h_now, h_next, hp_now, hp_next, t_now, t_next, direct
 end
 
 #OLD VERSION MAYBE GET RID OF ONCE GOOD ON HERMITE? 
-#=
-function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, direction::Int; tol=1e-6)
-    #Helper to validate a linear sign change based on the required direction
+function evaluate_crossing(::LinearQuadratic, h_prev, h_now, h_next, t_prev, t_now, t_next, direction::Int; tol=1e-6)    #Helper to validate a linear sign change based on the required direction
     valid_linear(h1, h2) = 
         (direction == 0 && h1 * h2 < 0) ||
         (direction == -1 && h1 > 0 && h2 < 0) ||
@@ -190,32 +197,12 @@ function evaluate_crossing(h_prev, h_now, h_next, t_prev, t_now, t_next, directi
     end
     return false, NaN, NaN
 end
-=#
 #Locator Dispatches
 #Isolates the root finding mathematics inside each one. This gets rid of global helpers so when we add new locators its really easy
 
-#-----------------------
-#LOCATOR TAGS
-#These are similar to the solver tags. But these define how the solver finds the exact crossing time once an event is detected. 
-
-#Tag to use Linear Interpolation. Very fast but can be innacurate for higher order methods. 
-struct LinearLocator <: AbstractEventLocator end
-
-#Tag to use a bisection method serach. Can be very accurate but also very slow with complex systems
-struct BisectionLocator <: AbstractEventLocator end
-
-#Tag for quadratic event locator
-struct QuadraticLocator <: AbstractEventLocator end
-
-#Tag to use Newtons method for event locators
-struct NewtonLocator <: AbstractEventLocator end
-
-#Tage to use Hermite locator
-struct HermiteLocator <: AbstractEventLocator end
-
 #Linear Interpolation
 
-function locate_event(::LinearLocator, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
+function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
     # Extract System
     sys = prob.sys
     # Extract left boundary to 0 and right to Δt
@@ -284,7 +271,7 @@ function locate_event(::LinearLocator, prob, solver::AbstractODESolver, f, Df, x
 end
 
 #Hermite Locator
-function locate_event(::HermiteLocator, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
+function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
     sys = prob.sys
     
     # Boundary setup
@@ -357,206 +344,4 @@ function locate_event(::HermiteLocator, prob, solver::AbstractODESolver, f, Df, 
     end
 
     return tₖ + τ_m, x_m
-end
-
-#Bisection Method (Iterative)
-function locate_event(::BisectionLocator, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
-    sys = prob.sys
-    τ_l, τ_r = 0.0, Δt
-    h_l = h_now
-    
-    for _ in 1:100 # max_iter
-        if (τ_r - τ_l) < tol break end
-
-        #test midpoint
-        τ_m = (τ_l + τ_r) / 2.0
-
-        x_m, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_m, tol, sol, stepper; check=false)
-        h_m = guard(sys, x_m)
-    
-        if signbit(h_l) != signbit(h_m)
-            τ_r = τ_m
-        else
-            τ_l = τ_m
-            h_l = h_m
-        end
-    end
-    
-    t_star = tₖ + τ_l
-    x_star, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_l, tol, sol, stepper; check=false)
-    return t_star, x_star
-end
-
-function locate_event(::QuadraticLocator, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
-    sys = prob.sys
-
-    # Get three points 
-    # Start of interval guard value. 
-    h₀ = h_now
-
-    # middle point. We just take a half step instead of going one before the start point. I think itll be more stable. 
-    x₁, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, Δt / 2.0, tol, sol, stepper; check=false)
-    h₁ = guard(sys, x₁)
-
-    # endpoint
-    x₂, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, Δt, tol, sol, stepper; check=false)
-    h₂ = guard(sys, x₂)
-
-    # Must actually bracket a root
-    # Check if the start and end points have same sign (meaning they likely dont have a root between them)
-    if signbit(h₀) == signbit(h₂)
-        # Compute linear interp guess as failsafe
-        θ = -h₀ / (h₂ - h₀)
-        # Ensure guessed fraction doesnt go outside the time interval 
-        τ_star = clamp(θ * Δt, 0.0, Δt)
-
-        # Step solver to time we got above. 
-        x_star, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_star, tol, sol, stepper; check=false)
-
-        # Return time and state bypassing the quadratic logic.
-        return tₖ + τ_star, x_star
-    end
-
-    # compute parabola coeffs
-    # y int is the starting value
-    c = h₀
-    # Compute Linear coeffs based on 3 points
-    b = (-3.0 * h₀ + 4.0 * h₁ - h₂) / Δt
-    # Compute quad coeffs based on 3 points
-    a = 2.0 * (h₀ - 2.0 * h₁ + h₂) / (Δt ^ 2)
-
-    # Check if quadratic term if effectively zero. If so we fall back to linear interpolation
-    if abs(a) < tol
-        θ = -h₀ / (h₂ - h₀)
-        τ_star = clamp(θ * Δt, 0.0, Δt)
-    else
-        # Calc discriminant of quad formula
-        disc = b^2 - 4.0*a*c
-        # If disc is negative, parabola doesnt cross the axis with no real roots.
-        if disc < 0
-            # Fallback to linear interpolation if no real roots exist.
-            θ = -h₀ / (h₂ - h₀)
-            τ_star = clamp(θ * Δt, 0.0, Δt)
-        else
-            # Use quadratic formula (this is the stable version)
-            q = -0.5 * (b + sign(b)*sqrt(disc))
-
-            # First potential root
-            root1 = q/a
-            # Second potential root
-            root2 = c/q
-
-            # Verify if first root is a finite number and lies within the time interval
-            valid1 = isfinite(root1) && (0.0 <= root1 <= Δt)
-            # See above but for second root
-            valid2 = isfinite(root2) && (0.0 <= root2 <= Δt)
-
-            # If both roots are valid inside the interval...
-            if valid1 && valid2
-                # Choose earliest event time as the root. 
-                τ_star = min(root1, root2)
-            # If only the first root is valid....
-            elseif valid1
-                # Assign this first root as the root
-                τ_star = root1
-            # If only second is valid...
-            elseif valid2
-                # Assign this second root as the root
-                τ_star = root2
-            # If neither root is valid...
-            else 
-                #Fall back to linear interp. 
-                θ = -h₀ / (h₂ - h₀)
-                τ_star = clamp(θ * Δt, 0.0, Δt)
-            end
-        end
-    end
-
-    # Verify the quadratic prediction. We dont just trust it with our heart of hearts. 
-    x_test, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_star, tol, sol, stepper; check=false)
-    h_test = guard(sys, x_test)
-
-    # If prediction is worse than midpoint we abandon it and linear interp. Just a failsafe.
-    if abs(h_test) > abs(h₁)
-        θ = -h₀ / (h₂ - h₀)
-        τ_star = clamp(θ * Δt, 0.0, Δt)
-
-        x_test, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_star, tol, sol, stepper; check=false)
-        h_test = guard(sys, x_test)
-
-    end
-
-    # If the prediction STILL doesnt meet the tolerance requirements, attempt one more linear step.
-    if abs(h_test) > tol
-        # Reset left boundary to start of step
-        τ_l = 0.0
-        # Reset right boundary to end of the step
-        τ_r = Δt
-        # Reset left boundary guard value
-        h_l = h₀
-        # Reset right boundary guard value
-        h_r = h₂
-        
-        # Check if the root is between the start and the test point 
-        if signbit(h_l) != signbit(h_test)
-            # Shrink right boundary to test point
-            τ_r = τ_star
-            h_r = h_test
-        else
-            # Otherwise shrink left boundary to test point
-            τ_l = τ_star
-            h_l = h_test
-        end
-        # Perform one final linear interp on new bounds 
-        τ_star = τ_r - h_r*(τ_r - τ_l)/(h_r - h_l)
-        # ensure final pred is within clamped bounds
-        τ_star = clamp(τ_star, 0.0, Δt)
-        # Step solver to this final refined time
-        x_test, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_star, tol, sol, stepper; check=false)
-    end
-    # Calc the absolute time of the verified event
-    t_star = tₖ + τ_star
-    # Return abs time and its corresponding state. 
-    return t_star, x_test
-end
-
-function locate_event(::NewtonLocator, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
-    sys = prob.sys
-
-    τ_prev = 0.0
-    h_prev = h_now
-
-    τ_curr = Δt
-    x_curr, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_curr, tol, sol, stepper; check=false)
-    h_curr = guard(sys, x_curr)
-
-    for _ in 1:100
-        if abs(h_curr) < tol || abs(τ_curr - τ_prev) < tol
-            break
-        end
-
-        #Estimate derivative 
-        dh_dτ = (h_curr - h_prev) / (τ_curr - τ_prev)
-
-        if abs(dh_dτ) < tol
-            @warn "Derivative less than tolerance: Newton method unstable. Terminating."
-            break
-        end
-
-        #Newton step
-        τ_next = τ_curr - h_curr / dh_dτ
-
-        #Bound next step to prevent over shooting 
-        τ_next = clamp(τ_next, 0.0, Δt)
-
-        #update for next iteration
-        τ_prev = τ_curr
-        h_prev = h_curr
-
-        τ_curr = τ_next
-        x_curr, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_curr, tol, sol, stepper; check=false)
-        h_curr = guard(sys, x_curr)
-    end
-    t_star = tₖ + τ_curr
-    return t_star, x_curr
 end

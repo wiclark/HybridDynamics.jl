@@ -69,7 +69,7 @@ function take_step(solver::ExponentialSolver, prob::AbstractHybridProblem, f, Df
         x_prev = sol.x[idx]
         h_prev = guard(sys, x_prev)
 
-        eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction)
+        eventtrigger, t_root, _ = crossed_guard(sys, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt; tol=tol, direction=guard_direction, event_method=LinearHermite())
 
         if eventtrigger
             if (t_root - tₖ) < (1e-4 * Δt)

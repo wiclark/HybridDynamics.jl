@@ -143,7 +143,7 @@ end
 ##############################################################
 
 function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Df, Δt,
-    tol, ztol, sol; stepper::AbstractODESolver=ModifiedMidpoint(), dense_out=true, event_method=AbstractEventLocator=HermiteLocator(),
+    tol, ztol, sol; stepper::AbstractODESolver=ModifiedMidpoint(), dense_out=true, event_method::AbstractEventLocator,
     guard_direction=default_guard_direction(prob.sys)) where {S<:NonholonomicSystem, I, T}
     # Extract out the state
     xₖ, tₖ = sol.x[end], sol.t[end]
@@ -186,7 +186,7 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Df, Δt,
         # To what degree does λ preserve the holonomic constraint?
         function guard_error_nh(Λ)
             F(z, t) = f_λ(z[1:n], z[n+1:end], λ_free(z[1:n], z[n+1:end]), Λ)
-            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F, Df, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false)
+            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F, Df, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false, event_method=event_method)
             q_next, p_next = x_predict[1:n], x_predict[n+1:end]
             # (Tangent) constraint violation
             return dot(∇h(q_next), M(q_next) \ p_next)
@@ -194,7 +194,7 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Df, Δt,
         # If ∇h(q)̇q>0 with λ=0, then we are escaping the guard (inwards) and are escaping the sliding mode
         if guard_error_nh(0.0) > 0
             F(z, t) = f_λ(z[1:n], z[n+1:end], λ_free(z[1:n], z[n+1:end]), 0.0)
-            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F, Df, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false)
+            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F, Df, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false, event_method=event_method)
             # Record the derivative
             if dense_out
                 push!(sol.dx, F(x_predict, tₖ+dt_used))
@@ -202,7 +202,7 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Df, Δt,
         else
             # We have the augmented multiplier
             F2(z, t) = f_λ(z[1:n], z[n+1:end], λ_free(z[1:n], z[n+1:end]), λ_dh(z[1:n], z[n+1:end])[end])
-            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F2, Df, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false)
+            x_predict, _, _, dt_used, dt_next = take_step(solver, prob, F2, Df, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; check=false, event_method=event_method)
             # Record the derivative
             if dense_out
                 push!(sol.dx, F2(x_predict, tₖ+dt_used))
@@ -215,7 +215,7 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Df, Δt,
         return x_predict, dt_used, dt_next, true
     else # No Zeno stuff is present
         f(z, t) = f_λ(z[1:n], z[n+1:end], λ_free(z[1:n], z[n+1:end]), 0.0)
-        x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(solver, prob, f, Df, vcat(qₖ, pₖ), tₖ, Δt, tol, sol)
+        x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(solver, prob, f, Df, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; event_method=event_method)
         # Was there an impact?
         if eventtrigger
             t_star, x_star = locate_event(event_method, prob, solver, f, Df, vcat(qₖ, pₖ), tₖ, Δt, guard(sys, xₖ), tol, sol, stepper)
@@ -249,7 +249,7 @@ end
 """
     solve(prob::prob{S, I, T},
                solver::AbstractODESolver=RK4();
-               event_method::AbstractEventLocator=LinearLocator(),
+               event_method::AbstractEventLocator=LinearHermite(),
                dense_out = true,
                dt_initial = 0.01, max_iter = 10^6, 
                tol = 1e-6, ztol = 1e-3,
@@ -261,7 +261,7 @@ Solve a nonholonomic hybrid system.
 """
 function solve(prob::prob{S, I, T},
                solver::AbstractODESolver=RK4();
-               event_method::AbstractEventLocator=HermiteLocator(),
+               event_method::AbstractEventLocator=LinearHermite(),
                dense_out = true,
                dt_initial = 0.01, max_iter = 10^6, 
                tol = 1e-6, ztol = 1e-3,

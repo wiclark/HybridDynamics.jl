@@ -92,7 +92,7 @@ end
 
 function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol; 
     dense_out=true, stepper::AbstractODESolver=RK4(), 
-    event_method::AbstractEventLocator=HermiteLocator(), guard_direction=0, boundary_tol, track_sliding) where {S<:FilippovSystem, I, T}
+    event_method::AbstractEventLocator, guard_direction=0, boundary_tol, track_sliding) where {S<:FilippovSystem, I, T}
 
     # Extract current sim state and time
     xₖ = sol.x[end]
@@ -136,7 +136,7 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
     end
 
     # Delegate the numerical integration to the active solver
-    x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(active_solver, active_prob, vf, Df, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction)
+    x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(active_solver, active_prob, vf, Df, xₖ, tₖ, Δt, tol, sol; guard_direction=guard_direction, event_method=event_method)
 
     # If a solver reports a very small step while sliding, it is likely caught
     # in a rejection cycle. We force a conservative step to keep things moving. 
@@ -199,7 +199,7 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
     event_type = nothing
 
     if eventtrigger
-        t_star, x_star = locate_event(event_method, prob, solver, vf, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
+        t_star, x_star = locate_event(event_method, prob, stepper, vf, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
 
         _, mode_next = filippov_vector_field(sys, x_star; Ftol=boundary_layer, atol=guard_tol)
         event_type = Symbol(current_mode, :_to_, mode_next) # e.g. :f_to_g or :f_to_k
@@ -213,7 +213,7 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
         exit_prob = HybridDynamics.prob(exit_sys, prob.init, prob.tspan)
 
         # locate exit
-        t_star, x_star = locate_event(event_method, exit_prob, solver, vf, Df, xₖ, tₖ, dt_used, exit_guard_fun(xₖ), tol, sol, stepper)
+        t_star, x_star = locate_event(event_method, exit_prob, stepper, vf, Df, xₖ, tₖ, dt_used, exit_guard_fun(xₖ), tol, sol, stepper)
 
         # Iterative Newton re-projection to main switch surface
         for _ in 1:10
@@ -259,7 +259,7 @@ end
 
 """
     solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
-               event_method::AbstractEventLocator=HermiteLocator(),
+               event_method::AbstractEventLocator=LinearHermite(),
                dense_out = true,
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
                tol = 1e-6, boundary_tol = 10,
@@ -271,7 +271,7 @@ Solve a Filippov system.
 
 """
 function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
-               event_method::AbstractEventLocator=HermiteLocator(),
+               event_method::AbstractEventLocator=LinearHermite(),
                dense_out = true,
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
                tol = 1e-6, boundary_tol = 10,
