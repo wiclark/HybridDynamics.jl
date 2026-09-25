@@ -197,12 +197,9 @@ function evaluate_crossing(::LinearQuadratic, h_prev, h_now, h_next, t_prev, t_n
     end
     return false, NaN, NaN
 end
+
 #Locator Dispatches
-#Isolates the root finding mathematics inside each one. This gets rid of global helpers so when we add new locators its really easy
-
-#Linear Interpolation
-
-function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
+function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4(); event_max_iters::Int = 100, force_iters::Bool = false)
     # Extract System
     sys = prob.sys
     # Extract left boundary to 0 and right to Δt
@@ -212,7 +209,7 @@ function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df,
 
     # Check if state already satisfies the event condition, if so we return the state and time.
     if abs(h_now) < tol 
-        return tₖ, xₖ
+        return tₖ, xₖ, 0
     end
 
     # Get right side of boundary
@@ -223,14 +220,22 @@ function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df,
     # If we ever get a step not bracketing a root we exit to avoid iterating garbage. 
     if signbit(h_l) == signbit(h_r)
         # Return the time and state at the end of the full step since no event took place
-        return tₖ + Δt, x_r
+        return tₖ + Δt, x_r, 0
     end
 
     # Initialize our best guess for the event time offset and state to the right boundary
     τ_star = Δt
     x_star = x_r
+    iterations = 0
 
-    for _ in 1:100
+    for i in 1:event_max_iters
+        iterations = i
+
+        if (h_r - h_l) == 0
+            # avoiding division by zero
+            break
+        end
+
         # Linear Interpolation
         # Calc time offset where event occurs
         τ_m = τ_r - h_r * (τ_r - τ_l) / (h_r - h_l)
@@ -241,7 +246,7 @@ function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df,
         h_m = guard(sys, x_m)
 
         # Check if this interpolated state satifies the event tolerance 
-        if abs(h_m) < tol
+        if !force_iters && abs(h_m) < tol
             # If so we save current as our final answer and break out of the loop. 
             τ_star = τ_m
             x_star = x_m
@@ -267,11 +272,11 @@ function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df,
     # Calc absolute time of the event by adding base time to the found offset
     t_star = tₖ + τ_star
     # return abs time and its corresponding state. 
-    return t_star, x_star
+    return t_star, x_star, iterations
 end
 
 #Hermite Locator
-function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4())
+function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4(); event_max_iters::Int = 100, force_iters::Bool = false)
     sys = prob.sys
     
     # Boundary setup
@@ -282,7 +287,7 @@ function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, x
     hp_l = guard_derivatives(sys, x_l, dx_l, h_l)
 
     if abs(h_now) < tol
-        return tₖ, xₖ
+        return tₖ, xₖ, 0
     end
 
     x_r, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_r, tol, sol, stepper; check=false)
@@ -292,14 +297,22 @@ function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, x
 
     # Return step if no root is bracketed
     if signbit(h_l) == signbit(h_r)
-        return tₖ + Δt, x_r
+        return tₖ + Δt, x_r, 0 
     end
 
     τ_m = 0.5 * Δt
     x_m = x_r
+    iterations = 0
 
-    for _ in 1:100
+    for i in 1:event_max_iters
+        iterations = i
         dτ = τ_r - τ_l
+
+        if !force_iters && dτ < 1e-12
+            #division by zero
+            break
+        end
+
         if dτ < 1e-12
             break
         end
@@ -328,8 +341,8 @@ function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, x
         x_m, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_m, tol, sol, stepper; check=false)
         h_m = guard(sys, x_m)
 
-        if abs(h_m) < tol
-            return tₖ + τ_m, x_m
+        if !force_iters && abs(h_m) < tol
+            return tₖ + τ_m, x_m, iterations
         end
 
         # Update bracket and boundary derivatives
@@ -343,5 +356,5 @@ function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, x
         end
     end
 
-    return tₖ + τ_m, x_m
+    return tₖ + τ_m, x_m, iterations
 end

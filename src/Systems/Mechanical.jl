@@ -137,7 +137,8 @@ end
 function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Df, Δt,
     tol, ztol, sol; stepper::AbstractODESolver=ModifiedMidpoint(), dense_out = true, 
     event_method::AbstractEventLocator, 
-    guard_direction=default_guard_direction(prob.sys)) where {S<:MechanicalSystem, I, T}
+    guard_direction=default_guard_direction(prob.sys),
+    event_max_iters, force_iters) where {S<:MechanicalSystem, I, T}
     # Extract out the state
     xₖ, tₖ = sol.x[end], sol.t[end]
     n = length(xₖ) ÷ 2
@@ -211,7 +212,7 @@ function take_step_mechanical!(solver, prob::prob{S, I, T}, f_λ, Df, Δt,
         x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(solver, prob, f, Df, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; event_method=event_method)
         # Was there an impact?
         if eventtrigger
-            t_star, x_star = locate_event(event_method, prob, solver, f, Df, vcat(qₖ, pₖ), tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper)
+            t_star, x_star = locate_event(event_method, prob, solver, f, Df, vcat(qₖ, pₖ), tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper; event_max_iters=event_max_iters, force_iters=force_iters)
             x_predict = Δ(x_star, M, ∇h, sys)
 
             push!(sol.event_times, t_star)
@@ -253,6 +254,8 @@ function solve(prob::prob{S, I, T},
                tol = 1e-6, ztol = 1e-3,
                guard_direction = default_guard_direction(prob.sys),
                Df = nothing,
+               event_max_iters = 100,
+               force_iters = false,
                kwargs...) where {S<:MechanicalSystem, I, T}
     
     sys = prob.sys
@@ -325,7 +328,7 @@ function solve(prob::prob{S, I, T},
 
         # Perform the step
         _, _, Δt, _ = take_step_mechanical!(solver, prob, f_λ, Df, Δt, tol, ztol, sol; 
-                        dense_out = dense_out, event_method=event_method, guard_direction = guard_direction)
+                        dense_out = dense_out, event_method=event_method, guard_direction = guard_direction, event_max_iters=event_max_iters, force_iters=force_iters)
     end
 
     return sol
