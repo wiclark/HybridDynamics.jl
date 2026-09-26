@@ -1,5 +1,17 @@
 # Change Log
 
+## v1.1.3
+
+### New Functionality
+
+* Updated Event Detection methods. Now we use `LinearHermite` as default with `LinearQuadratic` as an option. They both use Linear Interpolation at first to find a crossing but after use Hermite/Quadratic Interpolation to find the crossing if Linear fails. 
+* Added `event_max_iters` and `force_iters` as optional arguments to all systems solve functions. `event_max_iters` allows you to manually input how many (total) iterations you want the veent detection to iterate over (default is 100 but it will rearely hit that). `force_iters` forces the event detection to run for `event_max_iters`. 
+* Documentation has been added for the new Event Detection methods.
+
+### REMOVED
+
+* `LinearLocator`, `BisectionLocator`, `NewtonLocator` and `QuadraticLocator` event methods have been deleted. They were replaced by `LinearQuadratic` and `LinearHermite`.
+
 ## v1.1.2
 
 ### New functionality

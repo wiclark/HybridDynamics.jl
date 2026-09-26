@@ -6,15 +6,15 @@
 # soltol = 1e-2
 
 # Define problem with known solution
-function f_ball(x, t)
+function f_ball_gen(x, t)
     g = 9.81
     q, v = x
     return [v, -g]
 end
-h_ball(x) = x[1]
-Δ_ball(x) = [abs(x[1]), -0.8*x[2]]
+h_ball_gen(x) = x[1]
+Δ_ball_gen(x) = [abs(x[1]), -0.8*x[2]]
 
-sysG = HD.GeneralSystem(f_ball, h_ball, Δ_ball; direction=-1)
+sysG = HD.GeneralSystem(f_ball_gen, h_ball_gen, Δ_ball_gen; direction=-1)
 probG1 = HD.prob(sysG, [10.0, 0.0], (0.0, 2.0))
 probGz = HD.prob(sysG, [1.0, 0.0], (0.0, 5.0))
 

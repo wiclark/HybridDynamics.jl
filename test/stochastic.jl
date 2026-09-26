@@ -3,16 +3,16 @@ import HybridDynamics as HD
 using Test
 
 # Define problem with known solution
-function f_ball(x, t)
+function f_ball_sto(x, t)
     g = 9.81
     q, v = x
     return [v, -g]
 end
 w(x, t) = [0.0; 0.02;;]
-h_ball(x) = x[1]
-Δ_ball(x) = [abs(x[1]), -0.8*x[2]]
+h_ball_sto(x) = x[1]
+Δ_ball_sto(x) = [abs(x[1]), -0.8*x[2]]
 
-sysS = HD.StochasticSystem(f_ball, w, h_ball, Δ_ball; direction=-1)
+sysS = HD.StochasticSystem(f_ball_sto, w, h_ball_sto, Δ_ball_sto; direction=-1)
 probS = HD.prob(sysS, [10.0, 0.0], (0.0, 2.0))
 
 @testset "Stochastic" begin
