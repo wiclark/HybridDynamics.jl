@@ -83,7 +83,7 @@ export AdaptiveABM2, AdaptiveABM3
 export MagnusLeapfrog
 
 #EventDetection locators
-export LinearQuadratic, LinearHermite
+export Linear, LinearQuadratic, LinearHermite
 
 #Linear/Affine additives
 export beating_and_blocking_sets, is_trivially_blocking

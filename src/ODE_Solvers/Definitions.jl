@@ -27,6 +27,9 @@ struct LinearQuadratic <: AbstractEventLocator end
 #Tage to use linear interpolation with Hermite interpolation if linear missed the event.
 struct LinearHermite <: AbstractEventLocator end
 
+#Tag to use JUST linear interpolation
+struct Linear <: AbstractEventLocator end
+
 
 struct prob{S <: AbstractHybridSystem, I  <: AbstractArray{Float64}, T <: Tuple{Float64, Float64}} <: AbstractHybridProblem
     sys::S

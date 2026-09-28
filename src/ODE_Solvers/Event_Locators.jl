@@ -12,19 +12,19 @@ default_guard_direction(sys) = 0
 
 # HERMITE VERSION
 function crossed_guard(event_method::LinearHermite, sys, f, sol, xₖ, tₖ, x_next, Δt;
-                       tol=1e-6, direction=default_guard_direction(sys))
+                       tol=1e-6, direction=default_guard_direction(sys), guard_derivative=nothing)
     h_now  = guard(sys, xₖ)
     h_next = guard(sys, x_next)
 
-    hp_now  = guard_derivatives(sys, xₖ,     f(xₖ, tₖ),          h_now)
-    hp_next = guard_derivatives(sys, x_next, f(x_next, tₖ + Δt), h_next)
+    hp_now  = guard_derivatives(sys, xₖ,     f(xₖ, tₖ),          h_now; guard_derivative=guard_derivative)
+    hp_next = guard_derivatives(sys, x_next, f(x_next, tₖ + Δt), h_next; guard_derivative=guard_derivative)
 
     return evaluate_crossing(event_method, h_now, h_next, hp_now, hp_next, tₖ, tₖ + Δt, direction; tol=tol)
 end
 
 # LINEAR/QUADRATIC VERSION
 function crossed_guard(event_method::LinearQuadratic, sys, f, sol, xₖ, tₖ, x_next, Δt;
-                       tol=1e-6, direction=default_guard_direction(sys))
+                       tol=1e-6, direction=default_guard_direction(sys), guard_derivative=guard_derivative)
     h_now  = guard(sys, xₖ)
     h_next = guard(sys, x_next)
 
@@ -36,10 +36,43 @@ function crossed_guard(event_method::LinearQuadratic, sys, f, sol, xₖ, tₖ, x
     return evaluate_crossing(event_method, h_prev, h_now, h_next, t_prev, tₖ, tₖ + Δt, direction; tol=tol)
 end
 
+#JUST LINEAR VERSION
+function crossed_guard(event_method::Linear, sys, f, sol, xₖ, tₖ, x_next, Δt; tol=1e-6, direction=default_guard_direction(sys), guard_derivative=guard_derivative)
+    h_now = guard(sys, xₖ)
+    h_next = guard(sys, x_next)
+
+    return evaluate_crossing(event_method, h_now, h_next, tₖ, tₖ + Δt, direction; tol=tol)
+end 
 
 #Calcs dh/dt = ∇h(x) * dx
-function guard_derivatives(sys, x, dx, h_val; ε=1e-7)
-    return (guard(sys, x .+ ε .* dx) - h_val) / ε
+function guard_derivatives(sys, x, dx, h_val; guard_derivative=nothing)
+    dhdx = if guard_derivative == nothing
+        ForwardDiff.gradient(z -> guard(sys, z), x)
+    else
+        guard_derivative(x)
+    end
+
+    return dot(dhdx, dx)
+end
+
+#LINEAR VERSION
+function evaluate_crossing(::Linear, h_now, h_next, t_now, t_next, direction::Int; tol=1e-6)
+    Δt = t_next - t_now
+
+    if Δt <= 0
+        return false, NaN, NaN
+    end
+
+    valid_linear(h1, h2) = 
+        (direction == 0 && h1 * h2 < 0) ||
+        (direction == -1 && h1 > 0 && h2 < 0) ||
+        (direction == 1 && h1 < 0 && h2 > 0)
+
+        if valid_linear(h_now, h_next)
+            τ_root = -h_now * Δt / (h_next - h_now)
+            return true, t_now + τ_root, NaN
+        end
+    return false, NaN, NaN
 end
 
 #HERMITE VERSION
@@ -195,7 +228,7 @@ function evaluate_crossing(::LinearQuadratic, h_prev, h_now, h_next, t_prev, t_n
 end
 
 #Locator Dispatches
-function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4(); event_max_iters::Int = 100, force_iters::Bool = false)
+function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4(); event_max_iters::Int = 100, force_iters::Bool = false, guard_derivative=nothing)
     # Extract System
     sys = prob.sys
     # Extract left boundary to 0 and right to Δt
@@ -271,8 +304,62 @@ function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df,
     return t_star, x_star, iterations
 end
 
+#Linear Locator
+function locate_event(::Linear, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK=RK4(); event_max_iters::Int=100, force_iters::Bool=false, guard_derivative=nothing)
+    sys = prob.sys
+
+    τ_l, τ_r = 0.0, Δt
+    h_l = h_now
+
+    if abs(h_now) < tol
+        return tₖ, xₖ, 0
+    end
+
+    x_r, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_r, tol, sol, stepper; check=false)
+    h_r = guard(sys, x_r)
+
+    if signbit(h_l) == signbit(h_r)
+        return tₖ + Δt, x_r, 0
+    end
+
+    τ_star = Δt
+    x_star = x_r
+    iterations = 0
+
+    for i in 1:event_max_iters
+        iterations = i
+
+        if (h_r - h_l) == 0
+            break
+        end
+
+        τ_m = τ_r - h_r * (τ_r - τ_l) / (h_r - h_l)
+        x_m, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_m, tol, sol, stepper; check=false)
+        h_m = guard(sys, x_m)
+
+        if !force_iters && abs(h_m) < tol
+            τ_star = τ_m
+            x_star = x_m 
+            break
+        end
+
+        τ_star = τ_m
+        x_star = x_m
+
+        if signbit(h_l) != signbit(h_m)
+            τ_r = τ_m
+            h_r = h_m
+        else
+            τ_l = τ_m
+            h_l = h_m
+        end
+    end
+    t_star = tₖ + τ_star
+    return t_star, x_star, iterations
+end
+
 #Hermite Locator
-function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4(); event_max_iters::Int = 100, force_iters::Bool = false)
+function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4(); event_max_iters::Int = 100, force_iters::Bool = false, guard_derivative=nothing)
     sys = prob.sys
     
     # Boundary setup
@@ -280,7 +367,7 @@ function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, x
     x_l = xₖ
     h_l = h_now
     dx_l = f(x_l, tₖ)
-    hp_l = guard_derivatives(sys, x_l, dx_l, h_l)
+    hp_l = guard_derivatives(sys, x_l, dx_l, h_l; guard_derivative=guard_derivative)
 
     if abs(h_now) < tol
         return tₖ, xₖ, 0
@@ -289,7 +376,7 @@ function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, x
     x_r, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_r, tol, sol, stepper; check=false)
     h_r = guard(sys, x_r)
     dx_r = f(x_r, tₖ + Δt)
-    hp_r = guard_derivatives(sys, x_r, dx_r, h_r)
+    hp_r = guard_derivatives(sys, x_r, dx_r, h_r; guard_derivative=guard_derivative)
 
     τ_m = 0.5 * Δt
     x_m = x_r
@@ -339,7 +426,7 @@ function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, x
 
         # Update bracket and boundary derivatives
         dx_m = f(x_m, tₖ + τ_m)
-        hp_m = guard_derivatives(sys, x_m, dx_m, h_m)
+        hp_m = guard_derivatives(sys, x_m, dx_m, h_m; guard_derivative=guard_derivative)
 
         if signbit(h_l) != signbit(h_m)
             τ_r, x_r, h_r, hp_r = τ_m, x_m, h_m, hp_m

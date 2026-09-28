@@ -2,6 +2,10 @@
 
 Our package utilizes two different options for event detection currently.
 
+### Linear Interpolation Method (`Linear`)
+
+The `Linear` event method simply uses simple linear sign changes between the states. If a crossing is found we estimate it via a secant line. Not the other methods below use this method first and then a stronger one if it fails. Linear works most of the time. 
+
 ### Linear/Quadratic Method (`LinearQuadratic`)
 
 The `LinearQuadratic` method relies on historical trajectory data to approximate the guard functions behavior. It uses the previous accepted step, the current step, and the proposed next step to evaluate whether the guard function crossed zero. If a crossing is detected it will find the crossing using the False Position interpolation method. 
@@ -41,3 +45,11 @@ The bracketing loop uses this Hermite cubic formulation. At each iteration, a Ne
 $$\tau_{k+1} = \tau_k - \frac{p(\tau_k)}{p'(\tau_k)}$$
 
 The ODE solver takes a step to this intermediate time $\tau_m$, evaluates $h_m$, and updates the bracket and boundary derivatives to converge on the true crossing state and time.
+
+### Example Images
+
+Below are some examples on how the three (Linear, Quadratic, Hermite) interpolations work as well as an example where the Linear detection fails. 
+
+![Interpolation Examples](assets/interpolation.pdf)
+
+![Interpolation Examples with Linear Failure](assets/interpolation_linear_failed.pdf)

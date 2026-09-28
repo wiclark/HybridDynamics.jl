@@ -145,7 +145,7 @@ end
 function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Df, Δt,
     tol, ztol, sol; stepper::AbstractODESolver=ModifiedMidpoint(), dense_out=true, event_method::AbstractEventLocator,
     guard_direction=default_guard_direction(prob.sys),
-    event_max_iters, force_iters) where {S<:NonholonomicSystem, I, T}
+    event_max_iters, force_iters, guard_derivative) where {S<:NonholonomicSystem, I, T}
     # Extract out the state
     xₖ, tₖ = sol.x[end], sol.t[end]
     n = length(xₖ) ÷ 2
@@ -219,7 +219,7 @@ function take_step_nonholonomic!(solver, prob::prob{S, I, T}, f_λ, Df, Δt,
         x_predict, eventtrigger, t_root, dt_used, dt_next = take_step(solver, prob, f, Df, vcat(qₖ, pₖ), tₖ, Δt, tol, sol; event_method=event_method)
         # Was there an impact?
         if eventtrigger
-            t_star, x_star = locate_event(event_method, prob, solver, f, Df, vcat(qₖ, pₖ), tₖ, Δt, guard(sys, xₖ), tol, sol, stepper; event_max_iters=event_max_iters, force_iters=force_iters)
+            t_star, x_star = locate_event(event_method, prob, solver, f, Df, vcat(qₖ, pₖ), tₖ, Δt, guard(sys, xₖ), tol, sol, stepper; event_max_iters=event_max_iters, force_iters=force_iters, guard_derivative=guard_derivative)
             x⁺ = Δ(x_star, M, A, ∇h, sys)
             push!(sol.t, t_star)
             push!(sol.x, x_star)
@@ -270,6 +270,7 @@ function solve(prob::prob{S, I, T},
                Df = nothing,
                event_max_iters = 100,
                force_iters = false,
+               guard_derivative=nothing,
                kwargs...) where {S<:NonholonomicSystem, I, T}
     
     sys = prob.sys
@@ -360,7 +361,7 @@ function solve(prob::prob{S, I, T},
 
         # Perform the step
         _, _, Δt, _ = take_step_nonholonomic!(solver, prob, f_λ, Df, Δt, tol, ztol, sol; 
-                        dense_out = dense_out, event_method=event_method, guard_direction = guard_direction, event_max_iters=event_max_iters, force_iters=force_iters)
+                        dense_out = dense_out, event_method=event_method, guard_direction = guard_direction, event_max_iters=event_max_iters, force_iters=force_iters, guard_derivative=guard_derivative)
     end
 
     return sol

@@ -204,7 +204,7 @@ function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Df, Δt, tol, 
     max_zeno_jumps, max_instant_jumps, max_buffer_size, min_zeno_history,
     zeno_floor_mult, zeno_time_threshold, zeno_reset_mult,
     beating_tol_mult, adaptive_tol_mult, adaptive_dt_mult,
-    dt_initial, dt_min, event_max_iters, force_iters) where {S<:Union{LinearSystem, AffineSystem}, I, T}
+    dt_initial, dt_min, event_max_iters, force_iters, guard_derivative) where {S<:Union{LinearSystem, AffineSystem}, I, T}
 
     xₖ = sol.x[end]
     tₖ = sol.t[end]
@@ -262,7 +262,7 @@ function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Df, Δt, tol, 
     x_predict, eventtrigger, _, dt_used, dt_next = take_step(solver, prob, f, Df, xₖ, tₖ, dt_step, tol, sol; guard_direction=guard_direction, event_method=event_method)
 
     if eventtrigger
-        t_star, x_star = locate_event(event_method, prob, solver, f, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper; event_max_iters=event_max_iters, force_iters=force_iters)
+        t_star, x_star = locate_event(event_method, prob, solver, f, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper; event_max_iters=event_max_iters, force_iters=force_iters, guard_derivative=guard_derivative)
 
         jump_interval = t_star - last_jump_time
 
@@ -368,6 +368,7 @@ function solve(prob::prob{S, I, T},
                Df = (x, t) -> prob.sys.A,
                event_max_iters = 100,
                force_iters = false,
+               guard_derivative=nothing,
                #Tunable pathology tolerance parameters
                min_zeno_history = 2,
                zeno_floor_mult = 2.0,
@@ -459,7 +460,7 @@ function solve(prob::prob{S, I, T},
             min_zeno_history=min_zeno_history, zeno_floor_mult=zeno_floor_mult, zeno_time_threshold=zeno_time_threshold,
             zeno_reset_mult=zeno_reset_mult, beating_tol_mult=beating_tol_mult,
             adaptive_tol_mult=adaptive_tol_mult, adaptive_dt_mult=adaptive_dt_mult,
-            dt_initial=dt_initial, dt_min=dt_min, event_max_iters=event_max_iters, force_iters=force_iters)
+            dt_initial=dt_initial, dt_min=dt_min, event_max_iters=event_max_iters, force_iters=force_iters, guard_derivative=guard_derivative)
 
         if terminate
             break

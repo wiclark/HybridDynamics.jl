@@ -94,7 +94,8 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
     dense_out=true, stepper::AbstractODESolver=RK4(), 
     event_method::AbstractEventLocator, guard_direction=0, boundary_tol, track_sliding,
     event_max_iters,
-    force_iters
+    force_iters,
+    guard_derivative
     ) where {S<:FilippovSystem, I, T}
 
     # Extract current sim state and time
@@ -202,7 +203,7 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
     event_type = nothing
 
     if eventtrigger
-        t_star, x_star = locate_event(event_method, prob, stepper, vf, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper; event_max_iters=event_max_iters, force_iters=force_iters)
+        t_star, x_star = locate_event(event_method, prob, stepper, vf, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper; event_max_iters=event_max_iters, force_iters=force_iters, guard_derivative=guard_derivative)
 
         _, mode_next = filippov_vector_field(sys, x_star; Ftol=boundary_layer, atol=guard_tol)
         event_type = Symbol(current_mode, :_to_, mode_next) # e.g. :f_to_g or :f_to_k
@@ -216,7 +217,7 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
         exit_prob = HybridDynamics.prob(exit_sys, prob.init, prob.tspan)
 
         # locate exit
-        t_star, x_star = locate_event(event_method, exit_prob, stepper, vf, Df, xₖ, tₖ, dt_used, exit_guard_fun(xₖ), tol, sol, stepper; event_max_iters=event_max_iters, force_iters=force_iters)
+        t_star, x_star = locate_event(event_method, exit_prob, stepper, vf, Df, xₖ, tₖ, dt_used, exit_guard_fun(xₖ), tol, sol, stepper; event_max_iters=event_max_iters, force_iters=force_iters, guard_derivative=guard_derivative)
 
         # Iterative Newton re-projection to main switch surface
         for _ in 1:10
@@ -283,7 +284,8 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                track_sliding=:none,
                Df = nothing,
                event_max_iters = 100,
-               force_iters = false
+               force_iters = false,
+               guard_derivative=nothing
                ) where {S<:FilippovSystem, I, T}
     sys = prob.sys
     sol = FilippovSol(prob)
@@ -348,7 +350,7 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
 
         _, _, Δt, terminate, sliding_now = take_step_filippov!(solver, prob, Df, Δt, tol, sol; dense_out=dense_out, 
         stepper=stepper, event_method=event_method, guard_direction=guard_direction, boundary_tol=boundary_tol, 
-        track_sliding=track_sliding, event_max_iters=event_max_iters, force_iters=force_iters)
+        track_sliding=track_sliding, event_max_iters=event_max_iters, force_iters=force_iters, guard_derivative=guard_derivative)
 
         if sliding_now && !sliding_prev
             if track_sliding in (:both, :enter)

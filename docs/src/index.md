@@ -22,10 +22,17 @@ import HybridDynamics as HD
 ```
 
 ## Usage
-
 This package supports the following system types: "GeneralSystem", "MechanicalSystem", "NonholonomicSystem", "StochasticSystem", "FilippovSystem", and "Linear/AffineSystem".
 
-For a demonstration, see the Pluto notebooks: "bouncing_ball.jl" and "pluto_examples.jl".
+For demonstrations, see the demos folder for Jupyter and Pluto notebooks:
+- "examples_pluto.jl": A Pluto notebook providing an example of each problem type.
+- "bouncing_ball_pluto.jl": A Pluto notebook covering the dissipative bouncing ball as different problems.
+- "life_after_zeno_pluto.jl": A Pluto notebook showcasing various mechanical examples with Zeno trajectories.
+- "FilippovFuller_jupyter.ipynb": A Jupyter notebook presenting Fuller's problem as an example of a chattering Filippov system.
+- "FilippovSSF_jupyter.ipynb": A Jupyter notebook with modeling a system with friction as a Filippov system.
+- "TestingNotebook_jupyter.ipynb": A Jupyter notebook that performs error analysis for various methods.
+
+The demonstrations require the pacakges: Plots, LaTeXStrings, Printf (only 'TestingNotebook_jupyter.ipynb'), and PlutoUI (all Pluto notebooks).
 
 ## Systems
 
@@ -46,6 +53,26 @@ For a demonstration, see the Pluto notebooks: "bouncing_ball.jl" and "pluto_exam
     - ``h``: Guard
     - ``Δ``: Reset map
     - ``e``: Coefficient of restitution
+
+- **NonholonomicSystem** 
+
+    Required inputs:
+    - ``M``: Mass matrix
+    - ``V``: Potential energy
+
+    Optional inputs:
+    - ``A``: The Pfaffian constraint matrix
+    - ``h``: Guard
+    - ``Δ``: Reset map
+    - ``e``: Coefficient of restitution
+
+- **StochasticSystem** 
+
+    Required inputs:
+    - ``f``: The drift dynamics
+    - ``g``: The diffusion term
+    - ``h``: Guard
+    - ``Δ``: Reset map
 
 - **LinearSystem** ($A, \lambda, C$)
 
@@ -73,3 +100,6 @@ For a demonstration, see the Pluto notebooks: "bouncing_ball.jl" and "pluto_exam
 
     Optional inputs:
     - ``N``: Normal to the guard
+
+## Acknowledgments
+This work was supported by AFOSR grant FA9550-32-0400.

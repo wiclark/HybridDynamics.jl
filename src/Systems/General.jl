@@ -72,7 +72,7 @@ function take_step_general!(solver, prob::prob{S,I,T}, f, Df, Δt, tol, sol;
     dense_out=true, stepper::AbstractODESolver=RK4(), 
     event_method::AbstractEventLocator, 
     guard_direction=default_guard_direction(prob.sys),
-    event_max_iters, force_iters) where {S<:GeneralSystem, I, T}
+    event_max_iters, force_iters, guard_derivative) where {S<:GeneralSystem, I, T}
 
     xₖ = sol.x[end]
     tₖ = sol.t[end]
@@ -83,7 +83,7 @@ function take_step_general!(solver, prob::prob{S,I,T}, f, Df, Δt, tol, sol;
 
     if eventtrigger
          
-        t_star, x_star = locate_event(event_method, prob, stepper, f, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper; event_max_iters=event_max_iters, force_iters=force_iters)
+        t_star, x_star = locate_event(event_method, prob, stepper, f, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper; event_max_iters=event_max_iters, force_iters=force_iters, guard_derivative=guard_derivative)
 
         if abs(guard(sys, x_star)) > 1e-3
             wrong_ness = guard(sys, x_star)
@@ -160,7 +160,8 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                guard_direction = prob.sys.direction,
                Df = nothing,
                event_max_iters = 100,
-               force_iters = false
+               force_iters = false,
+               guard_derivative = nothing
                ) where {S<:GeneralSystem, I, T}
 
     sys = prob.sys
@@ -213,7 +214,7 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
         dt_step = (sol.t[end] + Δt > t_end) ? (t_end - sol.t[end]) : Δt
 
         _, _, Δt, terminate = take_step_general!(solver, prob, f, Df, dt_step, tol, sol; dense_out=dense_out, stepper=stepper, event_method=event_method, 
-        guard_direction=guard_direction, event_max_iters=event_max_iters, force_iters=force_iters)
+        guard_direction=guard_direction, event_max_iters=event_max_iters, force_iters=force_iters, guard_derivative=guard_derivative)
 
         if terminate
             break
