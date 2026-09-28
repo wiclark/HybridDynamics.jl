@@ -50,6 +50,10 @@ The ODE solver takes a step to this intermediate time $\tau_m$, evaluates $h_m$,
 
 Below are some examples on how the three (Linear, Quadratic, Hermite) interpolations work as well as an example where the Linear detection fails. 
 
-![Interpolation Examples](assets/interpolation.pdf)
+![Interpolation Examples](assets/InterpolationExamples.png)
 
-![Interpolation Examples with Linear Failure](assets/interpolation_linear_failed.pdf)
+Above is the example where interpolation works well for all methods.
+
+![Interpolation Examples with Linear Failure](assets/InterpolationLinearFailure.png)
+
+Above is the example where Linear Interpolation would fail. 
