@@ -55,5 +55,5 @@ makedocs(
 # for more information.
 deploydocs(
     repo = "github.com/wiclark/HybridDynamics.jl.git",
-    devbranch = "main"
+    devbranch = "dev"
 )
