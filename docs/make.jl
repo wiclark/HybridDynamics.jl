@@ -27,7 +27,7 @@ makedocs(
             "Lyapunov Exponents" => "Analysis/Lyapunov_exp.md"
         ],
         
-        "Solver_Algorithms" => Any[
+        "Solver Algorithms" => Any[
             "All Solvers" => "Solver_Algorithms/all.md",
             "Event Detection" => "Solver_Algorithms/Event_Detection.md"
         ],
