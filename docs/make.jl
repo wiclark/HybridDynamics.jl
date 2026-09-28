@@ -27,11 +27,11 @@ makedocs(
             "Lyapunov Exponents" => "Analysis/Lyapunov_exp.md"
         ],
         
-        "Solver_Algoritms" => Any[
+        "Solver_Algorithms" => Any[
             "All Solvers" => "Solver_Algorithms/all.md",
             "Event Detection" => "Solver_Algorithms/Event_Detection.md"
         ],
-        
+
         "Examples" => Any[
             "Basic Systems" => Any[
                 "General" => "Examples/Basic_sys/ex_general.md",
@@ -55,5 +55,5 @@ makedocs(
 # for more information.
 deploydocs(
     repo = "github.com/wiclark/HybridDynamics.jl.git",
-    devbranch = "dev"
+    devbranch = "main"
 )
