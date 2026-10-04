@@ -57,3 +57,28 @@ Above is the example where interpolation works well for all methods.
 ![Interpolation Examples with Linear Failure](assets/InterpolationLinearFailure.png)
 
 Above is the example where Linear Interpolation would fail. 
+
+### Direction of the Guard
+
+In all our system types we allow you to specify `guard_direction`. This can have values $0$ or $\pm 1$ which mirrors the standard way MATLAB does it. The paramter values are as follows:
+
+* `0`: **Bidirectional.** The event triggers on any crossing of the guard surface (positive to negative or negative to positive).
+* `1`: **Increasing.** The event triggers only when the trajectory crosses the guard surface from a negative value to a positive value.
+* `-1`: **Decreasing.** The event triggers only when the trajectory crosses the guard surface from a positive value to a negative value. 
+
+**Why this is useful:** 
+Many physical systems feature one-way boundaries. For example, a bouncing ball only experiences an impact event when its height is decreasing ($h \to 0$ from above), not when it is moving upward. Internally, this logic can be evaluated using the states at the beginning ($h_1$) and end ($h_2$) of a time step:
+
+```julia
+valid_linear(h1, h2, direction) = 
+        (direction == 0 && h1 * h2 < 0) ||
+        (direction == -1 && h1 > 0 && h2 < 0) ||
+        (direction == 1 && h1 < 0 && h2 > 0)
+```
+
+### Event Location Convergence
+
+When an event is bounded within a time step, `HybridDynamics.jl` uses a root-finding (such as Hermite interpolation combined with Newton-Secant refinement) to pinpoint the exact continuous time of the guard crossing. You can tune tune the convergence of this algorithm using two parameters (inputted as optional arguments in the `solve` function):
+
+* `event_max_iters::Int` (Default: 100): The absolute max for the root-finding loop. Note: Rarely will you ever go to 100 iterations.
+* `force_iters::Bool` (Default: `false`): When `true`, the solver bypasses the early exit tolerance check (`abs(h_m) < tol`) and exectures every iteration up to `event_max_iters`.
