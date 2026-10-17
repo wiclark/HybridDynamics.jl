@@ -24,7 +24,7 @@ end
 
 # LINEAR/QUADRATIC VERSION
 function crossed_guard(event_method::LinearQuadratic, sys, f, sol, xₖ, tₖ, x_next, Δt;
-                       tol=1e-6, direction=default_guard_direction(sys), guard_derivative=guard_derivative)
+                       tol=1e-6, direction=default_guard_direction(sys), guard_derivative=nothing)
     h_now  = guard(sys, xₖ)
     h_next = guard(sys, x_next)
 
@@ -37,16 +37,16 @@ function crossed_guard(event_method::LinearQuadratic, sys, f, sol, xₖ, tₖ, x
 end
 
 #JUST LINEAR VERSION
-function crossed_guard(event_method::Linear, sys, f, sol, xₖ, tₖ, x_next, Δt; tol=1e-6, direction=default_guard_direction(sys), guard_derivative=guard_derivative)
+function crossed_guard(event_method::Linear, sys, f, sol, xₖ, tₖ, x_next, Δt; tol=1e-6, direction=default_guard_direction(sys), guard_derivative=nothing)
     h_now = guard(sys, xₖ)
     h_next = guard(sys, x_next)
 
     return evaluate_crossing(event_method, h_now, h_next, tₖ, tₖ + Δt, direction; tol=tol)
-end 
+end
 
 #Calcs dh/dt = ∇h(x) * dx
 function guard_derivatives(sys, x, dx, h_val; guard_derivative=nothing)
-    dhdx = if guard_derivative == nothing
+    dhdx = if guard_derivative === nothing
         ForwardDiff.gradient(z -> guard(sys, z), x)
     else
         guard_derivative(x)
@@ -228,7 +228,8 @@ function evaluate_crossing(::LinearQuadratic, h_prev, h_now, h_next, t_prev, t_n
 end
 
 #Locator Dispatches
-function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4(); event_max_iters::Int = 100, force_iters::Bool = false, guard_derivative=nothing)
+function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4();
+    event_max_iters::Int = 100, force_iters::Bool = false, guard_derivative=nothing, event_refinement_method::AbstractEventRefinement = FalsePosition())
     # Extract System
     sys = prob.sys
     # Extract left boundary to 0 and right to Δt
@@ -245,6 +246,8 @@ function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df,
     x_r, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_r, tol, sol, stepper; check=false)
     # Eval guard at this new right side state
     h_r = guard(sys, x_r)
+    dx_r = f(x_r, tₖ + Δt)
+    hp_r = guard_derivatives(sys, x_r, dx_r, h_r; guard_derivative=guard_derivative)
     
     # If we ever get a step not bracketing a root we exit to avoid iterating garbage. 
     if signbit(h_l) == signbit(h_r)
@@ -257,6 +260,9 @@ function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df,
     x_star = x_r
     iterations = 0
 
+    τ_sec_prev, h_sec_prev = τ_l, h_l
+    τ_sec, h_sec = τ_r, h_r
+
     for i in 1:event_max_iters
         iterations = i
 
@@ -265,14 +271,20 @@ function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df,
             break
         end
 
-        # Linear Interpolation
-        # Calc time offset where event occurs
-        τ_m = τ_r - h_r * (τ_r - τ_l) / (h_r - h_l)
+        if event_refinement_method isa Secant
+            τ_m = compute_next_tau(event_refinement_method, τ_sec_prev, τ_sec, h_sec_prev, h_sec, nothing, nothing, nothing, nothing)
+        else
+            τ_m = compute_next_tau(event_refinement_method, τ_l, τ_r, h_l, h_r, nothing, hp_r, nothing, nothing)
+        end
+
+        τ_m = clamp(τ_m, τ_l, τ_r)
 
         # Step ODE solver forward by time offset τ_m
         x_m, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_m, tol, sol, stepper; check=false)
         # Eval guard at this new state
         h_m = guard(sys, x_m)
+        τ_sec_prev, h_sec_prev = τ_sec, h_sec
+        τ_sec, h_sec = τ_m, h_m
 
         # Check if this interpolated state satifies the event tolerance 
         if !force_iters && abs(h_m) < tol
@@ -281,19 +293,25 @@ function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df,
             x_star = x_m
             break
         end
-        # Safeguard?
-        τ_star = τ_m
-        x_star = x_m
+        
+        if abs(h_m) < abs(guard(sys, x_star))
+            τ_star = τ_m
+            x_star = x_m
+        end
 
         # keep root bracketed
         # If the sign at the left boudnary is diff form the sign at the new point, root is in left half 
         if signbit(h_l) != signbit(h_m)
-            # Update right boundary time to the new time
             τ_r = τ_m
-            # Update the right boundary guard value
             h_r = h_m
-        else 
-            # Otherwise root is in the right half, so update left boundary time
+            x_r = x_m
+
+            dx_r = f(x_r, tₖ + τ_r)
+            hp_r = guard_derivatives(
+                sys, x_r, dx_r, h_r;
+                guard_derivative=guard_derivative
+            )
+        else
             τ_l = τ_m
             h_l = h_m
         end
@@ -305,7 +323,8 @@ function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df,
 end
 
 #Linear Locator
-function locate_event(::Linear, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK=RK4(); event_max_iters::Int=100, force_iters::Bool=false, guard_derivative=nothing)
+function locate_event(::Linear, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK=RK4(); 
+    event_max_iters::Int=100, force_iters::Bool=false, guard_derivative=nothing, event_refinement_method::AbstractEventRefinement=FalsePosition())
     sys = prob.sys
 
     τ_l, τ_r = 0.0, Δt
@@ -317,6 +336,8 @@ function locate_event(::Linear, prob, solver::AbstractODESolver, f, Df, xₖ, t�
 
     x_r, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_r, tol, sol, stepper; check=false)
     h_r = guard(sys, x_r)
+    dx_r = f(x_r, tₖ + Δt)
+    hp_r = guard_derivatives(sys, x_r, dx_r, h_r; guard_derivative=guard_derivative)
 
     if signbit(h_l) == signbit(h_r)
         return tₖ + Δt, x_r, 0
@@ -326,6 +347,9 @@ function locate_event(::Linear, prob, solver::AbstractODESolver, f, Df, xₖ, t�
     x_star = x_r
     iterations = 0
 
+    τ_sec_prev, h_sec_prev = τ_l, h_l
+    τ_sec, h_sec = τ_r, h_r
+
     for i in 1:event_max_iters
         iterations = i
 
@@ -333,9 +357,18 @@ function locate_event(::Linear, prob, solver::AbstractODESolver, f, Df, xₖ, t�
             break
         end
 
-        τ_m = τ_r - h_r * (τ_r - τ_l) / (h_r - h_l)
+        if event_refinement_method isa Secant
+            τ_m = compute_next_tau(event_refinement_method, τ_sec_prev, τ_sec, h_sec_prev, h_sec, nothing, nothing, nothing, nothing)
+            τ_m = clamp(τ_m, τ_l, τ_r)
+        else
+            τ_m = compute_next_tau(event_refinement_method, τ_l, τ_r, h_l, h_r, nothing, hp_r, nothing, nothing)
+            τ_m = clamp(τ_m, τ_l, τ_r)
+        end
+
         x_m, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_m, tol, sol, stepper; check=false)
         h_m = guard(sys, x_m)
+        τ_sec_prev, h_sec_prev = τ_sec, h_sec
+        τ_sec, h_sec = τ_m, h_m
 
         if !force_iters && abs(h_m) < tol
             τ_star = τ_m
@@ -343,12 +376,21 @@ function locate_event(::Linear, prob, solver::AbstractODESolver, f, Df, xₖ, t�
             break
         end
 
-        τ_star = τ_m
-        x_star = x_m
+        if abs(h_m) < abs(guard(sys, x_star))
+            τ_star = τ_m
+            x_star = x_m
+        end
 
         if signbit(h_l) != signbit(h_m)
             τ_r = τ_m
             h_r = h_m
+            x_r = x_m
+
+            dx_r = f(x_r, tₖ + τ_r)
+            hp_r = guard_derivatives(
+                sys, x_r, dx_r, h_r;
+                guard_derivative=guard_derivative
+            )
         else
             τ_l = τ_m
             h_l = h_m
@@ -359,7 +401,8 @@ function locate_event(::Linear, prob, solver::AbstractODESolver, f, Df, xₖ, t�
 end
 
 #Hermite Locator
-function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4(); event_max_iters::Int = 100, force_iters::Bool = false, guard_derivative=nothing)
+function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, xₖ, tₖ, Δt, h_now, tol, sol, stepper::RK = RK4();
+    event_max_iters::Int = 100, force_iters::Bool = false, guard_derivative=nothing, event_refinement_method::AbstractEventRefinement = FalsePosition())
     sys = prob.sys
     
     # Boundary setup
@@ -380,7 +423,13 @@ function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, x
 
     τ_m = 0.5 * Δt
     x_m = x_r
+    τ_star = τ_r
+    x_star = x_r
+    h_star = abs(h_r)
     iterations = 0
+
+    τ_sec_prev, h_sec_prev = τ_l, h_l
+    τ_sec, h_sec = τ_r, h_r
 
     for i in 1:event_max_iters
         iterations = i
@@ -391,10 +440,6 @@ function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, x
             break
         end
 
-        if dτ < 1e-12
-            break
-        end
-
         # Hermite Coeffs rewritten
         α = (3 * (h_r - h_l) - (2 * hp_l + hp_r) * dτ) / (dτ^2)
         β = (2 * (h_l - h_r) + (hp_l + hp_r) * dτ) / (dτ^3)
@@ -402,23 +447,42 @@ function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, x
         p(τ) = h_l + hp_l * τ + α * τ^2 + β * τ^3
         dp(τ) = hp_l + 2 * α * τ + 3 * β * τ^2
 
-        # Initial secant guess
-        denom = h_r - h_l
-        τ_step = abs(denom) < 1e-14 ? 0.5 * dτ : clamp(dτ * (-h_l / denom), 0.05 * dτ, 0.95 * dτ)
+        local_hp_r = dp(dτ)
 
-        # Newton refinement
-        for _ in 1:5
-            val = p(τ_step)
-            der = dp(τ_step)
-            abs(der) < 1e-14 && break
-            τ_step = clamp(τ_step - val / der, 0.05 * dτ, 0.95 * dτ)
+        if event_refinement_method isa Secant
+            denom = h_sec - h_sec_prev
+
+            if abs(denom) < eps(Float64)
+                τ_m = 0.5 * (τ_l + τ_r)
+            else
+                τ_m = τ_sec - h_sec * (τ_sec - τ_sec_prev) / denom
+
+                if τ_m <= τ_l || τ_m >= τ_r
+                    τ_m = 0.5 * (τ_l + τ_r)
+                end
+            end
+        else
+            τ_step = compute_next_tau(
+                event_refinement_method, 0.0, dτ, h_l, h_r,
+                hp_l, local_hp_r, nothing, nothing
+            )
+            τ_step = clamp(τ_step, 0.0, dτ)
+
+            τ_m = τ_l + τ_step
         end
-
-        τ_m = τ_l + τ_step
 
         # Step ODE solver to intermediate candidate point
         x_m, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_m, tol, sol, stepper; check=false)
         h_m = guard(sys, x_m)
+
+        if abs(h_m) < h_star
+            τ_star = τ_m
+            x_star = x_m
+            h_star = abs(h_m)
+        end
+
+        τ_sec_prev, h_sec_prev = τ_sec, h_sec
+        τ_sec, h_sec = τ_m, h_m
 
         if !force_iters && abs(h_m) < tol
             return tₖ + τ_m, x_m, iterations
@@ -435,5 +499,38 @@ function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, x
         end
     end
 
-    return tₖ + τ_m, x_m, iterations
+    return tₖ + τ_star, x_star, iterations
+end
+
+# EVENT REFINEMENT METHODS
+# Bisection Method
+function compute_next_tau(::Bisection, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_prev, h_prev)
+    return 0.5 * (τ_l + τ_r)
+end
+
+# False Position Method
+function compute_next_tau(::FalsePosition, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_prev, h_prev)
+    denom  = h_r - h_l
+    if abs(denom) < eps(Float64)
+        return 0.5 * (τ_l + τ_r)
+    end
+    return τ_r - h_r * (τ_r - τ_l) / denom
+end
+
+# Secant Method
+# Secant Method
+function compute_next_tau(::Secant, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_prev, h_prev)
+    denom = h_r - h_l
+    if abs(denom) < eps(Float64)
+        return 0.5 * (τ_l + τ_r)
+    end
+    return τ_r - h_r * (τ_r - τ_l) / denom
+end
+
+# Newtons Method
+function compute_next_tau(::Newton, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_prev, h_prev)
+    if hp_r === nothing || abs(hp_r) < 1e-14
+        return compute_next_tau(FalsePosition(), τ_l, τ_r, h_l, h_r, hp_l, hp_r, nothing, nothing)
+    end
+    return τ_r - h_r / hp_r
 end
