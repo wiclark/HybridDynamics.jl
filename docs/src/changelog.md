@@ -1,5 +1,11 @@
 # Change Log
 
+## v1.1.4
+
+### New Feature
+
+* Added `event_refinement_method` as an optional argument to all (except `Stochastic`) solve functions. The options include `Newton`, `Secant`, `FalsePosition` and `Bisection` (Default is `FalsePosition`). These allow you to choose the iterative method used to locate the exact location of a crossing of a guard surface.  
+
 ## v1.1.3
 
 ### New Functionality
