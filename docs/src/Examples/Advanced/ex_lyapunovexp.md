@@ -34,5 +34,5 @@ sys = HD.GeneralSystem(f_circle, h_circle, Δ_circle; direction=-1)
 ```
 
 ```@example lyap_exp
-λ = HD.LyapunovExponents(sys, [-0.5,0.5,0.0,0.0]; run_length=5.0)
+λ = HD.LyapunovExponents(sys, [-0.5,0.5,0.0,0.0]; run_length=1.0)
 ```
