@@ -248,6 +248,8 @@ function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df,
     h_r = guard(sys, x_r)
     dx_r = f(x_r, tₖ + Δt)
     hp_r = guard_derivatives(sys, x_r, dx_r, h_r; guard_derivative=guard_derivative)
+    dx_l = f(xₖ, tₖ)
+    hp_l = guard_derivatives(sys, xₖ, dx_l, h_l; guard_derivative=guard_derivative)
     
     # If we ever get a step not bracketing a root we exit to avoid iterating garbage. 
     if signbit(h_l) == signbit(h_r)
@@ -271,13 +273,8 @@ function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df,
             break
         end
 
-        τ_m = compute_next_tau(event_refinement_method, τ_l, τ_r, h_l, h_r, nothing, hp_r, τ_sec_prev, h_sec_prev)
-
-        if !(event_refinement_method isa Secant || event_refinement_method isa Newton)
-            τ_m = clamp(τ_m, τ_l, τ_r)
-        else
-            τ_m = clamp(τ_m, 0.0, Δt)
-        end
+        τ_m = compute_next_tau(event_refinement_method, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_sec, h_sec, τ_sec_prev, h_sec_prev)
+        τ_m = clamp(τ_m, τ_l, τ_r)
 
         # Step ODE solver forward by time offset τ_m
         x_m, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_m, tol, sol, stepper; check=false)
@@ -306,15 +303,13 @@ function locate_event(::LinearQuadratic, prob, solver::AbstractODESolver, f, Df,
             τ_r = τ_m
             h_r = h_m
             x_r = x_m
-
             dx_r = f(x_r, tₖ + τ_r)
-            hp_r = guard_derivatives(
-                sys, x_r, dx_r, h_r;
-                guard_derivative=guard_derivative
-            )
+            hp_r = guard_derivatives(sys, x_r, dx_r, h_r; guard_derivative=guard_derivative)
         else
             τ_l = τ_m
             h_l = h_m
+            dx_l = f(x_m, tₖ + τ_m)
+            hp_l = guard_derivatives(sys, x_m, dx_l, h_l; guard_derivative=guard_derivative)
         end
     end
     # Calc absolute time of the event by adding base time to the found offset
@@ -339,6 +334,8 @@ function locate_event(::Linear, prob, solver::AbstractODESolver, f, Df, xₖ, t�
     h_r = guard(sys, x_r)
     dx_r = f(x_r, tₖ + Δt)
     hp_r = guard_derivatives(sys, x_r, dx_r, h_r; guard_derivative=guard_derivative)
+    dx_l = f(xₖ, tₖ)
+    hp_l = guard_derivatives(sys, xₖ, dx_l, h_l; guard_derivative=guard_derivative)
 
     if signbit(h_l) == signbit(h_r)
         return tₖ + Δt, x_r, 0
@@ -358,13 +355,8 @@ function locate_event(::Linear, prob, solver::AbstractODESolver, f, Df, xₖ, t�
             break
         end
 
-        τ_m = compute_next_tau(event_refinement_method, τ_l, τ_r, h_l, h_r, nothing, hp_r, τ_sec_prev, h_sec_prev)
-
-        if !(event_refinement_method isa Secant || event_refinement_method isa Newton)
-            τ_m = clamp(τ_m, τ_l, τ_r)
-        else
-            τ_m = clamp(τ_m, 0.0, Δt)
-        end
+        τ_m = compute_next_tau(event_refinement_method, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_sec, h_sec, τ_sec_prev, h_sec_prev)
+        τ_m = clamp(τ_m, τ_l, τ_r)
 
         x_m, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_m, tol, sol, stepper; check=false)
         h_m = guard(sys, x_m)
@@ -389,13 +381,13 @@ function locate_event(::Linear, prob, solver::AbstractODESolver, f, Df, xₖ, t�
             x_r = x_m
 
             dx_r = f(x_r, tₖ + τ_r)
-            hp_r = guard_derivatives(
-                sys, x_r, dx_r, h_r;
-                guard_derivative=guard_derivative
-            )
+            hp_r = guard_derivatives(sys, x_r, dx_r, h_r; guard_derivative=guard_derivative)
         else
             τ_l = τ_m
             h_l = h_m
+
+            dx_l = f(x_m, tₖ + τ_m)
+            hp_l = guard_derivatives(sys, x_m, dx_l, h_l; guard_derivative=guard_derivative)
         end
     end
     t_star = tₖ + τ_star
@@ -451,28 +443,8 @@ function locate_event(::LinearHermite, prob, solver::AbstractODESolver, f, Df, x
 
         local_hp_r = dp(dτ)
 
-        if event_refinement_method isa Secant
-            if τ_sec_prev !== nothing && h_sec_prev !== nothing && abs(h_sec - h_sec_prev) > eps(Float64)
-                τ_m = τ_sec - h_sec * (τ_sec - τ_sec_prev) / (h_sec - h_sec_prev)
-            else
-                denom = h_sec - h_sec_prev
-                if abs(denom) < eps(Float64)
-                    τ_m = 0.5 * (τ_l + τ_r)
-                else
-                    τ_m = τ_sec - h_sec * (τ_sec - τ_sec_prev) / denom
-                end
-            end
-            if τ_m <= τ_l || τ_m >= τ_r
-                τ_m = 0.5 * (τ_l + τ_r)
-            end
-        else
-            τ_step = compute_next_tau(
-                event_refinement_method, 0.0, dτ, h_l, h_r,
-                hp_l, local_hp_r, τ_sec_prev, h_sec_prev
-            )
-            τ_step = clamp(τ_step, 0.0, dτ)
-            τ_m = τ_l + τ_step
-        end
+        τ_m = compute_next_tau(event_refinement_method, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_sec, h_sec, τ_sec_prev, h_sec_prev)
+        τ_m = clamp(τ_m, τ_l, τ_r)
 
         # Step ODE solver to intermediate candidate point
         x_m, _, _, _, _ = take_step(solver, prob, f, Df, xₖ, tₖ, τ_m, tol, sol, stepper; check=false)
@@ -508,13 +480,13 @@ end
 
 # EVENT REFINEMENT METHODS
 # Bisection Method
-function compute_next_tau(::Bisection, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_prev, h_prev)
+function compute_next_tau(::Bisection, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_sec, h_sec, τ_sec_prev, h_sec_prev)
     return 0.5 * (τ_l + τ_r)
 end
 
 # False Position Method
-function compute_next_tau(::FalsePosition, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_prev, h_prev)
-    denom  = h_r - h_l
+function compute_next_tau(::FalsePosition, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_sec, h_sec, τ_sec_prev, h_sec_prev)
+    denom = h_r - h_l
     if abs(denom) < eps(Float64)
         return 0.5 * (τ_l + τ_r)
     end
@@ -522,10 +494,11 @@ function compute_next_tau(::FalsePosition, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_
 end
 
 # Secant Method
-function compute_next_tau(::Secant, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_prev, h_prev)
-    if τ_prev !== nothing && h_prev !== nothing && abs(h_r - h_prev) > eps(Float64)
-        return τ_r - h_r * (τ_r - τ_prev) / (h_r - h_prev)
+function compute_next_tau(::Secant, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_sec, h_sec, τ_sec_prev, h_sec_prev)
+    if τ_sec_prev !== nothing && h_sec_prev !== nothing && abs(h_sec - h_sec_prev) > eps(Float64)
+        return τ_sec - h_sec * (τ_sec - τ_sec_prev) / (h_sec - h_sec_prev)
     else
+        # Fallback to False Position if history isnt established yet
         denom = h_r - h_l
         if abs(denom) < eps(Float64)
             return 0.5 * (τ_l + τ_r)
@@ -535,9 +508,19 @@ function compute_next_tau(::Secant, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_prev, h
 end
 
 # Newtons Method
-function compute_next_tau(::Newton, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_prev, h_prev)
-    if hp_r === nothing || abs(hp_r) < 1e-14
-        return compute_next_tau(FalsePosition(), τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_prev, h_prev)
+function compute_next_tau(::Newton, τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_sec, h_sec, τ_sec_prev, h_sec_prev)
+    if abs(h_l) <= abs(h_r)
+        τ, h, hp = τ_l, h_l, hp_l
+    else
+        τ, h, hp = τ_r, h_r, hp_r
     end
-    return τ_r - h_r / hp_r
+
+    if hp === nothing || abs(hp) < 1e-14
+        return compute_next_tau(FalsePosition(), τ_l, τ_r, h_l, h_r, hp_l, hp_r, τ_sec, h_sec, τ_sec_prev, h_sec_prev)
+    end
+    τ_new = τ - h / hp
+    if !isfinite(τ_new) || τ_new <= τ_l || τ_new >= τ_r
+        return 0.5 * (τ_l + τ_r)
+    end
+    return τ_new
 end
