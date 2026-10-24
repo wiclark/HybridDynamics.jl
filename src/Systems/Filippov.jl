@@ -106,7 +106,8 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
     sys = prob.sys
 
     # Define tolerances. guard_tol is for precise logic, boundary_layer for sliding stuff. I am sure we can add more fine tuning here but it works fine now
-    guard_tol = max(tol * 10, 1e-7)
+    guard_tol = tol * 10
+    #guard_tol = max(tol * 10, 1e-7)
     boundary_layer = guard_tol * boundary_tol
 
     # Retrieve the active Filippov vector field and determine if we are sliding or not
@@ -133,7 +134,7 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
         active_prob = HybridDynamics.prob(dummy_sys, prob.init, prob.tspan)
         #Use simple stepping for on guard states to prevent adaptive methods breaking things. 
         active_solver = (is_on_guard && !sliding_now) ? stepper : solver
-        Δt = min(Δt, 0.01)
+        Δt = Δt
     else
         # Otherwise, use standard system and solver. 
         active_prob = prob
@@ -158,20 +159,9 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
 
     # Drifting occurs when our solver pulls the state of the switching surface (H(x) = 0).
     # We use Newton projection step along the surface normal sys.N to snap the state
-    # back onto the manifold, preventing the solver from leaking out the sliding mode. 
+    # back onto the manifold, preventing the solver from leaking out the sliding mode.
+    
     if sliding_now && !eventtrigger
-        # Iterate Newton projection to achieve machine-precision manifold adherence
-        for _ in 1:10
-            h_err = guard(sys, x_predict)
-            (isnothing(h_err) || abs(h_err) < 1e-11) && break
-            n_vec = sys.N(x_predict)
-            denom = dot(n_vec, n_vec)
-            if denom > 1e-14
-                x_predict = x_predict .- (h_err / denom) .* n_vec
-            else
-                break
-            end
-        end
 
         # check if we crossed an exit boundary during this sliding step
         a_k = dot(sys.N(xₖ), sys.F(xₖ))
@@ -193,7 +183,7 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
     
     # Dampen the next step size if we are sliding to prioritize surface accuracy 
     if sliding_now || is_on_guard
-        dt_next = min(dt_next, dt_used * 1.5, 0.01) 
+        dt_next = min(dt_next, dt_used * 1.5) 
     end
 
     # Handle event detection
@@ -305,7 +295,7 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
     t₀ = sol.t[end]
     
     # Boundary and guard tolerances
-    guard_tol = max(tol * 10, 1e-7)
+    guard_tol = tol * 10
     boundary_layer = guard_tol * boundary_tol
     
     h_val = guard(sys, x₀)
