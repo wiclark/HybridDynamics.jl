@@ -38,68 +38,17 @@ The demonstrations require the pacakges: Plots, LaTeXStrings, Printf (only 'Test
 
 - **GeneralSystem** ($f, h, \Delta$)
 
-    Required inputs:
-    - ``f``: Continuous dynamics ($f = dx/dt$)
-    - ``h``: Guard
-    - ``reset``: Reset map
-
 - **MechanicalSystem** ($M, V$)
-
-    Required inputs:
-    - ``M``: Mass matrix
-    - ``V``: Potential energy
-
-    Optional inputs:
-    - ``h``: Guard
-    - ``Δ``: Reset map
-    - ``e``: Coefficient of restitution
 
 - **NonholonomicSystem** 
 
-    Required inputs:
-    - ``M``: Mass matrix
-    - ``V``: Potential energy
-
-    Optional inputs:
-    - ``A``: The Pfaffian constraint matrix
-    - ``h``: Guard
-    - ``Δ``: Reset map
-    - ``e``: Coefficient of restitution
-
 - **StochasticSystem** 
-
-    Required inputs:
-    - ``f``: The drift dynamics
-    - ``g``: The diffusion term
-    - ``h``: Guard
-    - ``Δ``: Reset map
 
 - **LinearSystem** ($A, \lambda, C$)
 
-    Required inputs:
-    - ``A``: State transition matrix
-    - ``λ``: Normal vector to the guard
-    - ``C``: Reset map matrix ($x⁺ = Cx$)
-
 - **AffineSystem** ($A, b, \lambda, a, C, \kappa$)
 
-    Required inputs:
-    - ``A``: State transition matrix
-    - ``b``: Continuous affine vector ($dx/dt = Ax + b$)
-    - ``λ``: Normal vector to the guard
-    - ``a``: Guard Offset const $dot(λ, x) + a = 0$
-    - ``C``: Reset map matrix ($x⁺ = Cx$)
-    - ``κ``: Discrete affine vector const x⁺ = Cx + κ
-
 - **FilippovSystem** ($F, G, H$)
-
-    Required inputs:
-    - ``F``: Continuous dynamics where $H(x) > 0$
-    - ``G``: Continuous dynamics where $H(x) < 0$
-    - ``H``: Guard
-
-    Optional inputs:
-    - ``N``: Normal to the guard
 
 ## Acknowledgments
 This work was supported by AFOSR grant FA9550-32-0400.
