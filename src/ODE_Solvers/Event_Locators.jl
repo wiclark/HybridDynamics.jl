@@ -119,11 +119,13 @@ function evaluate_crossing(::LinearHermite, h_now, h_next, hp_now, hp_next, t_no
 
     # The next function attempts to find an event based off of Hermite interpolation
     function valid_hermite()
-        extrema = Float64[]
+        pts=(0., Δt)
         if abs(β) < 1e-12
             if abs(α) > 1e-12
                 R1 = -hp_now / (2 * α)
-                if 0 < R1 < Δt; push!(extrema, R1); end
+                if 0 < R1 < Δt; 
+                    pts = (0., R1, Δt)
+                end
             end
         else
             D = 4 * α^2 - 12 * β * hp_now
@@ -131,14 +133,20 @@ function evaluate_crossing(::LinearHermite, h_now, h_next, hp_now, hp_next, t_no
                 r1 = (-2 * α + sqrt(D)) / (6 * β)
                 r2 = (-2 * α - sqrt(D)) / (6 * β)
                 R1, R2 = min(r1, r2), max(r1, r2)
-                if 0 < R1 < Δt; push!(extrema, R1); end
-                if 0 < R2 < Δt; push!(extrema, R2); end
+                if 0 < R1 < Δt; 
+                    if 0 < R2 < Δt
+                        pts = (0., R1, R2, Δt)
+                    else
+                        pts = (0., R1, Δt)
+                    end
+                elseif 0 < R2 < Δt
+                    pts = (0., R2, Δt)
+                end
             end
         end
         # build sub intervals
-        pts = [0.0; extrema; Δt]
         p(τ) = h_now + hp_now * τ + α * τ^2 + β * τ^3
-        vals = [p(t) for t in pts]
+        vals = p.(pts)
 
         # check each segment for linear crossing
         for i in 1:(length(pts)-1)

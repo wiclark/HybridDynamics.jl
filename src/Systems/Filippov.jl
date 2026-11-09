@@ -117,9 +117,11 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
     else
         sliding_now = false
     end
-
+   
     # Wrap the vector field for use in ODE solvers
-    vf(x, t) = vf_fun(x)
+    function vf(x, t) 
+        vf_fun(x)
+    end
 
     # Determine if we are currently on the switching surface (guard)
     h_val = guard(sys, xₖ)

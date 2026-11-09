@@ -63,7 +63,6 @@ function take_step(solver::FixedRK, prob::AbstractHybridProblem, f, Df, xₖ, t�
     if check
         #Evaluate Guards
         eventtrigger, t_root, _ = crossed_guard(event_method, sys, f, sol, xₖ, tₖ, x_predict, Δt; tol=tol, direction=guard_direction)
-
         if eventtrigger
             if (t_root - tₖ) < (1e-4 * Δt)
                 eventtrigger = false
