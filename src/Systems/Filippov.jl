@@ -22,6 +22,21 @@ function FilippovSystem(F, G, H; N= (x-> ForwardDiff.gradient(H,x)))
     return FilippovSystem(F, G, H, N)
 end
 
+"""
+    FilippovSol
+
+Solution type returned by `solve` for a `FilippovSystem`.
+
+# Fields
+- `t`: Vector of time values corresponding to the computed solution states.
+- `x`: Vector of solution states.
+- `dx`: Vector of derivatives evaluated at each solution state. Only populated when `dense_out=true`.
+- `s`: Vector of time values corresponding to sliding motion.
+- `event_times`: Times at which transitions or other detected events occur.
+- `event_indices`: Indices into `t` and `x` corresponding to detected events.
+- `event_types`: Symbols describing the type of transition that occurred, such as `:f_to_g`, `:f_to_k`, or `:k_to_f`.
+- `mode`: Symbols identifying the active dynamical mode: `:f` for the `F` vector field, `:g` for the `G` vector field, and `:k` for sliding dynamics.
+"""
 struct FilippovSol{T, X, DX, S, E, EI, ET, MO} <: AbstractHybridSolution
     t::T                # Time data
     x::X                # Position data
@@ -253,16 +268,52 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
 end
 
 """
-    solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
-               event_method::AbstractEventLocator=LinearHermite(),
-               dense_out = true,
-               dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
-               tol = 1e-6, boundary_tol = 10,
-               stepper::AbstractODESolver=RK4(),
-               guard_direction = 0, 
-               ) where {S<:FilippovSystem, I, T}
+        solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
+          event_method::AbstractEventLocator=LinearHermite(),
+          dense_out=true,
+          dt_initial=0.01,
+          dt_min=1e-6,
+          max_iter=10^6,
+          tol=1e-6,
+          boundary_tol=10,
+          stepper::AbstractODESolver=RK4(),
+          guard_direction=0,
+          track_sliding=:none,
+          Df=nothing,
+          event_max_iters=100,
+          force_iters=false,
+          guard_derivative=nothing,
+          event_refinement_method::AbstractEventRefinement=FalsePosition()) 
+          where {S<:FilippovSystem, I, T}
 
 Solve a Filippov system.
+
+The solver integrates the appropriate vector field depending on the
+current state and detects transitions between the two vector fields
+and sliding motion along the switching surface.
+
+# Arguments
+- `prob`: Problem containing the `FilippovSystem`, initial condition, and time span.
+- `solver`: ODE solver used for numerical integration. Defaults to `RK45()`.
+- `event_method`: Event locator used to locate transitions across the switching surface. Defaults to `LinearHermite()`.
+- `dense_out`: If `true`, stores the derivative at each solution point in `sol.dx`. Defaults to `true`.
+- `dt_initial`: Initial time step size. Defaults to `0.01`.
+- `dt_min`: Minimum allowable time step size. Defaults to `1e-6`.
+- `max_iter`: Maximum number of integration iterations. Defaults to `10^6`.
+- `tol`: Numerical tolerance used for integration and event detection. Defaults to `1e-6`.
+- `boundary_tol`: Scaling factor used to determine the boundary layer around the switching surface for sliding-mode detection. Defaults to `10`.
+- `stepper`: Fixed-step ODE solver used when the solution is on the switching surface but not currently sliding. Defaults to `RK4()`.
+- `guard_direction`: Direction of guard crossing to detect: `0` detects either direction, `1` detects rising crossings, and `-1` detects falling crossings. Defaults to `0`.
+- `track_sliding`: Controls information when sliding motion begins or ends. Accepts `:none`, `:enter`, `:exit`, or `:both`. Defaults to `:none`.
+- `Df`: Optional Jacobian or derivative information supplied to the numerical solver. Defaults to `nothing`.
+- `event_max_iters`: Maximum number of iterations used by the event locator. Defaults to `100`.
+- `force_iters`: If `true`, forces the event locator to perform the specified number of iterations rather than stopping early based on its convergence criteria. Defaults to `false`.
+- `guard_derivative`: Optional function providing the derivative of the guard function, used by event refinement methods that require it. Defaults to `nothing`.
+- `event_refinement_method`: Root-finding method used to refine the event location. Defaults to `FalsePosition()`.
+
+# Returns
+A `FilippovSol` containing the solution times, states, derivatives
+(if `dense_out=true`), sliding information, and detected events.
 
 """
 function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();

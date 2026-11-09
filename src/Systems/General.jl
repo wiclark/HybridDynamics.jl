@@ -38,6 +38,19 @@ function guard(sys::TimeTriggeredGeneral, x::AbstractArray)
     return 1.0 # Always positive, meaning it never crosses a 0-boundary
 end
 
+"""
+    GeneralSol
+
+Solution type returned by `solve` for a `GeneralSystem` or
+`TimeTriggeredGeneral` system.
+
+# Fields
+- `t`: Vector of time values corresponding to the computed solution states.
+- `x`: Vector of solution states.
+- `dx`: Vector of derivatives evaluated at each solution state. Only populated when `dense_out=true`.
+- `event_times`: Times at which reset events occur.
+- `event_indices`: Indices into `t` and `x` corresponding to the post-reset states at each event.
+"""
 struct GeneralSol{T, X, DX} <: AbstractHybridSolution
     t::T                        #Time points of sim
     x::X                        #State traj: T is generic to support varying state types
@@ -129,28 +142,47 @@ function take_step_general!(solver, prob::prob{S,I,T}, f, Df, Δt, tol, sol;
 end
 
 """
-    solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45(); kwargs...) where {S<:GeneralSystem, I, T}
+    solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
+          event_method::AbstractEventLocator=LinearHermite(),
+          dense_out=true,
+          dt_initial=1e-3,
+          dt_min=1e-6,
+          max_iter=10^6,
+          tol=1e-6,
+          stepper::AbstractODESolver=RK4(),
+          guard_direction=prob.sys.direction,
+          Df=nothing,
+          event_max_iters=100,
+          force_iters=false,
+          guard_derivative=nothing,
+          event_refinement_method::AbstractEventRefinement=FalsePosition())
+          where {S<:GeneralSystem, I, T}
 
-Solve a general hybrid system.
+
+The solver integrates the continuous dynamics until a guard crossing
+is detected. The event location is then refined, and the reset map
+is applied to obtain the post-event state.
 
 # Arguments
-## Required:
-- 'prob': The problem definition containing the system dynamics 'sys', initial state, and time span.
-- 'solver': The numerical integration method used for continous steps. Defaults to RK45().
+- `prob`: Problem containing the `GeneralSystem`, initial condition, and time span.
+- `solver`: ODE solver used for numerical integration. Defaults to `RK45()`.
+- `event_method`: Event locator used to detect and locate guard crossings. Defaults to `LinearHermite()`.
+- `dense_out`: If `true`, stores the derivative at each solution point in `sol.dx`. Defaults to `true`.
+- `dt_initial`: Initial time step size. Defaults to `1e-3`.
+- `dt_min`: Minimum allowable time step size. Defaults to `1e-6`.
+- `max_iter`: Maximum number of integration iterations. Defaults to `10^6`.
+- `tol`: Numerical tolerance used for integration and event detection. Defaults to `1e-6`.
+- `stepper`: Fixed-step ODE solver used internally by the event locator to refine the event state. Defaults to `RK4()`.
+- `guard_direction`: Direction of guard crossing to detect: `0` detects either direction, `1` detects rising crossings, and `-1` detects falling crossings. Defaults to `prob.sys.direction`.
+- `Df`: Optional Jacobian or derivative information supplied to the numerical solver. Defaults to `nothing`.
+- `event_max_iters`: Maximum number of iterations used by the event locator. Defaults to `100`.
+- `force_iters`: If `true`, forces the event locator to perform the specified number of iterations rather than stopping early based on its convergence criteria. Defaults to `false`.
+- `guard_derivative`: Optional function providing the derivative of the guard function, used by event refinement methods that require it. Defaults to `nothing`.
+- `event_refinement_method`: Root-finding method used to refine the event location. Defaults to `FalsePosition()`.
 
-## Optional:
-
-### Simulation and Step Controls:
-* 'dt_initial' (Float64, default '1e-3'): The starting time step for the continuous solver.
-* 'dt_min' (Float64, default '1e-6'): The absolute minimum allowable time step. If the solver tries to go below this, the simulation terminates.
-* 'max_iter' (Int, default '10^6'): The maximum number of continuous integration steps allowed before forcing a timeout.
-- 'tol' (Float64, default '1e-6'): The baseline numerical tolerance used across the solver. Acts as the foundational unit for multipliers below.
-
-### Event Handling
-
-* 'stepper' (AbstractODESolver. default 'RK4()'): The secondary ODE solver used internally by the event detection locator to pinpoint the impact state.
-* 'guard\\_direction' (Int, default 'default\\_guard\\_direction(prob.sys)'): 0 -> detects crossings in either direction. 1 -> detects increasing crossings. -1 -> detects decreating crossings.
-
+# Returns
+A `GeneralSol` containing the solution times, states, derivatives
+(if `dense_out=true`), and detected events.
 """
 function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                event_method::AbstractEventLocator=LinearHermite(),
@@ -226,6 +258,35 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
     return sol
 end
 
+"""
+    solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
+          dense_out=true,
+          dt_initial=1e-3,
+          dt_min=1e-6,
+          max_iter=10^6,
+          tol=1e-6,
+          Df=nothing)
+
+The solver integrates the continuous dynamics until each specified
+event time is reached. At each event time, the reset map is applied
+to the state before integration continues.
+
+Only event times inside the problem's time span are used.
+
+# Arguments
+- `prob`: Problem containing the `TimeTriggeredGeneral`, initial condition, and time span.
+- `solver`: ODE solver used for numerical integration. Defaults to `RK45()`.
+- `dense_out`: If `true`, stores the derivative at each solution point in `sol.dx`. Defaults to `true`.
+- `dt_initial`: Initial time step size. Defaults to `1e-3`.
+- `dt_min`: Minimum allowable time step size. Defaults to `1e-6`.
+- `max_iter`: Maximum number of integration iterations. Defaults to `10^6`.
+- `tol`: Numerical tolerance supplied to the numerical integration steps. Defaults to `1e-6`.
+- `Df`: Optional Jacobian or derivative information supplied to the numerical solver. Defaults to `nothing`.
+
+# Returns
+A `GeneralSol` containing the solution times, states, derivatives
+(if `dense_out=true`), and detected time-triggered events.
+"""
 function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                dense_out = true,
                dt_initial=1e-3, dt_min = 1e-6, max_iter = 10^6,

@@ -56,7 +56,19 @@ function StochasticSystem(f, g, h, Δ;
     )
 end
 
-# General solution struct for mechanical systems
+"""
+    StochasticSol
+
+Solution object for a stochastic hybrid system.
+
+# Fields
+- `t`: Time values corresponding to the stored solution states.
+- `x`: Stored stochastic states.
+- `dx`: Derivative storage. This field is initialized empty and is not populated by the stochastic solver.
+- `prob`: Original problem definition, retained for solution interpolation.
+- `event_times`: Times at which guard crossings were detected.
+- `event_indices`: Indices of the post-reset states in the stored solution.
+"""
 struct StochasticSol{T, X, DX, I, E, EI} <: AbstractHybridSolution
     t::T        # Time data
     x::X        # x, the state
@@ -115,15 +127,32 @@ end
 #####################################################
 
 """
-    solve(prob::prob{S, I, T},
-               solver::AbstractODESolver=EulerMaruyama();
-               dense_out = false,
-               dt_initial = 0.01, max_iter = 10^5, 
-               tol = 1e-6, guard_direction=default_guard_direction(prob.sys),
-               kwargs...) where {S<:StochasticSystem, I, T}
+    solve(prob::prob{S, I, T}, solver::AbstractODESolver=EulerMaruyama();
+        event_method=LinearQuadratic(), 
+        dense_out=false,
+        dt_initial=0.01, 
+        max_iter=10^5, 
+        tol=1e-6,
+        guard_direction=default_guard_direction(prob.sys), 
+        kwargs...)
 
-Solve a stochastic hybrid system.
+The stochastic dynamics are integrated using the supplied solver. After each integration step, the guard is evaluated at the beginning
+and end of the step. If a crossing is detected in the specified direction, the reset map is applied to the state at the end of that step.
 
+# Arguments
+- `prob`: Problem containing the stochastic system, initial state, and simulation time interval.
+- `solver`: Stochastic integration solver. Defaults to `EulerMaruyama()`.
+- `event_method`: Event locator argument. Stochastic systems currently require `LinearQuadratic()`. Defaults to `LinearQuadratic()`.
+- `dense_out`: Accepted for consistency with other system solvers. Defaults to `false`. It does not affect the stochastic solution.
+- `dt_initial`: Initial time-step size. Defaults to `0.01`.
+- `max_iter`: Maximum number of integration iterations. Defaults to `10^5`.
+- `tol`: Tolerance used to determine whether the initial state lies on the guard. Defaults to `1e-6`.
+- `guard_direction`: Direction of guard crossing to detect. Defaults to `default_guard_direction(prob.sys)`. Supported values are `0` (bidirectional), `-1` (falling), and `1` (rising).
+- `kwargs...`: Additional keyword arguments accepted by the function. They are currently not used by this implementation.
+
+# Returns
+A `StochasticSol` containing the computed time values, stochastic
+states, event times, and event indices.
 """
 function solve(prob::prob{S, I, T},
                solver::AbstractODESolver=EulerMaruyama();
