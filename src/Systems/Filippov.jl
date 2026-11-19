@@ -141,6 +141,7 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
     h_val = guard(sys, xₖ)
     is_on_guard = !isnothing(h_val) && abs(h_val) <= guard_tol
 
+    #=
     # When sliding or on guard, we mask the guard logic to prevent the ODE solvers from triggering events
     # due to minor numerical bugs around H(x) = 0
     if sliding_now || is_on_guard
@@ -152,6 +153,20 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
         Δt = Δt
     else
         # Otherwise, use standard system and solver. 
+        active_prob = prob
+        active_solver = solver
+    end
+    =#
+    
+    if sliding_now || is_on_guard
+        # Create a dummy system where the guard is effectively invisible.
+        dummy_sys = FilippovSystem(sys.F, sys.G, x -> 1.0, sys.N)
+        active_prob = HybridDynamics.prob(dummy_sys, prob.init, prob.tspan)
+
+        # Keep the requested solver.
+        active_solver = solver
+    else
+        # Otherwise use the original system and solver.
         active_prob = prob
         active_solver = solver
     end
