@@ -35,7 +35,7 @@ h_ball(x) = x[1]
 
 sysG = HD.GeneralSystem(f_ball, h_ball, Δ_ball; direction=-1)
 probG = HD.prob(sysG, [10.0, 0.0], (0.0, 15.0))
-solG = HD.solve(probG, tol=1e-7)
+solG = HD.solve(probG)
 ```
 ```@example gen
 times, states = HD.split_jumps(solG)

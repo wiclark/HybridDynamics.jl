@@ -27,13 +27,15 @@ function take_step(solver::AdaptiveRK, prob::AbstractHybridProblem, f, Df, xₖ,
         # Evaluate guards
         eventtrigger, t_root, _ = crossed_guard(event_method, sys, f, sol, xₖ, tₖ, x_predict, Δt; tol=tol, direction=guard_direction)
 
+        #=
         if eventtrigger
             if (t_root - tₖ) < (1e-4 * Δt)
                 eventtrigger = false
                 t_root = tₖ + Δt
             end
         end
-
+        =#
+        
         return x_predict, eventtrigger, t_root, Δt, dt_next
     else
         return x_predict, false, NaN, Δt, dt_next
