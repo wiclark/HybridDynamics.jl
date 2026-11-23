@@ -159,14 +159,11 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
     =#
     
     if sliding_now || is_on_guard
-        # Create a dummy system where the guard is effectively invisible.
         dummy_sys = FilippovSystem(sys.F, sys.G, x -> 1.0, sys.N)
         active_prob = HybridDynamics.prob(dummy_sys, prob.init, prob.tspan)
 
-        # Keep the requested solver.
         active_solver = solver
     else
-        # Otherwise use the original system and solver.
         active_prob = prob
         active_solver = solver
     end
@@ -224,8 +221,7 @@ function take_step_filippov!(solver, prob::prob{S,I,T}, Df, Δt, tol, sol;
     event_type = nothing
 
     if eventtrigger
-        t_star, x_star = locate_event(event_method, prob, stepper, vf, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper; event_max_iters=event_max_iters, force_iters=force_iters, guard_derivative=guard_derivative, event_refinement_method=event_refinement_method)
-
+        t_star, x_star = locate_event(event_method, prob, stepper, vf, Df, xₖ, tₖ, dt_used, guard(sys, xₖ), tol, sol, stepper; event_max_iters=event_max_iters, force_iters=force_iters, guard_derivative=guard_derivative, event_refinement_method=event_refinement_method) 
         _, mode_next = filippov_vector_field(sys, x_star; Ftol=boundary_layer, atol=guard_tol)
         event_type = Symbol(current_mode, :_to_, mode_next) # e.g. :f_to_g or :f_to_k
         
@@ -316,7 +312,7 @@ and sliding motion along the switching surface.
 - `dt_min`: Minimum allowable time step size. Defaults to `1e-6`.
 - `max_iter`: Maximum number of integration iterations. Defaults to `10^6`.
 - `tol`: Numerical tolerance used for integration and event detection. Defaults to `1e-6`.
-- `boundary_tol`: Scaling factor used to determine the boundary layer around the switching surface for sliding-mode detection. Defaults to `10`.
+- `boundary_tol`: Scaling factor used to determine the boundary layer around the switching surface for sliding-mode detection. Defaults to `1.0`.
 - `stepper`: Fixed-step ODE solver used when the solution is on the switching surface but not currently sliding. Defaults to `RK4()`.
 - `guard_direction`: Direction of guard crossing to detect: `0` detects either direction, `1` detects rising crossings, and `-1` detects falling crossings. Defaults to `0`.
 - `track_sliding`: Controls information when sliding motion begins or ends. Accepts `:none`, `:enter`, `:exit`, or `:both`. Defaults to `:none`.
@@ -335,7 +331,7 @@ function solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
                event_method::AbstractEventLocator=LinearHermite(),
                dense_out = true,
                dt_initial=0.01, dt_min = 1e-6, max_iter = 10^6,
-               tol = 1e-6, boundary_tol = 10,
+               tol = 1e-6, boundary_tol = 1.0,
                stepper::AbstractODESolver=RK4(),
                guard_direction = 0,
                track_sliding=:none,
