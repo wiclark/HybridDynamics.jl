@@ -1,5 +1,9 @@
 # Change Log
 
+## v1.1.5
+
+* Fixed numerous bugs and added some small optimizations. Mainly in regards to `Filippov` systems.
+
 ## v1.1.4
 
 ### New Feature
