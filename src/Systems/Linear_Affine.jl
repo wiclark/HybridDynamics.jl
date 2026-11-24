@@ -60,7 +60,19 @@ function AffineSystem(A::AbstractMatrix, b::AbstractVector, λ::AbstractVector, 
 end
 
 #SOLUTION STRUCTS AND HELPERS. 
-#Goal to provide standard date for simulation outputs. Keeps cont trajectories and discrete events organized. Currently affine and linear are the samem but kept separate to allow specific plotting later?
+"""
+    LinearAffineSol
+
+Solution type returned by `solve` for a `LinearSystem` or
+`AffineSystem`.
+
+# Fields
+- `t`: Vector of time values corresponding to the computed solution states.
+- `x`: Vector of solution states.
+- `dx`: Vector of derivatives evaluated at each solution state. Only populated when `dense_out=true`.
+- `event_times`: Times at which reset events occur.
+- `event_indices`: Indices into `t` and `x` corresponding to the post-reset states at each event.
+"""
 struct LinearAffineSol{T, DX} <: AbstractHybridSolution
     t::Vector{Float64}
     x::Vector{T}
@@ -69,7 +81,6 @@ struct LinearAffineSol{T, DX} <: AbstractHybridSolution
     event_indices::Vector{Int}
 end 
 
-#internal
 function LinearAffineSol(prob::prob{S, I, T}) where {S<:Union{LinearSystem, AffineSystem}, I, T}
     return LinearAffineSol([prob.tspan[1]], [prob.init], Vector{Vector{Float64}}(), Float64[], Int[])
 end
@@ -112,18 +123,28 @@ end
 """
     beating_and_blocking_sets(sys::Union{LinearSystem, AffineSystem})
 
-Compute the discrete sequence of constraint matrices and offset vectors defining the beating sets and the final blocking set either linear or affine systems.
+Compute the sequence of constraint matrices and offset vectors
+defining the beating sets and final blocking set of a linear or
+affine hybrid system.
 
-Returns:
+The beating sets describe the successive guard constraints generated
+by repeated application of the inverse reset map. The computation
+continues until the constraint matrix no longer increases in rank
+or the maximum number of iterations is reached.
 
-A unified "NamedTuple"
-- 'beating_sets::Vector{Matrix{Float64}}': Matrix constraints where rows represent normal vectors. Constraint matrix is the [λ^T ; λ^TC^{-1} ; ...]
-- 'beating_offsets::Vector{Vector{Float64}}': Vector offsets shifting the hyperplanes from the origin
-- 'blocking_set::Matrix{Float64}': Final blocking constraint matrix
-- 'blocking_offsets::Vector{Float64}': Final offset for blocking set
-- 'k_blocking::Int': Discrete iteration where the sequence achieved blocking.
+# Arguments
+- `sys`: A `LinearSystem` or `AffineSystem` whose beating and blocking sets are to be computed.
 
+# Returns
+A named tuple containing:
+- `beating_sets`: Vector of constraint matrices defining the successive beating sets. Each row represents a guard constraint.
+- `beating_offsets`: Vector of offset vectors corresponding to the successive beating sets.
+- `blocking_set`: Final constraint matrix defining the blocking set.
+- `blocking_offsets`: Offset vector corresponding to the blocking set.
+- `k_blocking`: Discrete iteration at which the constraint sequence reaches its final rank.
 
+For linear systems, the offset vectors are zero. For affine systems,
+the offsets account for the affine reset `κ`.
 """
 function beating_and_blocking_sets(sys::Union{LinearSystem, AffineSystem})
 
@@ -183,10 +204,18 @@ end
 """
     is_trivially_blocking(sys::Union{LinearSystem, AffineSystem})
 
-Determine if the system's blocking set collapses strictly to the origin (Σ_∞ = {0}).
-For both linear and affine systems, this requires the final constraint matrix to 
-have full rank and the final offset vector to be (basically) zero.
+Determine whether the blocking set of a linear or affine hybrid system collapses to the origin, that is, whether `Σ_∞ = {0}`.
 
+A system is considered trivially blocking when the final blocking constraint matrix has full rank and its corresponding offset vector
+is approximately zero.
+
+# Arguments
+- `sys`: A `LinearSystem` or `AffineSystem` to be analyzed.
+
+# Returns
+A Boolean indicating whether the system is trivially blocking.
+The offset vector is considered zero using an absolute tolerance
+of `1e-10`.
 """
 function is_trivially_blocking(sys::Union{LinearSystem, AffineSystem})
     analysis = beating_and_blocking_sets(sys)
@@ -311,47 +340,72 @@ function take_step_linear_affine!(solver, prob::prob{S, I, T}, f, Df, Δt, tol, 
 end
 
 """
-    solve(prob::prob{F, I, T}, solver::AbstractODESolver=RK45(); kwargs...) where {F<:Union{LinearSystem, AffineSystem}, I, T<:Tuple{Float64, Float64}}
+    solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK45();
+          event_method::AbstractEventLocator=LinearHermite(),
+          event_before_flow=false,
+          dense_out=true,
+          dt_initial=0.01,
+          dt_min=1e-6,
+          max_iter=10^6,
+          tol=1e-6,
+          zeno_ratio=0.90,
+          max_zeno_jumps=1,
+          stepper::AbstractODESolver=ModifiedTrap(),
+          max_buffer_size=5,
+          max_instant_jumps=5,
+          guard_direction=prob.sys.direction,
+          Df=(x,t) -> prob.sys.A,
+          event_max_iters=100,
+          force_iters=false,
+          guard_derivative=nothing,
+          event_refinement_method::AbstractEventRefinement=FalsePosition(),
+          min_zeno_history=2,
+          zeno_floor_mult=2.0,
+          zeno_time_threshold=1e-2,
+          zeno_reset_mult=100.0,
+          beating_tol_mult=1.0,
+          adaptive_tol_mult=100.0,
+          adaptive_dt_mult=10.0)
 
-# ARGUMENT KEY
+The solver integrates the continuous dynamics until a guard crossing
+is detected. The event location is then refined, and the appropriate
+reset map is applied to obtain the post-event state.
 
-## Required
+Additional pathology detection monitors repeated and increasingly
+frequent events to identify potential exeptional pathologies.
 
-* `prob`: The problem definition containing the system dynamics 'sys', initial state, and time span.
-* `solver`: The numerical integration method used for continous steps. Defaults to RK45().
+# Arguments
+- `prob`: Problem containing the `LinearSystem` or `AffineSystem`, initial condition, and time span.
+- `solver`: ODE solver used for numerical integration. Defaults to `RK45()`.
+- `event_method`: Event locator used to detect and locate guard crossings. Defaults to `LinearHermite()`.
+- `event_before_flow`: If `true`, checks for and applies a reset before taking a continuous integration step when the current state is already on the guard. If `false`, performs continuous integration before detecting events. Defaults to `false`.
+- `dense_out`: If `true`, stores the derivative at each solution point in `sol.dx`. Defaults to `true`.
+- `dt_initial`: Initial time step size. Defaults to `0.01`.
+- `dt_min`: Minimum allowable remaining time before the end of the simulation. If the remaining time falls below this threshold, the final time is snapped to `prob.tspan[2]`. Defaults to `1e-6`.
+- `max_iter`: Maximum number of integration iterations. Defaults to `10^6`.
+- `tol`: Numerical tolerance used for integration, event detection, and pathology classification. Defaults to `1e-6`.
+- `zeno_ratio`: Contraction ratio used to identify Zeno behavior from successive event intervals. Defaults to `0.90`.
+- `max_zeno_jumps`: Maximum number of detected Zeno contractions allowed before terminating the simulation. Defaults to `1`.
+- `stepper`: Secondary ODE solver used internally by the event locator to refine event locations. Defaults to `ModifiedTrap()`.
+- `max_buffer_size`: Maximum number of previous event intervals retained for evaluating Zeno behavior. Defaults to `5`.
+- `max_instant_jumps`: Maximum number of instantaneous jumps allowed before terminating the simulation. Defaults to `5`.
+- `guard_direction`: Direction of guard crossing to detect: `0` detects either direction, `1` detects rising crossings, and `-1` detects falling crossings. Defaults to `prob.sys.direction`.
+- `Df`: Optional Jacobian or derivative information supplied to the numerical solver. Defaults to the constant matrix `A` of the system, provided as `(x,t) -> prob.sys.A`.
+- `event_max_iters`: Maximum number of iterations used by the event locator. Defaults to `100`.
+- `force_iters`: If `true`, forces the event locator to perform the specified number of iterations rather than stopping early based on its convergence criteria. Defaults to `false`.
+- `guard_derivative`: Optional function providing the derivative of the guard function, used by event refinement methods that require it. Defaults to `nothing`.
+- `event_refinement_method`: Root-finding method used to refine the event location. Defaults to `FalsePosition()`.
+- `min_zeno_history`: Minimum number of recorded event intervals required before attempting to calculate a Zeno contraction ratio. Defaults to `2`.
+- `zeno_floor_mult`: Multiplier defining the numerical floor `tol * zeno_floor_mult` for event intervals. Defaults to `2.0`.
+- `zeno_time_threshold`: Maximum event interval duration eligible for Zeno contraction classification. Defaults to `1e-2`.
+- `zeno_reset_mult`: Multiplier defining the event interval `tol * zeno_reset_mult` above which the Zeno counter is reset. Defaults to `100.0`.
+- `beating_tol_mult`: Multiplier defining the time window `tol * beating_tol_mult` used to classify events as instantaneous jumps or beating. Defaults to `1.0`.
+- `adaptive_tol_mult`: Reserved multiplier for adaptive near-guard tolerance handling. Defaults to `100.0`.
+- `adaptive_dt_mult`: Reserved multiplier for adaptive time-step handling near the guard. Defaults to `10.0`.
 
-## Optional
-
-### Simulation and Step Controls:
-* `dt_initial` (Float64, default '0.01'): The starting time step for the continuous solver.
-* `dt_min` (Float64, default '1e-6'): The absolute minimum allowable time step. If the solver tries to go below this, the simulation terminates.
-* `max_iter` (Int, default '10^6'): The maximum number of continuous integration steps allowed before forcing a timeout.
-* `tol` (Float64, default '1e-6'): The baseline numerical tolerance used across the solver. Acts as the foundational unit for multipliers below.
-
-### Event Handling
-* `event_method` (AbstractEventLocator, default 'LinearLocator()'): The algorithm used to pinpoint the exact time and state of a guard crossing.
-* `stepper` (AbstractODESolver. default 'RK4()'): The secondary ODE solver used internally by the event detection locator to pinpoint the impact state.
-* `guard_direction` (Symbol, default 'default_guard_direction(prob.sys)'): Dictates which zero-crossing direction triggers an event (e.g., positive-to-negative).
-
-### Pathology Tuning
-* `zeno_ratio` (Float64, default '.90'): The ratio threshold for Zeno detection. If consecutive jump intervals contract by this ratio (or faster) it triggers a Zeno classification. 
-* `max_zeno_jumps` (Int, default '5'): The maximum number of consecutuve Zeno contractions allowed before terminating the simulation. 
-* `max_instant_jumps` (Int, default '5'): The maximum number of instantaneous jumps allowed before classifying the system as blocked and terminating. 
-* `max_buffer_size` (Int, default '5'): The number of previous jump intervals stored in memory to evaluate Zeno contractions.
-
-### Fine-Tuning Multipliers (scaled against 'tol')
-* `min_zeno_history` (Int, default '2'): The minimum number of recorded jumps required before the solver will attempt to calculate a Zeno contraction ratio. 
-* `zeno_floor_mult` (Float64, default '2.0'): Defines the numerical floor ('tol * zeno_floor_mult'). If a jump interval falls below this, it maintains a Zeno state to prevent
-machine precision drops into beating blocks.
-* `zeno_time_threshold` (Float64, default '1e-2'): The absolute maximum duration a jump interval can be while still being eligible for Zeno contraction classification.
-* `zeno_reset_mult` (Float64, default '100.0'): If a jump interval exceeds 'tol * zeno_reset_mult', the system is deemed safe and the Zeno counter is decremented.
-* `beating_tol_mult` (Float64, default '1.0'): Defines the time window ('tol * beating_tol_mult'). Jumps occurring within this window are classifed as instantaneous jumps or 'beating'
-* `adaptive_tol_mult` (Float64, defualt '100.0'): The boundary distance multiplier ('tol * adaptive_tol_mult'). When the system enters this distance from the guard, it shrinks step size to increase resolution.
-* `sliding_tol_mult` (Float64, default '10.0'): If the post-impact guard value is within 'tol * sliding_tol_mult', the solver enters sliding mode to suppress immediate erroneous events. This helps us avoid strange chattering.  
-
-### Added Functionality
-* `event_before_flow` This simply allows the user to specify the order the solver executes. Either detect events first then flow, or flow and then detect events. Per request of Dan/Liam. 
-
+# Returns
+A `LinearAffineSol` containing the solution times, states,
+derivatives (if `dense_out=true`), and detected events.
 """
 function solve(prob::prob{S, I, T},
                solver::AbstractODESolver=RK45();

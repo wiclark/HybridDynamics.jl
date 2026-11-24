@@ -51,7 +51,20 @@ function NonholonomicSystem(M, V;
     )
 end
 
-# General solution struct for nonholonomic systems
+"""
+    NonholonomicSol
+
+Solution object for a nonholonomic hybrid system.
+
+# Fields
+- `t`: Time values corresponding to the stored solution states.
+- `x`: Stored states, with each state consisting of position and momentum, `x = [q; p]`.
+- `dx`: Derivative values corresponding to the stored states. Only populated when `dense_out=true`.
+- `prob`: Original problem definition, retained for solution interpolation.
+- `event_times`: Times at which guard events occurred.
+- `event_indices`: Indices associated with event locations in the stored solution.
+- `zeno`: Times at which the solver detected entry into the post-Zeno or constrained region.
+"""
 struct NonholonomicSol{T, X, DX, I, E, EI, Z} <: AbstractHybridSolution
     t::T     # Time data
     x::X     # x = (q,p), the state and momentum
@@ -249,17 +262,49 @@ end
 
 
 """
-    solve(prob::prob{S, I, T},
-               solver::AbstractODESolver=RK4();
-               event_method::AbstractEventLocator=LinearHermite(),
-               dense_out = true,
-               dt_initial = 0.01, max_iter = 10^6, 
-               tol = 1e-6, ztol = 1e-3,
-               guard_direction = default_guard_direction(prob.sys),
-               kwargs...) where {S<:NonholonomicSystem, I, T}
+    solve(prob::prob{S, I, T}, solver::AbstractODESolver=RK4();
+        event_method=LinearHermite(),
+        dense_out=true,
+        dt_initial=0.01, 
+        max_iter=10^6, 
+        tol=1e-6, 
+        ztol=1e-3,
+        guard_direction=default_guard_direction(prob.sys),
+        Df=nothing, 
+        event_max_iters=100, 
+        force_iters=false,
+        guard_derivative=nothing,
+        event_refinement_method=FalsePosition(), 
+        kwargs...)
 
-Solve a nonholonomic hybrid system.
+The mechanical state consists of position and momentum, `x = [q; p]`, and evolves according to Hamiltonian dynamics subject to the
+nonholonomic constraints. When the trajectory reaches the guard, the reset map is applied to the state.
 
+The solver projects the initial momentum onto the nonholonomic constraint distribution if the initial conditions do not satisfy the constraints. 
+It also handles constrained motion and detects entry into the post-Zeno region by augmenting the constraint equations with the guard constraint.
+
+
+# Arguments
+- `prob`: Problem containing the nonholonomic system, initial state, and simulation time interval.
+- `solver`: ODE solver used to integrate the mechanical dynamics. Defaults to `RK4()`.
+- `event_method`: Event locator used to locate guard crossings. Defaults to `LinearHermite()`.
+- `dense_out`: Whether to store derivative values for solution interpolation. Defaults to `true`.
+- `dt_initial`: Initial time-step size. Defaults to `0.01`.
+- `max_iter`: Maximum number of integration iterations. Defaults to `10^6`.
+- `tol`: Tolerance used for checking the initial constraint conditions and detecting an initial state on the guard. Defaults to `1e-6`.
+- `ztol`: Tolerance used to detect and maintain the constrained or post-Zeno regime. Defaults to `1e-3`.
+- `guard_direction`: Direction of guard crossing to detect. Nonholonomic systems require `-1`; other values produce a warning. Defaults to `default_guard_direction(prob.sys)`.
+- `Df`: Jacobian of the vector field, when supplied. Defaults to `nothing`.
+- `event_max_iters`: Maximum number of iterations used by the event refinement procedure. Defaults to `100`.
+- `force_iters`: Whether to force the event refinement procedure to use the specified iteration count. Defaults to `false`.
+- `guard_derivative`: Optional derivative of the guard function used by event refinement. Defaults to `nothing`.
+- `event_refinement_method`: Root-refinement method used by the event locator. Defaults to `FalsePosition()`.
+- `kwargs...`: Additional keyword arguments accepted by the function. They are currently not used by this implementation.
+
+# Returns
+A `NonholonomicSol` containing the computed time values, mechanical
+states, derivatives (if `dense_out=true`), event times, event indices,
+and detected post-Zeno times.
 """
 function solve(prob::prob{S, I, T},
                solver::AbstractODESolver=RK4();
